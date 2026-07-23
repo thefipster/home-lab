@@ -1,0 +1,101 @@
+name: forgejo-lab
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres backing Forgejo. In your real setup this is the shared infra
+  # instance with a dedicated `forgejo` database; here it's dedicated for
+  # simplicity while prototyping.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forgejo
+      POSTGRES_PASSWORD: forgejo_dev_pw   # dev only — change for anything real
+      POSTGRES_DB: forgejo
+    volumes:
+      # Bind mount under /opt so the DB files are easy to find and back up.
+      - /opt/forgejo/postgres:/var/lib/postgresql/data
+    networks:
+      - forgejo-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forgejo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Forgejo itself. Actions is enabled via env. The registry is built in and
+  # served on the same port as the web UI (3000) — no separate service needed.
+  # ---------------------------------------------------------------------------
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:11
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      USER_UID: 1000
+      USER_GID: 1000
+      FORGEJO__database__DB_TYPE: postgres
+      FORGEJO__database__HOST: db:5432
+      FORGEJO__database__NAME: forgejo
+      FORGEJO__database__USER: forgejo
+      FORGEJO__database__PASSWD: forgejo_dev_pw
+      # Enable the Actions feature (needs a registered runner to do anything)
+      FORGEJO__actions__ENABLED: "true"
+      # ROOT_URL matters: it's what the registry/clone URLs advertise.
+      # On the server, set these to how you actually reach the box, e.g.
+      #   http://<server-ip>:3000/  or  http://forgejo.example.com:3000/
+      # (Still plain HTTP for now — TLS via a reverse proxy is a later TODO.)
+      FORGEJO__server__ROOT_URL: "http://localhost:3000/"
+      FORGEJO__server__DOMAIN: "localhost"
+    volumes:
+      # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
+      # this dir must be chown'd to 1000:1000 — see the README setup step.
+      - /opt/forgejo/forgejo:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"   # web UI + registry + API
+      - "222:22"      # git over SSH (host 222 -> container 22), optional
+    networks:
+      - forgejo-net
+
+  # ---------------------------------------------------------------------------
+  # The Forgejo Actions runner. It must be REGISTERED once (see README) before
+  # it will pick up jobs. Rather than a DinD daemon, it runs job containers on
+  # the HOST Docker daemon via the mounted socket — simpler, and builds reuse
+  # the host's image/layer cache.
+  #
+  # Trust tradeoff: mounting the socket gives jobs root-equivalent control of
+  # host Docker. That's acceptable here because CI only builds YOUR OWN mirrored
+  # repos (code you wrote). Do NOT use this pattern for untrusted / fork code —
+  # switch back to an isolated (DinD or ephemeral-VM) runner for that.
+  # ---------------------------------------------------------------------------
+  runner:
+    image: code.forgejo.org/forgejo/runner:6
+    restart: unless-stopped
+    depends_on:
+      - forgejo
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID in .env — run: getent group docker | cut -d: -f3}"
+    volumes:
+      - /opt/forgejo/runner:/data
+      # Run job containers on the host's Docker daemon (no DinD).
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - forgejo-net
+    # Only run the daemon once a .runner file exists (i.e. after registration).
+    command: >
+      sh -c '
+        while [ ! -f /data/.runner ]; do
+          echo "Waiting for runner registration (/data/.runner)...";
+          sleep 5;
+        done;
+        forgejo-runner daemon --config /data/config.yml
+      '
+
+networks:
+  forgejo-net:
+    driver: bridge

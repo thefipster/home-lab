@@ -1,0 +1,8 @@
+# Runtime data — never commit
+data/
+
+# Runner registration output
+.runner
+
+# Host-specific env (DOCKER_GID, etc.)
+.env

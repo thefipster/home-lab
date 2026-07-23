@@ -1,0 +1,31 @@
+# Forgejo runner configuration.
+# Copy this to /opt/forgejo/runner/config.yml before starting the daemon
+# (the README steps handle this).
+
+log:
+  level: info
+
+runner:
+  # How many jobs can run at once. 1 is fine for a prototype.
+  capacity: 1
+  # Labels advertised to Forgejo. `docker` is the one your workflow's
+  # `runs-on: docker` matches. The image after :// is the default job image.
+  labels:
+    - "docker:docker://code.forgejo.org/oci/node:20-bookworm"
+
+cache:
+  enabled: true
+
+container:
+  # Job containers run on the HOST Docker daemon (via the mounted socket) and
+  # attach to the compose network. They reach Forgejo via the host's published
+  # address (192.168.1.40:3000) — the same address the runner is registered
+  # with — so the registry push and the checkout use one consistent host.
+  network: forgejo-lab_forgejo-net
+  # Do NOT set privileged unless a job needs it.
+  options: ""
+  # "automount": auto-detect the docker host (via the socket mounted into the
+  # runner) AND mount that socket into every job container, so the `docker` CLI
+  # inside a job can reach the daemon. Without this, docker/login-action and
+  # build-push-action fail to connect even when the binary is present.
+  docker_host: "automount"
