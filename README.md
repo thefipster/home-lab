@@ -3,9 +3,8 @@
 Runs the chain **GitHub → Forgejo (pull mirror) → build → push to Forgejo
 registry** on an **Ubuntu Server 26.04** host.
 
-This was first prototyped on Docker Desktop; the only things that changed for the
-real server are **where files live** (see below). It's still plain HTTP for now —
-putting Forgejo behind a reverse proxy with real TLS is a later TODO.
+It's still plain HTTP for now — putting Forgejo behind a reverse proxy with real
+TLS is a later TODO.
 
 ## Layout on the server
 
@@ -16,16 +15,15 @@ Two locations, by design:
 | Compose project (this repo) | `~/forgejo` (your user's home) | You edit/redeploy it as your normal user; no root needed to run `docker compose`. |
 | Persistent data | `/opt/forgejo/{postgres,forgejo,runner}` | Stateful data you want to find, `chown`, and back up. Bind mounts, not named volumes. |
 
-## CI build daemon: host Docker socket (no DinD)
+## CI build daemon: host Docker socket
 
 The Actions runner runs job containers on the **host Docker daemon** via a
-mounted `/var/run/docker.sock`, rather than a Docker-in-Docker service. It's
-simpler and reuses the host's layer cache.
+mounted `/var/run/docker.sock`. It's simple and reuses the host's layer cache.
 
 The tradeoff: a job with the socket has **root-equivalent control of host
 Docker**. That's fine here because CI only ever builds *your own* mirrored repos.
-If you ever need to build untrusted / fork code, revert to an isolated runner
-(DinD or ephemeral VMs) instead.
+If you ever need to build untrusted / fork code, switch to an isolated runner
+instead.
 
 ## What's here
 
@@ -74,7 +72,7 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
    where the insecure-registry setting lives now. Edit `/etc/docker/daemon.json`:
 
    ```json
-   { "insecure-registries": ["192.168.1.40:3000"] }
+   { "insecure-registries": ["home-lab:3000"] }
    ```
 
    ```bash
@@ -126,7 +124,7 @@ can't be scripted because the token is generated in the UI.
      -v "/opt/forgejo/runner:/data" \
      --entrypoint forgejo-runner \
      runner register --no-interactive \
-       --instance http://192.168.1.40:3000 \
+       --instance http://home-lab:3000 \
        --token <PASTE_TOKEN_HERE> \
        --name lab-runner \
        --labels docker
@@ -134,14 +132,15 @@ can't be scripted because the token is generated in the UI.
 
    This creates `/opt/forgejo/runner/.runner`.
 
-   > **Why the host IP and not `forgejo:3000`?** The registered instance address
-   > is baked into the clone/registry URLs handed to CI jobs, and the `docker
-   > push` is performed by the host Docker daemon — which resolves hostnames via
-   > the host's DNS, **not** the Compose network, so the Compose name `forgejo`
-   > wouldn't resolve there. The host's published address (`192.168.1.40:3000`)
-   > works everywhere — runner, daemon, and job containers — which keeps checkout
-   > and registry pointing at one consistent host. (When you later add a reverse
-   > proxy + TLS, swap this for the real hostname.)
+   > **Why the host hostname and not `forgejo:3000`?** The registered instance
+   > address is baked into the clone/registry URLs handed to CI jobs, and the
+   > `docker push` is performed by the host Docker daemon — which resolves
+   > hostnames via the host's DNS, **not** the Compose network, so the Compose
+   > name `forgejo` wouldn't resolve there. The host's published address
+   > (`home-lab:3000`) works everywhere — runner, daemon, and job containers —
+   > which keeps checkout and registry pointing at one consistent host. (`home-lab`
+   > must resolve on the host and any machine that pulls, e.g. via LAN DNS or
+   > `/etc/hosts`.)
 
 3. Copy the runner config into place:
 
@@ -239,11 +238,10 @@ Everything is still plain HTTP, so any Docker daemon that pulls from this
 registry must be told to allow it. The **server's** daemon was already
 configured in [Part 0](#part-0--server-prerequisites) (it's the one that runs
 the CI push). To pull from **another host** (e.g. your workstation), add the
-registry to that machine's `/etc/docker/daemon.json` — or Docker Desktop's
-*Settings → Docker Engine* — and restart Docker:
+registry to that machine's `/etc/docker/daemon.json` and restart Docker:
 
 ```json
-{ "insecure-registries": ["192.168.1.40:3000"] }
+{ "insecure-registries": ["home-lab:3000"] }
 ```
 
 ```bash
