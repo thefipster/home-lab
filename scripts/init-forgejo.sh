@@ -41,7 +41,7 @@ fi
 
 echo "==> Creating persistent data tree under /opt/forgejo"
 run_root mkdir -p /opt/forgejo/postgres /opt/forgejo/forgejo /opt/forgejo/runner
-# Forgejo + runner run as UID/GID 1000 (see USER_UID/GID in docker-compose.yml)
+# Forgejo + runner run as UID/GID 1000 (see USER_UID/GID in compose.yaml)
 # and must own their data dirs. Postgres manages its own dir's ownership.
 run_root chown -R 1000:1000 /opt/forgejo/forgejo /opt/forgejo/runner
 
@@ -79,7 +79,17 @@ fi
 echo "==> Restarting Docker to apply the registry change"
 run_root systemctl restart docker
 
+# Expose the stack to Dockge by symlinking it into the stacks dir. Dockge lists
+# whatever lives under /opt/stacks/<name>/compose.yaml; the symlink keeps this
+# repo the single source of truth (edits + .env stay in infra/forgejo/), so
+# Dockge just drives start/stop/logs. Harmless if you don't run Dockge.
+STACKS_DIR="${STACKS_DIR:-/opt/stacks}"
+echo "==> Linking the Forgejo stack into ${STACKS_DIR}/forgejo (for Dockge)"
+run_root mkdir -p "${STACKS_DIR}"
+run_root ln -sfn "${REPO_ROOT}/infra/forgejo" "${STACKS_DIR}/forgejo"
+
 echo
-echo "Done. Next steps (see README):"
-echo "  - Part A: docker compose up -d db forgejo"
+echo "Done. Next steps (see docs/forgejo-setup.md):"
+echo "  - Part A: start the stack — via Dockge (stack 'forgejo'), or from"
+echo "            ${REPO_ROOT}/infra/forgejo run: docker compose up -d db forgejo"
 echo "  - Part B: register the runner (one-time, needs a token from the UI)"

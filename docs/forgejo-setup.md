@@ -30,7 +30,7 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
 
 ## What's here
 
-- `infra/forgejo/docker-compose.yml` — Forgejo + Postgres + an Actions runner
+- `infra/forgejo/compose.yaml` — Forgejo + Postgres + an Actions runner
 - `infra/forgejo/config.yml` — runner config (gets copied into place during setup)
 - `scripts/init-host.sh`, `scripts/init-forgejo.sh` — Part 0 setup automation
 - `Dockerfile` — multi-stage build for your Blazor app (goes in your repo)
@@ -40,16 +40,26 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
 
 ## Part 0 — Server prerequisites
 
-Two init scripts automate this section. Run them from the repo checked out in
-your home folder:
+Init scripts automate this section. Run them from the repo checked out in your
+home folder:
 
 ```bash
 cd ~ && git clone <this-repo> homelab && cd ~/homelab
 
 scripts/init-host.sh      # machine-level: install Docker + add you to the docker group
 # log out / back in (or: newgrp docker) so the group takes effect, then:
+scripts/init-dockge.sh    # optional: the Dockge management UI (:5001)
 scripts/init-forgejo.sh   # project-level: data tree, DOCKER_GID, insecure registry
 ```
+
+> **Does Dockge replace `init-forgejo.sh`?** No. Dockge only runs the compose
+> *lifecycle* (`up`/`down`/logs) for stacks already sitting in `/opt/stacks`. It
+> can't do the host-level prep this stack needs — creating and `chown`ing the
+> `/opt/forgejo` data dirs, computing `DOCKER_GID`, and allowing the insecure
+> registry on the host daemon — nor the one-time runner registration (Part B).
+> So `init-forgejo.sh` still runs; Dockge just takes over starting/stopping the
+> stack afterward. `init-forgejo.sh` symlinks the stack into `/opt/stacks` so it
+> appears in the UI.
 
 What each one does:
 
@@ -58,7 +68,11 @@ What each one does:
    `docker` group so you can run it without `sudo`. Log out / back in (or
    `newgrp docker`) afterward for the group to take effect. Safe to re-run.
 
-2. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
+2. **`init-dockge.sh` — management UI (optional).** Copies `infra/dockge/compose.yaml`
+   to `/opt/stacks/dockge/` and starts Dockge on `:5001`. Purely for convenience —
+   skip it if you prefer driving `docker compose` from the CLI.
+
+3. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
    steps that are specific to this compose stack:
 
    - Creates the data tree under `/opt/forgejo/{postgres,forgejo,runner}` and

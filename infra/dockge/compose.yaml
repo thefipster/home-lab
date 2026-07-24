@@ -5,11 +5,10 @@
 # and lets you start/stop/edit them from a browser. The Forgejo stack can live
 # there too so it's managed from the same UI (see "Managing Forgejo" below).
 #
-# Deploy (on the infra VM):
-#   sudo mkdir -p /opt/stacks /opt/dockge
-#   # put this file at /opt/dockge/compose.yaml, then:
-#   cd /opt/dockge && docker compose up -d
-#   # UI: http://<infra-ip>:5001   (or add dockge.homelab.lan → infra VM)
+# Deploy (on the infra VM): run scripts/init-dockge.sh — it copies this file to
+# /opt/stacks/dockge/compose.yaml and starts it. Dockge lives under the stacks
+# dir so it manages itself alongside the others.
+#   UI: http://<infra-ip>:5001   (or add dockge.homelab.lan → infra VM)
 
 services:
   dockge:
@@ -34,5 +33,6 @@ services:
 # --------------------------------------
 # Dockge only sees stacks under /opt/stacks. To manage Forgejo here, place its
 # compose at /opt/stacks/forgejo/compose.yaml (e.g. symlink or copy this repo's
-# infra/forgejo/docker-compose.yml there). Dockge will detect it and let you
-# drive it from the UI. Its data stays in the bind mounts under /opt/forgejo.
+# infra/forgejo/compose.yaml there — scripts/init-forgejo.sh symlinks it there
+# for you. Dockge then lists it and lets you drive it from the UI. Its data
+# stays in the bind mounts under /opt/forgejo.

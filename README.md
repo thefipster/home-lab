@@ -53,10 +53,11 @@ See [docs/wildcard-dns-udr.md](docs/wildcard-dns-udr.md) for the wildcard setup.
 │   └── wildcard-dns-udr.md       *.homelab.lan on the UniFi Dream Router
 ├── scripts/                     Setup automation (run on a VM)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
+│   ├── init-dockge.sh            Bring up the Dockge management UI
 │   └── init-forgejo.sh           Forgejo Part 0: data tree, DOCKER_GID, registry
 ├── infra/                       Stacks for the infra VM
 │   ├── forgejo/
-│   │   ├── docker-compose.yml    Forgejo + Postgres + Actions runner
+│   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
 │   │   └── config.yml            Runner config
 │   └── dockge/
 │       └── compose.yaml          Dockge (compose management UI)
