@@ -2,16 +2,16 @@
 #
 # init-forgejo.sh — project-specific setup for this compose stack.
 #
-# Assumes Docker is already installed (run ./init-host.sh first). It performs
-# the remaining, Forgejo-specific Part 0 steps from the README:
+# Assumes Docker is already installed (run scripts/init-host.sh first). It
+# performs the remaining, Forgejo-specific Part 0 steps (see the setup guide):
 #   1. Create the persistent data tree under /opt/forgejo and set ownership.
 #   2. Record the host docker group's numeric GID in .env (compose reads it).
 #   3. Allow the plain-HTTP Forgejo registry in the host Docker daemon.
 #
-# Run from anywhere; .env is written next to this script (the repo root).
-# Usage:
-#   ./init-forgejo.sh
-#   REGISTRY_ADDR=forgejo.example.com:3000 ./init-forgejo.sh   # override address
+# Run from anywhere; .env is written to infra/forgejo/ next to the compose file.
+# Usage (from the repo root):
+#   scripts/init-forgejo.sh
+#   REGISTRY_ADDR=forgejo.example.com:3000 scripts/init-forgejo.sh   # override addr
 
 set -euo pipefail
 
@@ -19,10 +19,12 @@ set -euo pipefail
 # Must match ROOT_URL / the runner registration. Override via env if needed.
 REGISTRY_ADDR="${REGISTRY_ADDR:-homelab:3000}"
 
-# Absolute path of the repo (this script's directory) so .env lands correctly
-# regardless of the caller's working directory.
+# Resolve paths from the script's own location so it works regardless of the
+# caller's working directory. .env must sit next to the compose file — Docker
+# Compose reads it from the project directory — i.e. infra/forgejo/.env.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/infra/forgejo/.env"
 
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then

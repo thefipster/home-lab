@@ -125,13 +125,18 @@ Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs ar
 stable — `infra → 192.168.1.41`, `apps → 192.168.1.42` (see
 [wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
 
-Install Docker in **each** VM (this repo's [init-host.sh](../init-host.sh) does
-exactly this for the infra VM). Coolify installs its own Docker via its script on
-the apps VM.
+Install Docker in **each** VM (this repo's [init-host.sh](../scripts/init-host.sh)
+does exactly this for the infra VM). Coolify installs its own Docker via its
+script on the apps VM.
 
 DNS records to add on the UDR once the VMs are up:
-- `git.homelab.lan` → `192.168.1.41` (Forgejo, specific record beats the wildcard)
-- `*.homelab.lan`   → `192.168.1.42` (Coolify routes the rest by Host header)
+- `homelab` → `192.168.1.41` (infra VM — Forgejo answers on `:3000`, matching its
+  current `ROOT_URL`; a bare host entry, not covered by the wildcard)
+- `*.homelab.lan` → `192.168.1.42` (apps VM — Coolify routes the rest by Host header)
+
+> Later, when Forgejo moves behind a TLS reverse proxy, give it a proper name like
+> `git.homelab.lan` → `.41` (a specific record beats the wildcard) and update its
+> `ROOT_URL`. Until then it's plain `homelab:3000`.
 
 ---
 
@@ -156,7 +161,7 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next steps
 
-1. **infra VM** — bring up the Forgejo stack: follow the main [README](../README.md)
-   (`init-host.sh` → `init-forgejo.sh` → compose), plus [Dockge](../dockge/) for a
-   management UI.
+1. **infra VM** — bring up the Forgejo stack: follow [forgejo-setup.md](forgejo-setup.md)
+   (`scripts/init-host.sh` → `scripts/init-forgejo.sh` → compose), plus
+   [Dockge](../infra/dockge/) for a management UI.
 2. **apps VM** — install Coolify (guide TBD) and point `*.homelab.lan` at it.

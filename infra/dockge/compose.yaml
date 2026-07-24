@@ -34,5 +34,5 @@ services:
 # --------------------------------------
 # Dockge only sees stacks under /opt/stacks. To manage Forgejo here, place its
 # compose at /opt/stacks/forgejo/compose.yaml (e.g. symlink or copy this repo's
-# docker-compose.yml there). Dockge will detect it and let you drive it from the
-# UI. Its persistent data stays in the bind mounts under /opt/forgejo regardless.
+# infra/forgejo/docker-compose.yml there). Dockge will detect it and let you
+# drive it from the UI. Its data stays in the bind mounts under /opt/forgejo.
