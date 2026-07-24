@@ -1,0 +1,6 @@
+# Normalize line endings so Windows checkouts don't churn the repo.
+# Text files are stored with LF in the repo; Git converts on checkout per-OS.
+* text=auto eol=lf
+
+# Shell scripts MUST stay LF even on Windows — CRLF breaks the shebang/parsing.
+*.sh text eol=lf
