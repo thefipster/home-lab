@@ -45,11 +45,12 @@ services:
       # Enable the Actions feature (needs a registered runner to do anything)
       FORGEJO__actions__ENABLED: "true"
       # ROOT_URL matters: it's what the registry/clone URLs advertise.
-      # On the server, set these to how you actually reach the box, e.g.
-      #   http://<server-ip>:3000/  or  http://forgejo.example.com:3000/
+      # Set these to how you actually reach the box. We use the hostname
+      # `homelab`, which must resolve to this host from the runner, the host
+      # Docker daemon, and job containers (via DNS or an /etc/hosts entry).
       # (Still plain HTTP for now — TLS via a reverse proxy is a later TODO.)
-      FORGEJO__server__ROOT_URL: "http://localhost:3000/"
-      FORGEJO__server__DOMAIN: "localhost"
+      FORGEJO__server__ROOT_URL: "http://homelab:3000/"
+      FORGEJO__server__DOMAIN: "homelab"
     volumes:
       # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
       # this dir must be chown'd to 1000:1000 — see the README setup step.

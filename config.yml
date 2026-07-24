@@ -19,9 +19,9 @@ cache:
 container:
   # Job containers run on the HOST Docker daemon (via the mounted socket) and
   # attach to the compose network. They reach Forgejo via the host's published
-  # address (192.168.1.40:3000) — the same address the runner is registered
+  # address (homelab:3000) — the same address the runner is registered
   # with — so the registry push and the checkout use one consistent host.
-  network: forgejo-lab_forgejo-net
+  network: ""
   # Do NOT set privileged unless a job needs it.
   options: ""
   # "automount": auto-detect the docker host (via the socket mounted into the

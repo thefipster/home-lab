@@ -38,51 +38,49 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
 
 ## Part 0 — Server prerequisites
 
-1. Install Docker Engine + the compose plugin (Docker's official apt repo), and
-   add yourself to the `docker` group so you can run it without `sudo`:
+Two init scripts automate this section. Run them from the repo checked out in
+your home folder:
 
-   ```bash
-   sudo usermod -aG docker "$USER"
-   # log out / back in (or: newgrp docker) for the group to take effect
-   ```
+```bash
+cd ~ && git clone <this-repo> forgejo && cd ~/forgejo
 
-2. Put this repo in your home folder and create the data tree under `/opt`:
+./init-host.sh       # machine-level: install Docker + add you to the docker group
+# log out / back in (or: newgrp docker) so the group takes effect, then:
+./init-forgejo.sh    # project-level: data tree, DOCKER_GID, insecure registry
+```
 
-   ```bash
-   cd ~ && git clone <this-repo> forgejo && cd ~/forgejo
+What each one does:
 
-   sudo mkdir -p /opt/forgejo/{postgres,forgejo,runner}
-   # Forgejo runs as UID/GID 1000 (see USER_UID/GID in the compose file) and
-   # must own its data dir. Postgres manages its own dir's ownership.
-   sudo chown -R 1000:1000 /opt/forgejo/forgejo /opt/forgejo/runner
-   ```
+1. **`init-host.sh` — general host setup.** Installs Docker Engine + the compose
+   plugin from Docker's official apt repo and adds the invoking user to the
+   `docker` group so you can run it without `sudo`. Log out / back in (or
+   `newgrp docker`) afterward for the group to take effect. Safe to re-run.
 
-   > If your login user isn't `1000:1000`, keep the compose `USER_UID`/`USER_GID`
-   > and the `chown` above in agreement — they must match.
+2. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
+   steps that are specific to this compose stack:
 
-3. Give the runner access to the host Docker socket. The runner image runs as
-   uid 1000, but `/var/run/docker.sock` is `root:docker` — so the runner must
-   join the host's `docker` group by its numeric GID. Record it in `.env` (the
-   compose file reads `${DOCKER_GID}` from there):
+   - Creates the data tree under `/opt/forgejo/{postgres,forgejo,runner}` and
+     `chown`s the Forgejo + runner dirs to `1000:1000`. (Forgejo runs as
+     UID/GID 1000 — see `USER_UID`/`USER_GID` in the compose file — and must own
+     its data dir; Postgres manages its own dir's ownership.)
 
-   ```bash
-   echo "DOCKER_GID=$(getent group docker | cut -d: -f3)" >> .env
-   ```
+     > If your login user isn't `1000:1000`, keep the compose `USER_UID`/`USER_GID`
+     > and this ownership in agreement — they must match.
 
-4. Tell the **host Docker daemon** to allow the plain-HTTP Forgejo registry.
-   Because CI builds run on the host daemon (via the mounted socket), this is
-   where the insecure-registry setting lives now. Edit `/etc/docker/daemon.json`:
+   - Records the host `docker` group's numeric GID in `.env`. The runner image
+     runs as uid 1000, but `/var/run/docker.sock` is `root:docker`, so the runner
+     joins the host `docker` group by GID; the compose file reads `${DOCKER_GID}`
+     from `.env`.
 
-   ```json
-   { "insecure-registries": ["192.168.1.40:3000"] }
-   ```
+   - Tells the **host Docker daemon** to allow the plain-HTTP Forgejo registry by
+     adding it to `/etc/docker/daemon.json` (`insecure-registries`) and restarting
+     Docker. CI builds run on the host daemon via the mounted socket, so the
+     setting lives there. The address defaults to `homelab:3000` — override
+     with `REGISTRY_ADDR=host:port ./init-forgejo.sh`, and use the same address as
+     `ROOT_URL` / the runner registration.
 
-   ```bash
-   sudo systemctl restart docker
-   ```
-
-   > Use the same address as `ROOT_URL` / the runner registration. When you add
-   > TLS via a reverse proxy later, this whole step goes away.
+     > When you add TLS via a reverse proxy later, this insecure-registry step
+     > goes away.
 
 ---
 
@@ -97,7 +95,7 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
    (We start everything EXCEPT the runner first — the runner waits for a
    registration file that doesn't exist yet.)
 
-2. Open `http://<server-ip>:3000` and complete the first-run screen.
+2. Open `http://homelab:3000` and complete the first-run screen.
    (Make sure port 3000 is reachable — open it in `ufw`/your cloud security
    group, or tunnel in with `ssh -L 3000:localhost:3000 user@server`.)
    The database settings are already injected via env, so just:
@@ -126,7 +124,7 @@ can't be scripted because the token is generated in the UI.
      -v "/opt/forgejo/runner:/data" \
      --entrypoint forgejo-runner \
      runner register --no-interactive \
-       --instance http://192.168.1.40:3000 \
+       --instance http://homelab:3000 \
        --token <PASTE_TOKEN_HERE> \
        --name lab-runner \
        --labels docker
@@ -134,14 +132,16 @@ can't be scripted because the token is generated in the UI.
 
    This creates `/opt/forgejo/runner/.runner`.
 
-   > **Why the host IP and not `forgejo:3000`?** The registered instance address
+   > **Why the host name and not `forgejo:3000`?** The registered instance address
    > is baked into the clone/registry URLs handed to CI jobs, and the `docker
    > push` is performed by the host Docker daemon — which resolves hostnames via
    > the host's DNS, **not** the Compose network, so the Compose name `forgejo`
-   > wouldn't resolve there. The host's published address (`192.168.1.40:3000`)
-   > works everywhere — runner, daemon, and job containers — which keeps checkout
-   > and registry pointing at one consistent host. (When you later add a reverse
-   > proxy + TLS, swap this for the real hostname.)
+   > wouldn't resolve there. The host's published address (`homelab:3000`) works
+   > everywhere — runner, daemon, and job containers — which keeps checkout and
+   > registry pointing at one consistent host. For that to hold, `homelab` must
+   > resolve to this host from all three (DNS, or an `/etc/hosts` entry on the
+   > host and in the job image). (When you later add a reverse proxy + TLS, swap
+   > this for the public hostname.)
 
 3. Copy the runner config into place:
 
@@ -225,12 +225,12 @@ to **GitHub**, let them mirror in:
 1. In Forgejo, go to your user/org → **Packages** tab. You should see a
    container package for the repo with `latest` and a SHA tag.
 2. Or pull it. On the server itself, `localhost:3000` works; from another host,
-   use `<server-ip>:3000`. Either way it's an insecure (HTTP) registry — see
-   note below.
+   use `homelab:3000` (assuming the name resolves there). Either way it's an
+   insecure (HTTP) registry — see note below.
 
    ```bash
-   docker login <server-ip>:3000    # use your Forgejo admin creds
-   docker pull <server-ip>:3000/<owner>/<repo>:latest
+   docker login homelab:3000    # use your Forgejo admin creds
+   docker pull homelab:3000/<owner>/<repo>:latest
    ```
 
 ### Insecure registry note
@@ -243,7 +243,7 @@ registry to that machine's `/etc/docker/daemon.json` — or Docker Desktop's
 *Settings → Docker Engine* — and restart Docker:
 
 ```json
-{ "insecure-registries": ["192.168.1.40:3000"] }
+{ "insecure-registries": ["homelab:3000"] }
 ```
 
 ```bash
