@@ -2,8 +2,11 @@
 
 Terminates TLS for every infra-VM service on real domain names —
 `git.thefipster.de` (Forgejo web + registry) and `dockge.thefipster.de` — with
-one **wildcard certificate** (`thefipster.de` + `*.thefipster.de`) from Let's
-Encrypt. See the [main README](../README.md) for how this fits into the wider
+one **wildcard certificate** (`*.thefipster.de`) from Let's Encrypt. The
+wildcard is deliberately the *only* name on the cert — no apex SAN: apex +
+wildcard would need two TXT records at the same `_acme-challenge` FQDN, and
+netcup's non-atomic zone updates race on that (one value clobbers the other
+and validation times out). Nothing is served at the bare apex anyway. See the [main README](../README.md) for how this fits into the wider
 homelab.
 
 ## How it works (and why nothing is exposed)
@@ -128,6 +131,13 @@ you're done.
   Raise `NETCUP_PROPAGATION_TIMEOUT` (e.g. `1800`) in the compose file and
   recreate. Also confirm the domain really is on netcup NS:
   `dig NS thefipster.de +short`.
+- **`did not return the expected TXT record` but the error lists *other*
+  values** — the resolver can see TXT records at `_acme-challenge`, just not
+  the expected one. This is the same-FQDN race: the cert requested more than
+  one name validated at the same challenge FQDN (e.g. apex + wildcard), and
+  netcup's non-atomic zone writes clobbered one value. Keep the cert
+  wildcard-only (the shipped config), or if you truly need the apex, expect
+  retries.
 - **Auth errors mentioning the netcup API** (`docker compose logs traefik | grep -i acme`) —
   customer number / API key / API password mismatch. Regenerate the API
   password in the CCP if unsure; it's only shown once.
@@ -141,8 +151,8 @@ you're done.
 ## Apps VM later (Coolify)
 
 Coolify bundles its own Traefik. When you install it on the apps VM, give that
-proxy the same three `NETCUP_*` variables and the same wildcard
-(`thefipster.de` + `*.thefipster.de`) DNS-01 configuration — it issues and
+proxy the same three `NETCUP_*` variables and the same wildcard-only
+(`*.thefipster.de`) DNS-01 configuration — it issues and
 renews its **own** cert, independent of the infra VM. The DNS side is already
 done: `*.thefipster.de` points at `.42`, so every app Coolify deploys gets a
 working HTTPS hostname with zero DNS work.
