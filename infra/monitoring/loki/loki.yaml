@@ -1,0 +1,58 @@
+# Loki — single-binary, filesystem-backed, 14-day retention.
+#
+# Sized for a one-person lab: no clustering, no object storage, in-memory ring.
+# Phase 1 ships NO log collection, so this starts empty on purpose — phase 2
+# (Alloy discovery.docker + loki.source.docker) is what fills it.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # Loki is very chatty at info; warn keeps its own logs from becoming the
+  # thing you have to go read logs about.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+
+limits_config:
+  # 14 days, per the roadmap. Retention is only ENFORCED because the compactor
+  # below has retention_enabled: true — this value alone deletes nothing.
+  retention_period: 336h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  # Required when retention_enabled is true on a filesystem backend.
+  delete_request_store: filesystem
+  retention_enabled: true
+  retention_delete_delay: 2h
+
+# Don't phone home from a private lab.
+analytics:
+  reporting_enabled: false

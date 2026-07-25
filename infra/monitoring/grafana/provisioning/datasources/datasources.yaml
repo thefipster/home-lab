@@ -1,0 +1,23 @@
+# Datasources as code. Provisioned datasources are READ-ONLY in the Grafana UI
+# by design — change them here and restart, not in the browser. This is what
+# makes a rebuilt Grafana come back already wired.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Match Alloy's scrape_interval so rate() windows behave sensibly.
+      timeInterval: 15s
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100

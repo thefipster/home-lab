@@ -17,7 +17,8 @@ Three tiers on one LAN (`192.168.1.0/24`) behind a UniFi Dream Router:
 
 - **Proxmox host** (`.40`) — hypervisor only, no Docker. A bad container can't
   take the box down.
-- **infra VM** (`.41`) — Traefik + Authentik + Forgejo + Dockge (the stacks in `infra/`).
+- **infra VM** (`.41`) — Traefik + Authentik + Forgejo + Dockge + monitoring
+  (the stacks in `infra/`).
 - **apps VM** (`.42`) — Coolify (self-hosted PaaS). Coolify owns its own Docker
   and manages apps through its UI, so `apps/` is intentionally near-empty — app
   definitions live in Coolify, not this repo.
@@ -47,9 +48,11 @@ and change the host + port. Do not add a TLS resolver or domain per router.
 Authentik (`infra/authentik`, `auth.thefipster.de`) is the identity provider.
 Services join it by **one of two patterns**, never both:
 
-- **OIDC** — for services that also authenticate non-browser traffic (Forgejo:
-  git push, `docker login`/registry, CI). Configured *in the app* as an OpenID
-  Connect source pointing at Authentik. Local login stays enabled (break-glass).
+- **OIDC** — for services that authenticate non-browser traffic (Forgejo: git
+  push, `docker login`/registry, CI) **or that simply have real SSO support**
+  (Grafana). Configured *in the app* as an OpenID Connect source pointing at
+  Authentik. Local login stays enabled (break-glass). Anything with native
+  OIDC uses it — forward-auth is only for UIs that have no SSO at all.
 - **Forward-auth** — for plain web UIs with no SSO support (Dockge, the Traefik
   dashboard). Per application: the shared `authentik@docker` `forwardauth`
   middleware plus a per-host `/outpost.goauthentik.io/` router — both declared as
@@ -77,6 +80,13 @@ the sequence is:
 5. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
+6. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
+   dir to the UID its image runs as (grafana 472, prometheus 65534, loki
+   10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
+   `GRAFANA_ADMIN_PASSWORD`, symlinks the stack. Comes after Authentik because
+   Grafana's OIDC needs a provider — but the stack starts fine before SSO is
+   wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
+   verified first.
 
 All init scripts are **idempotent-ish and re-runnable**, use `set -euo pipefail`,
 resolve paths from `$BASH_SOURCE` (run from anywhere), and share a `run_root()`
@@ -90,9 +100,13 @@ the single source of truth; Dockge only drives start/stop/logs.
 ## Conventions & gotchas that aren't obvious from a single file
 
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
-  `forgejo:11`) — a deliberate policy; keep it when bumping. One deliberate
-  exception: Authentik is pinned **major.minor** (`2025.6`) because its minor
-  releases ship breaking DB migrations.
+  `forgejo:11`) — a deliberate policy; keep it when bumping. Three exceptions,
+  each for a different reason: Authentik is pinned **major.minor** (`2025.6`)
+  because its minor releases ship breaking DB migrations; `grafana/grafana` is
+  pinned **major.minor** (`13.1`) because no bare-major tag is published;
+  `grafana/alloy` is pinned to a **full patch** (`v1.18.0`) because it
+  publishes only `vX.Y.Z` tags. Verify against the registry before assuming a
+  coarser tag exists.
 - **`.env` is gitignored**; every stack ships a `.env.example`. Secrets
   (netcup creds, `DOCKER_GID`) live only in the VM's `.env`. Compose uses
   `${VAR:?message}` to fail fast when one is missing — preserve those guards.
