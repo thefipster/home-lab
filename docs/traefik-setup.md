@@ -61,6 +61,13 @@ Then:
    docker compose logs -f traefik
    ```
 
+> **No cert request until a service needs one.** Traefik requests certificates
+> when a *router* demands TLS, and routers only exist once a labeled container
+> (Dockge, Forgejo) is running on the `proxy` network. With Traefik up alone,
+> the log stops after `Testing certificate renew...` and stays idle — that's
+> expected. Bring up the Dockge stack and the wildcard request fires
+> immediately.
+
 > **First issuance takes 10–15 minutes. This is normal.** netcup's nameservers
 > are slow to publish new records, and Let's Encrypt can't validate the
 > challenge until they have. The compose file sets
