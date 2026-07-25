@@ -6,7 +6,7 @@ log:
   level: info
 
 runner:
-  # How many jobs can run at once. 1 is fine for a prototype.
+  # How many jobs can run at once.
   capacity: 1
   # Labels advertised to Forgejo. `docker` is the one your workflow's
   # `runs-on: docker` matches. The image after :// is the default job image.

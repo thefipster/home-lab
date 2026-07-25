@@ -2,9 +2,7 @@ name: forgejo-lab
 
 services:
   # ---------------------------------------------------------------------------
-  # Postgres backing Forgejo. In your real setup this is the shared infra
-  # instance with a dedicated `forgejo` database; here it's dedicated for
-  # simplicity while prototyping.
+  # Postgres backing Forgejo, with a dedicated `forgejo` database.
   # ---------------------------------------------------------------------------
   db:
     image: postgres:16-alpine
@@ -69,14 +67,13 @@ services:
 
   # ---------------------------------------------------------------------------
   # The Forgejo Actions runner. It must be REGISTERED once (see README) before
-  # it will pick up jobs. Rather than a DinD daemon, it runs job containers on
-  # the HOST Docker daemon via the mounted socket — simpler, and builds reuse
-  # the host's image/layer cache.
+  # it will pick up jobs. It runs job containers on the HOST Docker daemon via
+  # the mounted socket — simple, and builds reuse the host's image/layer cache.
   #
   # Trust tradeoff: mounting the socket gives jobs root-equivalent control of
   # host Docker. That's acceptable here because CI only builds YOUR OWN mirrored
   # repos (code you wrote). Do NOT use this pattern for untrusted / fork code —
-  # switch back to an isolated (DinD or ephemeral-VM) runner for that.
+  # switch to an isolated runner for that.
   # ---------------------------------------------------------------------------
   runner:
     image: code.forgejo.org/forgejo/runner:6
@@ -87,7 +84,7 @@ services:
       - "${DOCKER_GID:?set DOCKER_GID in .env — run: getent group docker | cut -d: -f3}"
     volumes:
       - /opt/forgejo/runner:/data
-      # Run job containers on the host's Docker daemon (no DinD).
+      # Run job containers on the host's Docker daemon via the mounted socket.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - forgejo-net
