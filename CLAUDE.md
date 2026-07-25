@@ -102,9 +102,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   negative-cache the empty answer). The wildcard has **no apex SAN** on purpose
   (two TXT records at the same `_acme-challenge` FQDN race on netcup's
   non-atomic zone updates). Don't "simplify" these away.
-- **First TLS bring-up uses the Let's Encrypt staging CA** (commented in
-  `infra/traefik/compose.yaml`) to prove creds under loose rate limits, then
-  switches to production by deleting `acme.json` and force-recreating.
+- **First TLS bring-up goes straight to the production CA** — one challenge
+  total. The staging CA stays available as a commented `caserver` line in
+  `infra/traefik/compose.yaml` purely for debugging failed issuance under
+  loose rate limits; switching CAs either way means deleting `acme.json` and
+  force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
   the Forgejo runner, and Traefik (read-only there). Acceptable only because
   this is a single-tenant box building the owner's own code — never extend this

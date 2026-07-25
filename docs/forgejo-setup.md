@@ -59,7 +59,7 @@ scripts/init-forgejo.sh   # project-level: data tree, .env secrets
 
 > **Traefik and Authentik come first.** Forgejo's first-run screen is served at
 > `https://git.thefipster.de`, so the [Traefik stack](traefik-setup.md) —
-> including the staging→production certificate flow — must be up **before**
+> including the first certificate issuance — must be up **before**
 > you start Forgejo; there is no plain-HTTP phase. And
 > [Authentik](authentik-setup.md) must be up before Dockge, whose router is
 > gated by the `authentik@docker` forward-auth middleware and won't load
@@ -83,7 +83,7 @@ What each one does:
 2. **`init-traefik.sh` — reverse proxy + TLS.** Creates the shared `proxy`
    Docker network and the ACME data dir, seeds `infra/traefik/.env`, and links
    the stack into `/opt/stacks`. Filling in the netcup credentials and walking
-   the staging→production certificate flow is its own guide:
+   the first certificate issuance is its own guide:
    [traefik-setup.md](traefik-setup.md).
 
 3. **`init-authentik.sh` — SSO.** Creates the `/opt/authentik` data tree,
