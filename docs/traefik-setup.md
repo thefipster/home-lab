@@ -40,25 +40,9 @@ run its own proxy with its own wildcard cert later — see
 - The **local DNS records** from [wildcard-dns-udr.md](wildcard-dns-udr.md) are
   in place (the infra host records `git`/`dockge`/`auth`/`traefik` → `.41`,
   wildcard → `.42`).
-- The repo and Docker are on the infra VM — Step 0 below covers both.
-
-## Step 0 — Repo and Docker on the VM
-
-This is the first guide that runs anything on the infra VM, so start by
-getting this repo and Docker onto it (every later guide assumes both):
-
-```bash
-cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
-scripts/init-host.sh
-```
-
-Then **log out and back in** (or run `newgrp docker`) so your user picks up
-the `docker` group — until you do, every `docker ...` command below fails with
-"permission denied".
-
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
+- The repo and Docker are on the infra VM
+  ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm):
+  clone to `~/home-lab`, `init-host.sh`, re-login).
 
 ## Bring-up
 
