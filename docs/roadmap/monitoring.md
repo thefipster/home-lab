@@ -1,0 +1,74 @@
+# Roadmap: Monitoring (infra VM)
+
+Goal: one place to see **logs, metrics and (later) traces** for every stack on
+the infra VM and, later, the apps the apps VM runs — collected via
+OpenTelemetry-compatible plumbing wherever possible.
+
+## Decision: Grafana + Alloy + Loki (not Seq)
+
+**Seq** is a strong contender for one reason: it has the best structured-log
+UX in the .NET world, ingests OTLP, and is a single low-maintenance container.
+If the only goal were "read my Blazor app's Serilog output", Seq would win.
+
+It loses on the actual first requirement: **the logs that exist today are not
+.NET logs.** Traefik, Authentik, Forgejo, Dockge, Postgres and Redis are
+heterogeneous container stdout — and the same services all expose
+**Prometheus metrics endpoints** that Seq can't do anything with. The Grafana
+stack covers logs *and* metrics *and* dashboards/alerts with one agent:
+
+- **Alloy** (the collector) natively discovers Docker containers and tails
+  their stdout, has embedded `node_exporter`/`cadvisor` equivalents, scrapes
+  Prometheus endpoints, and is a full **OTLP receiver** — the future Blazor
+  apps just point their OTel SDK at it.
+- **Loki** stores logs cheaply (label-indexed, no full-text index to feed).
+- **Grafana** is the single pane, with native **OIDC** — so it joins Authentik
+  by the OIDC pattern (it has real SSO support; forward-auth is for UIs that
+  don't), matching the repo's SSO convention.
+- **Tempo** (traces) can be added later without changing anything else —
+  Alloy already speaks OTLP on both ends.
+
+Seq can still appear later as a dev-side luxury for app logs, but it would be
+a second system, not the foundation.
+
+## Architecture
+
+```
+containers stdout ─┐
+Prometheus /metrics ─┼─► Alloy (infra VM) ─► Loki (logs) ─┐
+OTLP from apps ─────┘                     ─► Prometheus ──┼─► Grafana (OIDC via Authentik)
+                                          ─► Tempo (later)┘
+```
+
+One `infra/monitoring` compose stack, same conventions as everything else:
+`proxy` network + labels for `grafana.thefipster.de`, data under
+`/opt/monitoring/{grafana,loki,prometheus}`, `.env.example` + init script,
+symlink into `/opt/stacks`. Later the apps VM gets its own Alloy shipping to
+this Loki/Prometheus over the LAN.
+
+## Phases
+
+1. **Stack skeleton** — Grafana + Loki + Prometheus + Alloy compose;
+   `grafana.thefipster.de` routed; Grafana wired to Authentik as an
+   OAuth2/OIDC app (guide part, like Forgejo's). Retention short: Loki 14d,
+   Prometheus 15d.
+2. **Logs** — Alloy `discovery.docker` + `loki.source.docker`: every container
+   on the VM, labeled by compose project/service. Verify Authentik's JSON
+   logs land parsed and Traefik access logs are on (`--accesslog=true`).
+3. **Metrics** — enable the endpoints that already exist: Traefik
+   (`--metrics.prometheus`), Authentik (`AUTHENTIK_LISTEN__METRICS`, :9300),
+   Forgejo (`FORGEJO__metrics__ENABLED`); host + per-container via Alloy's
+   embedded unix/cadvisor exporters.
+4. **OTLP intake** — Alloy listens on 4317/4318 for the future apps; add
+   Tempo when the first app actually emits traces, not before.
+5. **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik
+   dashboard (status codes, cert expiry), and 2–3 alerts that matter
+   (disk >80 %, service down, cert not renewed). More than that is noise in
+   a one-person lab.
+
+## Constraints & notes
+
+- **RAM:** the infra VM has 4 GB; the trimmed stack costs roughly 1–1.5 GB.
+  Either bump the VM to 6–8 GB (Proxmox makes this trivial) or keep retention
+  short. Decide at phase 1, not after OOM kills.
+- Non-goals: HA, long-term storage, Mimir/Thanos — this is a lab, snapshots
+  and short retention are the durability story.

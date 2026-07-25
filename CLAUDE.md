@@ -124,7 +124,9 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. `docs/superpowers/{specs,plans}/` holds dated design specs and
+"Build order" links them in sequence. `docs/roadmap/` holds forward-looking
+plans (monitoring, CI hardening) — decisions and phases for work not built
+yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
 implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.
 When the config and a guide disagree, the compose/script files are the source of
 truth — update the guide to match.
