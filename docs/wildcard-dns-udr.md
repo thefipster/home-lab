@@ -64,6 +64,8 @@ escape the apps-VM catch-all. Add these the same way (Create Entry → Host (A))
 |---|---|---|
 | `git.thefipster.de` | `192.168.1.41` | Forgejo web + registry (via Traefik) |
 | `dockge.thefipster.de` | `192.168.1.41` | Dockge UI (via Traefik) |
+| `auth.thefipster.de` | `192.168.1.41` | Authentik SSO portal (via Traefik) |
+| `traefik.thefipster.de` | `192.168.1.41` | Traefik dashboard (gated by Authentik) |
 | `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI (optional) |
 
 ## Verify at all three layers

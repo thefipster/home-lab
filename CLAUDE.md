@@ -17,7 +17,7 @@ Three tiers on one LAN (`192.168.1.0/24`) behind a UniFi Dream Router:
 
 - **Proxmox host** (`.40`) — hypervisor only, no Docker. A bad container can't
   take the box down.
-- **infra VM** (`.41`) — Traefik + Forgejo + Dockge (the stacks in `infra/`).
+- **infra VM** (`.41`) — Traefik + Authentik + Forgejo + Dockge (the stacks in `infra/`).
 - **apps VM** (`.42`) — Coolify (self-hosted PaaS). Coolify owns its own Docker
   and manages apps through its UI, so `apps/` is intentionally near-empty — app
   definitions live in Coolify, not this repo.
@@ -41,6 +41,21 @@ There are **no per-router TLS labels** — every `websecure` router is covered b
 the single wildcard cert configured in `infra/traefik/compose.yaml`. When adding a
 new proxied service, copy the label block from `infra/forgejo` or `infra/dockge`
 and change the host + port. Do not add a TLS resolver or domain per router.
+
+## The SSO convention (Authentik)
+
+Authentik (`infra/authentik`, `auth.thefipster.de`) is the identity provider.
+Services join it by **one of two patterns**, never both:
+
+- **OIDC** — for services that also authenticate non-browser traffic (Forgejo:
+  git push, `docker login`/registry, CI). Configured *in the app* as an OpenID
+  Connect source pointing at Authentik. Local login stays enabled (break-glass).
+- **Forward-auth** — for plain web UIs with no SSO support (Dockge, the Traefik
+  dashboard). Per application: the shared `authentik@docker` `forwardauth`
+  middleware plus a per-host `/outpost.goauthentik.io/` router — both declared as
+  labels on the Authentik `server` container — and a `...middlewares:
+  authentik@docker` label on the protected router. Authentik must be running or
+  Traefik reports the middleware undefined; comment the label to break-glass.
 
 ## Deploy model & ordering
 

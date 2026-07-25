@@ -133,6 +133,11 @@ What each one does:
    page (empty for now). If the Actions menu is missing, the
    `FORGEJO__actions__ENABLED` env didn't take — check the container logs.
 
+> **SSO (optional, recommended).** Once [Authentik](authentik-setup.md) is up,
+> add it as an OpenID Connect authentication source (Authentik guide, Part B) so
+> you can sign in with SSO. Keep **local login enabled** — it is the break-glass
+> path if Authentik is ever down.
+
 ---
 
 ## Part B — Register the runner (one-time, manual)

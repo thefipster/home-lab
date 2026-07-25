@@ -126,6 +126,13 @@ you're done.
       daemon config — no `insecure-registries` anywhere, on any host
 - [ ] `http://git.thefipster.de` redirects to `https://`
 
+## Dashboard
+
+The API/dashboard is enabled (`--api.dashboard=true`) and served at
+`https://traefik.thefipster.de`, but **only** because Authentik forward-auth
+gates it (`traefik.http.routers.dashboard.middlewares: authentik@docker`). Do
+not expose it without that middleware. See [authentik-setup.md](authentik-setup.md).
+
 ## Troubleshooting
 
 - **`did not return the expected TXT record` with NOTHING after the colon,
