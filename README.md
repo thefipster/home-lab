@@ -79,7 +79,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── .env.example          secret-key / DB / bootstrap template
 │   ├── forgejo/
 │   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
-│   │   └── config.yml            Runner config
+│   │   ├── .env.example          DB password / DOCKER_GID template
+│   │   ├── config.yml            Runner config
+│   │   └── build-and-push.yml    CI workflow template (goes in your app repo)
 │   └── dockge/
 │       └── compose.yaml          Dockge (compose management UI)
 └── apps/                        Apps VM (Coolify) — see apps/README.md

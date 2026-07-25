@@ -42,8 +42,9 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
 
 ## Part 0 — Server prerequisites
 
-Init scripts automate this section. Run them from the repo checked out in your
-home folder:
+Init scripts automate this section. If you followed the build order,
+everything up to `init-forgejo.sh` has already happened — the full sequence,
+run from the repo checked out in your home folder, is:
 
 ```bash
 cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
