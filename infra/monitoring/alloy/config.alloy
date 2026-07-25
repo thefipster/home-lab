@@ -1,0 +1,52 @@
+// Alloy — phase 1: prove the metrics path end to end.
+//
+// Alloy is the ONLY collector in this lab. Here it scrapes the monitoring
+// stack's own /metrics endpoints and remote-writes them into Prometheus.
+// Everything else — container logs (discovery.docker + loki.source.docker),
+// the other stacks' Prometheus endpoints, host/cadvisor metrics and OTLP
+// intake — is phases 2-5 of docs/roadmap/monitoring.md and is NOT here.
+//
+// Component health: http://127.0.0.1:12345 on the infra VM (loopback-bound,
+// no route, no cert). Tunnel with:
+//   ssh -L 12345:127.0.0.1:12345 <infra-vm>
+// This UI is where you debug collection — Prometheus's own Targets page stays
+// empty by design, because nothing scrapes from there.
+
+// Where everything goes. Prometheus runs with
+// --web.enable-remote-write-receiver, which is what makes this URL exist.
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}
+
+// Alloy's own internal metrics. Worth having first: it proves the collector
+// is alive and the write path works even if every other target is down.
+prometheus.exporter.self "alloy" {}
+
+// Give Alloy's self-metrics the same `service` label the static targets below
+// carry, so one query covers all four.
+discovery.relabel "alloy_self" {
+  targets = prometheus.exporter.self.alloy.targets
+
+  rule {
+    target_label = "service"
+    replacement  = "alloy"
+  }
+}
+
+// The rest of the stack. Every one of these endpoints is enabled by default —
+// phase 1 changes NO other stack to get them.
+prometheus.scrape "monitoring_stack" {
+  targets = concat(
+    discovery.relabel.alloy_self.output,
+    [
+      {"__address__" = "prometheus:9090", "service" = "prometheus"},
+      {"__address__" = "loki:3100", "service" = "loki"},
+      {"__address__" = "grafana:3000", "service" = "grafana"},
+    ],
+  )
+
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
