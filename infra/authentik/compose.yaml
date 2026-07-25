@@ -65,6 +65,8 @@ services:
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
       AUTHENTIK_REDIS__HOST: redis
       # akadmin is created on FIRST boot from these. Keep it as break-glass.
+      # Set on BOTH server and worker — the WORKER applies the blueprint that
+      # actually creates akadmin (see the worker's env below).
       AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
       AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-}
     volumes:
@@ -117,6 +119,11 @@ services:
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
       AUTHENTIK_REDIS__HOST: redis
+      # Blueprints — including the one that CREATES akadmin on first boot —
+      # are applied by the WORKER, not the server. Without these here, akadmin
+      # is created with NO usable password and every login fails.
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
+      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-}
     volumes:
       - /opt/authentik/media:/media
       - /opt/authentik/templates:/templates

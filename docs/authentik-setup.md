@@ -64,6 +64,18 @@ Open `https://auth.thefipster.de`, log in as **`akadmin`** with the bootstrap
 password. If the portal loads with a trusted cert, the stack and routing are
 good.
 
+> **"Invalid password" for akadmin on a first boot?** The bootstrap variables
+> must reach the **worker** — blueprints, including the one that creates
+> akadmin, are applied there, not on the server (the repo compose sets them on
+> both). Diagnose with
+> `docker compose exec worker printenv AUTHENTIK_BOOTSTRAP_PASSWORD` (must
+> print the value) and
+> `docker compose exec server ak shell -c "from authentik.core.models import User; print(User.objects.get(username='akadmin').has_usable_password())"`
+> — `False` means akadmin was created with **no** password. Recover without
+> reinstalling: set one at `https://auth.thefipster.de/if/flow/initial-setup/`,
+> or use the recovery key from the break-glass section. Fixing the env alone
+> does *not* help an existing install — bootstrap applies only at creation.
+
 > Deploy Authentik **before** the stacks that reference `authentik@docker`
 > (Dockge, Traefik dashboard) — that's why it sits between Traefik and Dockge
 > in the build order. If those routers load while Authentik is down, Traefik
