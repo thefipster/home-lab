@@ -41,6 +41,11 @@ services:
       # Nothing is served at the bare apex, so the wildcard alone suffices.
       - --entrypoints.websecure.http.tls.certresolver=letsencrypt
       - --entrypoints.websecure.http.tls.domains[0].main=*.thefipster.de
+      # --- API / dashboard -------------------------------------------------
+      # Exposed at traefik.thefipster.de, but ONLY because Authentik forward
+      # auth gates it (see the labels below). Never expose the dashboard raw.
+      - --api=true
+      - --api.dashboard=true
       # --- ACME (Let's Encrypt via netcup DNS-01) --------------------------
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?set ACME_EMAIL in .env}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
@@ -69,6 +74,15 @@ services:
       # Without a generous window, first issuance fails on propagation checks.
       NETCUP_PROPAGATION_TIMEOUT: "900"
       NETCUP_POLLING_INTERVAL: "30"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.dashboard.rule: Host(`traefik.thefipster.de`)
+      traefik.http.routers.dashboard.entrypoints: websecure
+      # api@internal is Traefik's built-in dashboard service.
+      traefik.http.routers.dashboard.service: api@internal
+      # Gate it behind Authentik. Middleware + this host's outpost router live
+      # on the Authentik `server` container. Break-glass: comment this line.
+      traefik.http.routers.dashboard.middlewares: authentik@docker
     ports:
       - "80:80"
       - "443:443"
