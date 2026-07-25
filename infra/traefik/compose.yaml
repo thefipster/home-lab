@@ -19,6 +19,11 @@ services:
     image: traefik:v3            # pin the major; same policy as other stacks
     restart: unless-stopped
     command:
+      # --- logging ---------------------------------------------------------
+      # Traefik defaults to ERROR, which is completely silent in normal
+      # operation — INFO makes startup and ACME issuance visible in the logs,
+      # which the setup guide relies on.
+      - --log.level=INFO
       # --- providers -------------------------------------------------------
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
