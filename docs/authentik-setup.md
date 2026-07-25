@@ -115,6 +115,17 @@ order, documented in [forgejo-setup.md, Part 0](forgejo-setup.md)); then
 `https://dockge.thefipster.de` behaves the same way. Each shows up as an
 independent app in **Admin → Events → Logs**.
 
+> **Two logins at Dockge, by design.** Forward-auth is only the *outer* gate:
+> Authentik decides who may reach Dockge at all, but Dockge has no SSO
+> support and can't consume Authentik identities — its **own local login
+> stays underneath**. On the very first visit you'll land on Dockge's setup
+> screen: create its local admin there (an account that exists only inside
+> Dockge) and use *that* to log in. Authentik usernames are never valid
+> credentials in Dockge's own form. And if you don't see an Authentik
+> redirect at all, you're already logged in from an earlier verify —
+> forward-auth passes a valid session through silently; the private-window
+> test is what makes the flow visible.
+
 ## Part B — Forgejo via OIDC
 
 Needs the Forgejo stack up and its admin account created
