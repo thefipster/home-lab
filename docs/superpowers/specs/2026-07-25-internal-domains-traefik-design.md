@@ -22,6 +22,10 @@ nothing is exposed to the internet and no inbound connectivity is required.
   (Forgejo + Dockge). The apps VM (Coolify, not yet installed) is documented
   but not built: Coolify's bundled Traefik gets the same netcup env vars later
   and issues its own wildcard cert independently.
+- **Greenfield — no migration.** The lab is being rebuilt from scratch, so
+  there is no coexistence or rollback plan. The repo's docs are rewritten as a
+  bare-server-to-current-state setup guide in which the domain scheme exists
+  from day one; `homelab` / `*.homelab.lan` never appear.
 - **Approach chosen: Traefik per VM, each doing its own DNS-01** (over a
   central proxy, which would couple the VMs; and over a standalone cert
   fetcher, which adds cert-distribution plumbing).
@@ -50,11 +54,10 @@ UniFi Dream Router — local DNS (split horizon)
 - **Public zone (netcup):** stays empty of A records. Traefik uses the netcup
   API only to create/delete temporary `_acme-challenge` TXT records during
   issuance. The LAN layout never appears in public DNS.
-- **Local zone (UDR):** the existing wildcard setup (`docs/wildcard-dns-udr.md`)
-  re-rooted from `*.homelab.lan` to `*.thefipster.de`. Wildcard points at the
-  apps VM so future Coolify apps need zero DNS work; exact-host overrides for
-  infra services point at `.41`. Old `homelab` / `*.homelab.lan` records are
-  deleted only after migration completes.
+- **Local zone (UDR):** the wildcard setup from `docs/wildcard-dns-udr.md`,
+  rooted at `*.thefipster.de`. Wildcard points at the apps VM so future
+  Coolify apps need zero DNS work; exact-host overrides for infra services
+  point at `.41`.
 
 ### Certificates
 
@@ -102,30 +105,64 @@ Managed via Dockge like the other stacks.
 
 Forgejo's container registry shares its web port, so
 `docker login git.thefipster.de` and `docker pull git.thefipster.de/<owner>/<repo>`
-work over trusted HTTPS on 443. Removed as a result:
+work over trusted HTTPS on 443. Because the build is greenfield, the
+insecure-registry machinery is **never introduced at all**:
 
-- the `insecure-registries` entry in daemon.json (docs + any provisioned config)
-- the `REGISTRY_ADDR=homelab:3000` default in `scripts/init-forgejo.sh`
-- Actions runner registration follows the new URL.
+- no `insecure-registries` entry in daemon.json (drop the step from
+  `scripts/init-forgejo.sh` and all docs)
+- no `REGISTRY_ADDR` plumbing in `scripts/init-forgejo.sh`
+- the Actions runner registers directly against `https://git.thefipster.de`.
 
-## Migration & verification
+## Build order (greenfield, bare server → current state)
 
-1. Bring up Traefik with the **staging** resolver; confirm a staging wildcard
-   cert lands in `acme.json`. This validates netcup credentials and
-   propagation timing — the slow, failure-prone part.
-2. Flip to the production resolver, delete `acme.json`, reissue.
-3. Update UDR DNS — new records alongside old, nothing breaks yet.
-4. Migrate Forgejo/Dockge stacks (labels, unpublish ports), `ROOT_URL`, runner
-   registration, and docs (`README.md`, `forgejo-setup.md`,
-   `wildcard-dns-udr.md` re-rooted to the new domain).
-5. Verify:
-   - `curl -I https://git.thefipster.de` serves a Let's Encrypt production cert
-   - `docker login git.thefipster.de` succeeds from a clean daemon (no
-     insecure-registries)
-   - the existing Actions runner still builds and pushes
-6. Remove old `homelab` DNS records and the daemon.json hack last.
+The repo's guides describe this sequence; the domain scheme exists from the
+first step:
 
-Rollback is cheap at every step because old names keep working until step 6.
+1. **Proxmox** (`proxmox-setup.md`) — host installed as `pve.thefipster.de`,
+   infra VM (.41) and apps VM (.42) created.
+2. **DNS** (`wildcard-dns-udr.md`) — DHCP reservations; exact host records
+   `git.thefipster.de` → .41, `dockge.thefipster.de` → .41; wildcard
+   `*.thefipster.de` → .42.
+3. **Host prep on infra VM** — `init-host.sh` (Docker), `init-dockge.sh`.
+4. **Traefik** (`traefik-setup.md`, new) — netcup API credentials into `.env`,
+   bring up with the **staging** resolver first to validate credentials and
+   propagation timing (the slow, failure-prone part), then flip to production,
+   delete `acme.json`, reissue.
+5. **Forgejo** (`forgejo-setup.md`) — stack comes up behind Traefik from the
+   start; first-run setup happens at `https://git.thefipster.de`. Runner
+   registers against that URL.
+6. **Coolify on the apps VM** — later; apps-ready notes only.
+
+### Verification
+
+- `curl -I https://git.thefipster.de` and `https://dockge.thefipster.de` serve
+  a Let's Encrypt production cert.
+- `docker login git.thefipster.de` succeeds from a clean daemon — no
+  insecure-registries anywhere.
+- An Actions build pushes to `git.thefipster.de/<owner>/<repo>` successfully.
+
+## Documentation changes (part of this work)
+
+Every guide is rewritten as if the domain scheme always existed — no
+"later/until then" hedging, no `homelab` names:
+
+- **`README.md`** — architecture diagram and Networking & DNS section
+  re-rooted; `infra/traefik/` added to the repo layout; Traefik inserted into
+  the build order; status table updated.
+- **`docs/proxmox-setup.md`** — installer FQDN `pve.thefipster.de`; Part 6 DNS
+  records become the final scheme above; the interim "Forgejo is plain
+  `homelab:3000` until the proxy exists" notes are removed.
+- **`docs/wildcard-dns-udr.md`** — re-rooted to `*.thefipster.de` → apps VM
+  with exact-host overrides for infra services; the speculative "TLS (the
+  other half, for later)" section is replaced by a pointer to
+  `traefik-setup.md`.
+- **`docs/forgejo-setup.md`** — reordered so Traefik precedes Forgejo
+  first-run; all `homelab:3000` / insecure-registry content deleted; runner
+  registration, registry usage, and verification use
+  `https://git.thefipster.de`.
+- **`docs/traefik-setup.md`** (new) — netcup API credential creation, `.env`
+  handling, staging→production first issuance, troubleshooting propagation
+  timeouts.
 
 ## Error handling
 
