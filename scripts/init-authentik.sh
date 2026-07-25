@@ -63,6 +63,9 @@ ensure_secret() {
 echo "==> Ensuring secrets are set in ${ENV_FILE}"
 ensure_secret AUTHENTIK_SECRET_KEY "$(openssl rand -base64 60 | tr -d '\n')"
 ensure_secret PG_PASS "$(openssl rand -base64 36 | tr -d '\n')"
+# Applied only when akadmin is FIRST created — generate a real value up front
+# so no placeholder can slip through the compose guard and become the password.
+ensure_secret AUTHENTIK_BOOTSTRAP_PASSWORD "$(openssl rand -base64 24 | tr -d '\n')"
 
 echo "==> Ensuring the shared 'proxy' network exists"
 docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
@@ -74,6 +77,7 @@ run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/authentik"
 
 echo
 echo "Done. Next (see docs/authentik-setup.md):"
-echo "  1. Review ${ENV_FILE} — set AUTHENTIK_BOOTSTRAP_PASSWORD."
+echo "  1. Read AUTHENTIK_BOOTSTRAP_PASSWORD from ${ENV_FILE} — it is the"
+echo "     initial akadmin password (applied only when akadmin is first created)."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://auth.thefipster.de as akadmin, then wire providers."

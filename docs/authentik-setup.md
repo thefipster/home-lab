@@ -38,9 +38,10 @@ cd ~/home-lab
 scripts/init-authentik.sh     # data tree, generates secrets in .env, symlinks for Dockge
 ```
 
-`init-authentik.sh` auto-generates `AUTHENTIK_SECRET_KEY` and `PG_PASS` into
-`infra/authentik/.env`. Open that file and set `AUTHENTIK_BOOTSTRAP_PASSWORD`
-(your initial `akadmin` password). Then:
+`init-authentik.sh` auto-generates `AUTHENTIK_SECRET_KEY`, `PG_PASS` and
+`AUTHENTIK_BOOTSTRAP_PASSWORD` into `infra/authentik/.env`. The bootstrap
+password is the initial `akadmin` login — it is applied **only when akadmin is
+first created**, so read it out of `.env` before first boot. Then:
 
 ```bash
 cd ~/home-lab/infra/authentik
@@ -139,7 +140,7 @@ Local username/password login still works.
 
 - **Forgejo** — local admin password still works if Authentik is down.
 - **Dockge / Traefik dashboard** — comment the `traefik.http.routers.*.middlewares: authentik@docker` label and `docker compose up -d` to bypass; drive Docker over SSH meanwhile. Dockge's own login remains underneath.
-- **Authentik itself** — `akadmin` is the recovery account; its password is `AUTHENTIK_BOOTSTRAP_PASSWORD` (first boot) or resettable via `docker compose run --rm server make-admin` per Authentik docs.
+- **Authentik itself** — `akadmin` is the recovery account. `AUTHENTIK_BOOTSTRAP_PASSWORD` is applied **only when akadmin is first created**; editing it later does nothing. To get back in: `docker compose exec server ak create_recovery_key 10 akadmin` prints a one-time login link — open it, then set a new password under the akadmin user settings.
 
 ## Teardown / backup
 
