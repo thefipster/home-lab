@@ -49,12 +49,12 @@ services:
       # Check propagation against public resolvers, not the UDR: the LAN's
       # split-horizon wildcard would confuse the lookup for our own domain.
       - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
-      # STAGING vs PRODUCTION — first bring-up uses the staging CA (untrusted
-      # certs, generous rate limits) to prove the netcup credentials and
-      # propagation timing. Once staging succeeds: comment the caserver line
-      # out, delete acme.json, and `docker compose up -d --force-recreate`.
-      # See docs/traefik-setup.md.
-      - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+      # STAGING vs PRODUCTION — production is the default (this is the lab's
+      # live config). On a FRESH machine, uncomment the staging caserver below
+      # for the first bring-up to prove the netcup credentials with generous
+      # rate limits; once it works, re-comment it, delete acme.json, and
+      # `docker compose up -d --force-recreate`. See docs/traefik-setup.md.
+      # - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
     environment:
       NETCUP_CUSTOMER_NUMBER: ${NETCUP_CUSTOMER_NUMBER:?set in .env}
       NETCUP_API_KEY: ${NETCUP_API_KEY:?set in .env}

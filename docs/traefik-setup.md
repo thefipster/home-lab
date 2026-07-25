@@ -81,10 +81,11 @@ Then:
 
 ## Staging → production
 
-The compose file ships pointing at Let's Encrypt's **staging** CA (the
-`acme.caserver` line). Staging certs are untrusted by browsers but have very
-generous rate limits — perfect for proving the netcup credentials and
-propagation timing without risk.
+The compose file ships pointing at **production** (the lab's live config),
+with the staging CA available as a commented-out `acme.caserver` line. On a
+fresh machine, **uncomment the staging line for the first bring-up**: staging
+certs are untrusted by browsers but have very generous rate limits — perfect
+for proving the netcup credentials and propagation timing without risk.
 
 **1. Verify the staging cert arrived.** In the logs, look for the certificate
 being obtained; then:
@@ -99,7 +100,7 @@ staging is untrusted) should return an HTTP status. You can also check the
 issuer: `openssl s_client -connect git.thefipster.de:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer`
 — it will say `(STAGING) Let's Encrypt`.
 
-**2. Switch to production.** Comment out the `caserver` line in
+**2. Switch to production.** Re-comment the `caserver` line in
 `infra/traefik/compose.yaml`, wipe the staging state, and recreate:
 
 ```bash
