@@ -87,7 +87,7 @@ propagation timing without risk.
 being obtained; then:
 
 ```bash
-docker compose exec traefik cat /letsencrypt/acme.json | grep -o '"main":"[^"]*"'
+docker compose exec traefik grep -o '"main": *"[^"]*"' /letsencrypt/acme.json
 curl -kIs https://git.thefipster.de | head -1
 ```
 
