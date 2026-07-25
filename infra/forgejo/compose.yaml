@@ -9,7 +9,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: forgejo
-      POSTGRES_PASSWORD: forgejo_dev_pw   # dev only — change for anything real
+      # Generated into .env by scripts/init-forgejo.sh. NOTE: Postgres keeps the
+      # password its data dir was FIRST initialized with — on an existing
+      # deployment .env must hold that value (or rotate it via ALTER USER).
+      POSTGRES_PASSWORD: ${FORGEJO_DB_PASSWORD:?set FORGEJO_DB_PASSWORD in .env — run scripts/init-forgejo.sh}
       POSTGRES_DB: forgejo
     volumes:
       # Bind mount under /opt so the DB files are easy to find and back up.
@@ -40,7 +43,7 @@ services:
       FORGEJO__database__HOST: db:5432
       FORGEJO__database__NAME: forgejo
       FORGEJO__database__USER: forgejo
-      FORGEJO__database__PASSWD: forgejo_dev_pw
+      FORGEJO__database__PASSWD: ${FORGEJO_DB_PASSWORD:?set FORGEJO_DB_PASSWORD in .env — run scripts/init-forgejo.sh}
       # Enable the Actions feature (needs a registered runner to do anything)
       FORGEJO__actions__ENABLED: "true"
       # ROOT_URL matters: it's what the registry/clone URLs advertise. Traefik

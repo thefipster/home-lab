@@ -5,7 +5,8 @@
 # Assumes Docker is already installed (run scripts/init-host.sh first). It
 # performs the remaining, Forgejo-specific Part 0 steps (see the setup guide):
 #   1. Create the persistent data tree under /opt/forgejo and set ownership.
-#   2. Record the host docker group's numeric GID in .env (compose reads it).
+#   2. Seed infra/forgejo/.env from .env.example; generate FORGEJO_DB_PASSWORD
+#      if still blank, and record the host docker group's numeric GID.
 #   3. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # The registry needs NO daemon configuration: Traefik serves it at
@@ -23,7 +24,8 @@ set -euo pipefail
 # Compose reads it from the project directory — i.e. infra/forgejo/.env.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_FILE="${REPO_ROOT}/infra/forgejo/.env"
+STACK_DIR="${REPO_ROOT}/infra/forgejo"
+ENV_FILE="${STACK_DIR}/.env"
 
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
@@ -43,6 +45,30 @@ run_root mkdir -p /opt/forgejo/postgres /opt/forgejo/forgejo /opt/forgejo/runner
 # Forgejo + runner run as UID/GID 1000 (see USER_UID/GID in compose.yaml)
 # and must own their data dirs. Postgres manages its own dir's ownership.
 run_root chown -R 1000:1000 /opt/forgejo/forgejo /opt/forgejo/runner
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "==> Seeding ${ENV_FILE} from .env.example"
+  cp "${STACK_DIR}/.env.example" "$ENV_FILE"
+fi
+
+# Fill a blank KEY= line with a generated secret. Idempotent: only rewrites a
+# line whose value is EMPTY, so re-runs never rotate an existing secret. Uses a
+# temp file for a portable in-place edit (same helper as init-authentik.sh).
+ensure_secret() {
+  local key="$1" value="$2"
+  if grep -q "^${key}=$" "$ENV_FILE"; then
+    grep -v "^${key}=" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+    echo "${key}=${value}" >> "${ENV_FILE}.tmp"
+    mv "${ENV_FILE}.tmp" "$ENV_FILE"
+    echo "==> Generated ${key} in .env"
+  fi
+}
+
+# Postgres keeps the password its data dir was FIRST initialized with, so this
+# only generates for fresh installs (blank value). On an existing deployment,
+# set FORGEJO_DB_PASSWORD in .env to the current password by hand.
+echo "==> Ensuring FORGEJO_DB_PASSWORD is set in ${ENV_FILE}"
+ensure_secret FORGEJO_DB_PASSWORD "$(openssl rand -base64 36 | tr -d '\n')"
 
 echo "==> Recording DOCKER_GID in ${ENV_FILE}"
 DOCKER_GID="$(getent group docker | cut -d: -f3)"
