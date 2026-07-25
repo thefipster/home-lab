@@ -47,10 +47,16 @@ this Loki/Prometheus over the LAN.
 
 ## Phases
 
-1. **Stack skeleton** — Grafana + Loki + Prometheus + Alloy compose;
+1. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+   **Stack skeleton** — Grafana + Loki + Prometheus + Alloy compose;
    `grafana.thefipster.de` routed; Grafana wired to Authentik as an
    OAuth2/OIDC app (guide part, like Forgejo's). Retention short: Loki 14d,
    Prometheus 15d.
+   Shipped with a dedicated Postgres for Grafana (one `pg_dump`-shaped backup
+   story across the lab, and no downtime to take one) and **without** the
+   `docker.sock` mount on Alloy — phase 2 adds the socket together with
+   `discovery.docker`, so the root-equivalent grant follows the capability
+   that needs it. Loki is intentionally empty until then.
 2. **Logs** — Alloy `discovery.docker` + `loki.source.docker`: every container
    on the VM, labeled by compose project/service. Verify Authentik's JSON
    logs land parsed and Traefik access logs are on (`--accesslog=true`).
@@ -67,8 +73,9 @@ this Loki/Prometheus over the LAN.
 
 ## Constraints & notes
 
-- **RAM:** the infra VM has 4 GB; the trimmed stack costs roughly 1–1.5 GB.
-  Either bump the VM to 6–8 GB (Proxmox makes this trivial) or keep retention
-  short. Decide at phase 1, not after OOM kills.
+- **RAM: resolved.** The infra VM was raised from 4 GB to **10 GB** before
+  phase 1, so the stack needs no memory limits and retention isn't constrained
+  by memory. Revisit only if phase 3's per-container metrics change the
+  picture.
 - Non-goals: HA, long-term storage, Mimir/Thanos — this is a lab, snapshots
   and short retention are the durability story.
