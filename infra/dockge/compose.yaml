@@ -8,14 +8,21 @@
 # Deploy (on the infra VM): run scripts/init-dockge.sh — it copies this file to
 # /opt/stacks/dockge/compose.yaml and starts it. Dockge lives under the stacks
 # dir so it manages itself alongside the others.
-#   UI: http://<infra-ip>:5001   (or add dockge.homelab.lan → infra VM)
+#   UI: https://dockge.thefipster.de   (via the Traefik stack — see infra/traefik)
+#   Until Traefik is up, the UI is unreachable — drive stacks from the CLI
+#   during bootstrap (or temporarily publish 5001 if you need to debug).
 
 services:
   dockge:
     image: louislam/dockge:1        # pin to the v1 major; avoids surprise bumps
     restart: unless-stopped
-    ports:
-      - "5001:5001"                 # web UI
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.dockge.rule: Host(`dockge.thefipster.de`)
+      traefik.http.routers.dockge.entrypoints: websecure
+      traefik.http.services.dockge.loadbalancer.server.port: "5001"
+    networks:
+      - proxy
     volumes:
       # Dockge drives Docker through the host socket. As with the Forgejo runner,
       # a mounted socket is root-equivalent control of this VM's Docker — fine on
@@ -28,6 +35,10 @@ services:
       - /opt/stacks:/opt/stacks
     environment:
       - DOCKGE_STACKS_DIR=/opt/stacks
+
+networks:
+  proxy:
+    external: true
 
 # Managing the Forgejo stack from Dockge
 # --------------------------------------

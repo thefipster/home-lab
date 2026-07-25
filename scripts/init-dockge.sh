@@ -34,6 +34,11 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+# Dockge's compose joins the external `proxy` network (Traefik routes to it),
+# so the network must exist even though Traefik comes up later.
+echo "==> Ensuring the shared 'proxy' network exists"
+docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
+
 # Dockge lives under the stacks dir so it manages itself too (it'll list a
 # "dockge" stack alongside the others). Its own data goes in ./data there.
 echo "==> Creating ${DOCKGE_DIR}"
@@ -46,6 +51,7 @@ echo "==> Starting Dockge"
 ( cd "${DOCKGE_DIR}" && docker compose up -d )
 
 echo
-echo "Done. Dockge is coming up at http://<this-vm>:5001"
+echo "Done. Dockge is coming up — reachable at https://dockge.thefipster.de"
+echo "once the Traefik stack is up (scripts/init-traefik.sh)."
 echo "It manages stacks under ${STACKS_DIR}. Link others in (e.g. Forgejo via"
 echo "scripts/init-forgejo.sh), then start/stop them from the UI."
