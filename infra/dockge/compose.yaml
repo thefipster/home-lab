@@ -21,6 +21,12 @@ services:
       traefik.http.routers.dockge.rule: Host(`dockge.thefipster.de`)
       traefik.http.routers.dockge.entrypoints: websecure
       traefik.http.services.dockge.loadbalancer.server.port: "5001"
+      # Gate the UI behind Authentik (per-app forward auth). The middleware and
+      # the /outpost.goauthentik.io/ router for this host live on the Authentik
+      # `server` container (infra/authentik). Authentik must be up first, else
+      # Traefik reports an undefined middleware and this router won't load.
+      # Break-glass: comment this line and `docker compose up -d` to bypass.
+      traefik.http.routers.dockge.middlewares: authentik@docker
     networks:
       - proxy
     volumes:
