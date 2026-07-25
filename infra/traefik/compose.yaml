@@ -46,9 +46,15 @@ services:
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
       - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=netcup
-      # Check propagation against public resolvers, not the UDR: the LAN's
-      # split-horizon wildcard would confuse the lookup for our own domain.
-      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+      # Check propagation against netcup's AUTHORITATIVE nameservers, not a
+      # recursive resolver. Public resolvers (1.1.1.1/8.8.8.8) negative-cache
+      # an "empty" answer if queried before netcup publishes the record, then
+      # keep serving that cached nothing past the timeout; the LAN's UDR would
+      # blackhole the TXT lookup via the split-horizon wildcard. Authoritative
+      # servers answer for the zone directly with no cache — this is also
+      # exactly what Let's Encrypt sees. (Verify yours match:
+      # `dig NS thefipster.de +short`.)
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=root-dns.netcup.net:53,second-dns.netcup.net:53,third-dns.netcup.net:53
       # STAGING vs PRODUCTION — production is the default (this is the lab's
       # live config). On a FRESH machine, uncomment the staging caserver below
       # for the first bring-up to prove the netcup credentials with generous

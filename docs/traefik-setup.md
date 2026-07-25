@@ -128,6 +128,15 @@ you're done.
 
 ## Troubleshooting
 
+- **`did not return the expected TXT record` with NOTHING after the colon,
+  while the record is visible in the CCP** — a resolver negative-cached an
+  empty answer from a too-early query (typical after a failed order deleted
+  and re-created the record). This is why the compose points the propagation
+  check at netcup's **authoritative** nameservers
+  (`root-dns`/`second-dns`/`third-dns.netcup.net`) instead of public
+  resolvers: authoritative servers don't cache, so the check clears the
+  moment netcup publishes. If you changed the `resolvers` line, change it
+  back.
 - **Propagation timeout in the logs** — netcup was even slower than 15 minutes.
   Raise `NETCUP_PROPAGATION_TIMEOUT` (e.g. `1800`) in the compose file and
   recreate. Also confirm the domain really is on netcup NS:
