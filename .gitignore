@@ -6,3 +6,5 @@ data/
 
 # Host-specific env (DOCKER_GID, etc.)
 .env
+
+.idea/

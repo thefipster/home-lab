@@ -24,7 +24,8 @@ services:
 
   # ---------------------------------------------------------------------------
   # Forgejo itself. Actions is enabled via env. The registry is built in and
-  # served on the same port as the web UI (3000) — no separate service needed.
+  # served on the same port as the web UI (3000) — no separate service needed —
+  # reached via Traefik at https://git.thefipster.de.
   # ---------------------------------------------------------------------------
   forgejo:
     image: codeberg.org/forgejo/forgejo:11
@@ -42,12 +43,11 @@ services:
       FORGEJO__database__PASSWD: forgejo_dev_pw
       # Enable the Actions feature (needs a registered runner to do anything)
       FORGEJO__actions__ENABLED: "true"
-      # ROOT_URL matters: it's what the registry/clone URLs advertise.
-      # On the server, set these to how you actually reach the box, e.g.
-      #   http://<server-ip>:3000/  or  http://forgejo.example.com:3000/
-      # (Still plain HTTP for now — TLS via a reverse proxy is a later TODO.)
-      FORGEJO__server__ROOT_URL: "http://localhost:3000/"
-      FORGEJO__server__DOMAIN: "localhost"
+      # ROOT_URL matters: it's what the registry/clone URLs advertise. Traefik
+      # terminates TLS for git.thefipster.de and forwards to this container's
+      # :3000 over the shared `proxy` network (see infra/traefik).
+      FORGEJO__server__ROOT_URL: "https://git.thefipster.de/"
+      FORGEJO__server__DOMAIN: "git.thefipster.de"
     volumes:
       # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
       # this dir must be chown'd to 1000:1000 — see the README setup step.
@@ -55,10 +55,15 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     ports:
-      - "3000:3000"   # web UI + registry + API
       - "222:22"      # git over SSH (host 222 -> container 22), optional
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.forgejo.rule: Host(`git.thefipster.de`)
+      traefik.http.routers.forgejo.entrypoints: websecure
+      traefik.http.services.forgejo.loadbalancer.server.port: "3000"
     networks:
       - forgejo-net
+      - proxy
 
   # ---------------------------------------------------------------------------
   # The Forgejo Actions runner. It must be REGISTERED once (see README) before
@@ -96,3 +101,5 @@ services:
 networks:
   forgejo-net:
     driver: bridge
+  proxy:
+    external: true

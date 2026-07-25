@@ -1,0 +1,49 @@
+# Dockge — a lightweight web UI for managing Docker Compose stacks.
+#
+# Runs on the INFRA VM (not the apps VM — that's Coolify's territory). Dockge
+# manages the compose stacks under DOCKGE_STACKS_DIR: it lists them, shows logs,
+# and lets you start/stop/edit them from a browser. The Forgejo stack can live
+# there too so it's managed from the same UI (see "Managing Forgejo" below).
+#
+# Deploy (on the infra VM): run scripts/init-dockge.sh — it copies this file to
+# /opt/stacks/dockge/compose.yaml and starts it. Dockge lives under the stacks
+# dir so it manages itself alongside the others.
+#   UI: https://dockge.thefipster.de   (via the Traefik stack — see infra/traefik)
+#   Until Traefik is up, the UI is unreachable — drive stacks from the CLI
+#   during bootstrap (or temporarily publish 5001 if you need to debug).
+
+services:
+  dockge:
+    image: louislam/dockge:1        # pin to the v1 major; avoids surprise bumps
+    restart: unless-stopped
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.dockge.rule: Host(`dockge.thefipster.de`)
+      traefik.http.routers.dockge.entrypoints: websecure
+      traefik.http.services.dockge.loadbalancer.server.port: "5001"
+    networks:
+      - proxy
+    volumes:
+      # Dockge drives Docker through the host socket. As with the Forgejo runner,
+      # a mounted socket is root-equivalent control of this VM's Docker — fine on
+      # a single-tenant infra box you own, not something to expose publicly.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Dockge's own state (config, saved stacks metadata).
+      - ./data:/app/data
+      # The managed stacks live here. This path must be IDENTICAL inside and out
+      # so the compose commands Dockge runs resolve the same files on the host.
+      - /opt/stacks:/opt/stacks
+    environment:
+      - DOCKGE_STACKS_DIR=/opt/stacks
+
+networks:
+  proxy:
+    external: true
+
+# Managing the Forgejo stack from Dockge
+# --------------------------------------
+# Dockge only sees stacks under /opt/stacks. To manage Forgejo here, place its
+# compose at /opt/stacks/forgejo/compose.yaml (e.g. symlink or copy this repo's
+# infra/forgejo/compose.yaml there — scripts/init-forgejo.sh symlinks it there
+# for you. Dockge then lists it and lets you drive it from the UI. Its data
+# stays in the bind mounts under /opt/forgejo.

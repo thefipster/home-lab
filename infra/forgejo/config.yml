@@ -18,10 +18,11 @@ cache:
 
 container:
   # Job containers run on the HOST Docker daemon (via the mounted socket) and
-  # attach to the compose network. They reach Forgejo via the host's published
-  # address (home-lab:3000) — the same address the runner is registered
-  # with — so the registry push and the checkout use one consistent host.
-  network: forgejo-lab_forgejo-net
+  # attach to the compose network. They reach Forgejo via its public address
+  # (https://git.thefipster.de, served by Traefik) — the same address the
+  # runner is registered with — so the registry push and the checkout use one
+  # consistent host.
+  network: ""
   # Do NOT set privileged unless a job needs it.
   options: ""
   # "automount": auto-detect the docker host (via the socket mounted into the
