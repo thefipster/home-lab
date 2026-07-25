@@ -116,6 +116,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Dockge management UI | ✅ deployed |
 | Forgejo CI + registry | ✅ deployed |
 | Monitoring (Grafana/Alloy/Loki) | 🔜 next — [roadmap](docs/roadmap/monitoring.md) |
+| CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
 | CI: container scanning + SBOM | ⬜ planned — [roadmap](docs/roadmap/ci-supply-chain.md) |

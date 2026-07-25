@@ -1,7 +1,9 @@
 # Roadmap: CI — tests, coverage & results
 
-Goal: a manual `workflow_dispatch` run **fails when tests fail**, and coverage
-is visible per run without leaving Forgejo.
+Goal: a pipeline run **fails when tests fail**, and coverage is visible per
+run without leaving Forgejo. (Runs are manual dispatch today; the same test
+job later gates the nightly and tag builds from
+[ci-triggers.md](ci-triggers.md).)
 
 Applies to the app repo's `.forgejo/workflows/build-and-push.yml` (template:
 `infra/forgejo/build-and-push.yml`).

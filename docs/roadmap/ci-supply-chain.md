@@ -34,16 +34,11 @@ with known-critical holes.
    arrives when something *verifies* signatures — park it until the apps VM
    deploys from the registry.
 
-## The re-scan gap (accepted)
+## The re-scan gap
 
-Scanning at build time misses CVEs published *after* the build, and this
-repo's CI is deliberately **manual-only** (mirrors fire no events). Options,
-in order of preference:
-
-1. Accept it: re-run the workflow (rebuild + rescan) when base images bump —
-   fits the lab's manual philosophy.
-2. A cron **on the VM** (not in Forgejo) running `trivy image` against
-   `git.thefipster.de/...:latest` and alerting via the monitoring stack.
-
-Don't add a Forgejo schedule trigger for this — it would silently break the
-"every run builds and pushes" contract of the manual-only design.
+Scanning at build time misses CVEs published *after* the build. Once the
+scheduled builds from [ci-triggers.md](ci-triggers.md) exist, the **nightly
+job is the natural vehicle**: rescan the published `latest` images each
+night and surface findings via the step summary (or an alert through the
+monitoring stack). Until then, re-running the workflow by hand rebuilds and
+rescans in one go.
