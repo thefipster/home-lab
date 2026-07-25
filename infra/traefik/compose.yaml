@@ -1,0 +1,71 @@
+# Traefik — reverse proxy + TLS termination for the INFRA VM.
+#
+# One wildcard certificate (thefipster.de + *.thefipster.de) from Let's
+# Encrypt via the DNS-01 challenge against the netcup DNS API. Nothing is
+# exposed to the internet: DNS-01 needs no inbound connectivity, and the
+# public zone never holds A records for the lab (see docs/traefik-setup.md).
+#
+# Routing is label-based: stacks join the external `proxy` network and add
+# traefik.* labels (see infra/forgejo & infra/dockge). Port 80 only redirects
+# to HTTPS.
+#
+# Deploy (on the infra VM): scripts/init-traefik.sh, then fill in .env and
+# `docker compose up -d` (or start it from Dockge).
+
+name: traefik
+
+services:
+  traefik:
+    image: traefik:v3            # pin the major; same policy as other stacks
+    restart: unless-stopped
+    command:
+      # --- providers -------------------------------------------------------
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      # --- entrypoints -----------------------------------------------------
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      # Every websecure router gets TLS from the letsencrypt resolver and is
+      # covered by the one wildcard cert below — no per-router TLS labels.
+      - --entrypoints.websecure.http.tls.certresolver=letsencrypt
+      - --entrypoints.websecure.http.tls.domains[0].main=thefipster.de
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.thefipster.de
+      # --- ACME (Let's Encrypt via netcup DNS-01) --------------------------
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?set ACME_EMAIL in .env}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=netcup
+      # Check propagation against public resolvers, not the UDR: the LAN's
+      # split-horizon wildcard would confuse the lookup for our own domain.
+      - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+      # STAGING vs PRODUCTION — first bring-up uses the staging CA (untrusted
+      # certs, generous rate limits) to prove the netcup credentials and
+      # propagation timing. Once staging succeeds: comment the caserver line
+      # out, delete acme.json, and `docker compose up -d --force-recreate`.
+      # See docs/traefik-setup.md.
+      - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+    environment:
+      NETCUP_CUSTOMER_NUMBER: ${NETCUP_CUSTOMER_NUMBER:?set in .env}
+      NETCUP_API_KEY: ${NETCUP_API_KEY:?set in .env}
+      NETCUP_API_PASSWORD: ${NETCUP_API_PASSWORD:?set in .env}
+      # netcup's nameservers publish TXT records slowly (often ~10 min).
+      # Without a generous window, first issuance fails on propagation checks.
+      NETCUP_PROPAGATION_TIMEOUT: "900"
+      NETCUP_POLLING_INTERVAL: "30"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Read-only socket: Traefik only watches containers/labels.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # acme.json (account key + certs) lives here — survives recreation.
+      - /opt/traefik/letsencrypt:/letsencrypt
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
