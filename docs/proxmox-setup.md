@@ -3,7 +3,7 @@
 Turns the bare server into a hypervisor running two VMs:
 
 ```
-Proxmox VE  (pve.homelab.lan · .40)   ← this guide
+Proxmox VE  (pve.thefipster.de · .40)   ← this guide
  ├─ VM: infra  (.41)  → Forgejo stack + Dockge
  └─ VM: apps   (.42)  → Coolify + your apps
 ```
@@ -41,10 +41,10 @@ Boot the server from the USB stick and pick **Install Proxmox VE (graphical)**.
 3. Country / timezone / keyboard.
 4. **root password** + an admin **email**.
 5. **Management network**:
-   - **Hostname (FQDN):** `pve.homelab.lan`
+   - **Hostname (FQDN):** `pve.thefipster.de`
    - **IP (CIDR):** `192.168.1.40/24`  ← static, this is the host's own address
    - **Gateway:** your router, e.g. `192.168.1.1`
-   - **DNS:** your router (`192.168.1.1`) so `*.homelab.lan` resolves
+   - **DNS:** your router (`192.168.1.1`) so `*.thefipster.de` resolves
 6. Install, then **reboot and remove the USB**.
 
 The installer auto-creates a Linux bridge **`vmbr0`** on the physical NIC. VMs
@@ -129,14 +129,12 @@ Install Docker in **each** VM (this repo's [init-host.sh](../scripts/init-host.s
 does exactly this for the infra VM). Coolify installs its own Docker via its
 script on the apps VM.
 
-DNS records to add on the UDR once the VMs are up:
-- `homelab` → `192.168.1.41` (infra VM — Forgejo answers on `:3000`, matching its
-  current `ROOT_URL`; a bare host entry, not covered by the wildcard)
-- `*.homelab.lan` → `192.168.1.42` (apps VM — Coolify routes the rest by Host header)
-
-> Later, when Forgejo moves behind a TLS reverse proxy, give it a proper name like
-> `git.homelab.lan` → `.41` (a specific record beats the wildcard) and update its
-> `ROOT_URL`. Until then it's plain `homelab:3000`.
+DNS records to add on the UDR once the VMs are up (details in
+[wildcard-dns-udr.md](wildcard-dns-udr.md)):
+- `git.thefipster.de` → `192.168.1.41` (infra VM — Forgejo behind Traefik)
+- `dockge.thefipster.de` → `192.168.1.41` (infra VM — Dockge behind Traefik)
+- `*.thefipster.de` → `192.168.1.42` (apps VM — Coolify routes by Host header)
+- `pve.thefipster.de` → `192.168.1.40` (optional — the Proxmox web UI)
 
 ---
 
@@ -161,7 +159,8 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next steps
 
-1. **infra VM** — bring up the Forgejo stack: follow [forgejo-setup.md](forgejo-setup.md)
-   (`scripts/init-host.sh` → `scripts/init-forgejo.sh` → compose), plus
-   [Dockge](../infra/dockge/) for a management UI.
-2. **apps VM** — install Coolify (guide TBD) and point `*.homelab.lan` at it.
+1. **infra VM** — `scripts/init-host.sh`, then [Dockge](../infra/dockge/) for a
+   management UI, then **Traefik** ([traefik-setup.md](traefik-setup.md)) for
+   TLS + routing, then the Forgejo stack ([forgejo-setup.md](forgejo-setup.md)).
+2. **apps VM** — install Coolify (guide TBD); `*.thefipster.de` already points
+   at it.
