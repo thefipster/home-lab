@@ -25,6 +25,13 @@ the existing wildcard TLS — nothing new is exposed to the internet.
   - **Dockge + Traefik dashboard → forward-auth.** Neither has any SSO support.
     Authentik's embedded outpost exposes a forward-auth endpoint; a Traefik
     middleware (added as labels, like the existing routing labels) gates them.
+- **Forward-auth is per application, not domain-level.** Each protected host
+  gets its own Authentik Application and access-policy binding, so services can
+  be authorized independently and the session cookie is scoped per host. The
+  cost is a little more config per service (an Application plus a per-host
+  outpost-path router); accepted for the granularity and to keep the door open
+  to multi-user access later. Authentik still keeps one SSO session, so this
+  does **not** mean re-entering credentials per app — hops stay silent.
 - **Break-glass: keep a local admin fallback.** This is a single-node homelab —
   an Authentik outage must not lock the owner out. Forgejo keeps local login
   enabled; forward-auth only guards the browser route and can be bypassed by
@@ -69,11 +76,16 @@ convention this work introduces.
    Forgejo adds an OpenID Connect authentication source pointing at it. Real
    Forgejo accounts are created/linked, so git, registry, and API auth all keep
    working through Forgejo's own tokens.
-2. **Forward-auth (Dockge, Traefik dashboard).** A single domain-level Proxy
-   Provider (forward-auth mode) covering `*.thefipster.de`, assigned to the
-   embedded outpost. One Traefik `forwardauth` middleware references it; each
-   protected router adds the middleware label. One shared session cookie across
-   the lab; adding SSO to any future infra UI is one extra label.
+2. **Forward-auth (Dockge, Traefik dashboard).** One Proxy Provider +
+   Application **per protected host** (forward-auth "single application" mode),
+   all served by the one embedded outpost. Each Application carries its own
+   access-policy binding, so services are authorized independently and the
+   session cookie is scoped per host. A shared Traefik `forwardauth` middleware
+   points at the outpost; per host, the service adds the middleware label **and**
+   a router that sends that host's `/outpost.goauthentik.io/` path to the outpost
+   (required so the auth handshake/callback runs on the app's own domain).
+   Adding SSO to a new infra UI is: one Application in Authentik + the middleware
+   label + the outpost-path router.
 
 ## Components
 
@@ -114,14 +126,22 @@ comments.
 identical pattern to Forgejo/Dockge, covered by the one wildcard cert, no
 per-router TLS labels.
 
-**Forward-auth middleware.** Defined **once** as Traefik labels on the Authentik
-`server` container:
+**Forward-auth wiring.** Two pieces, both defined as Traefik labels on the
+Authentik `server` container so the app stacks stay clean:
 
-- `forwardauth` address → `http://<server>:9000/outpost.goauthentik.io/auth/traefik`
-- `trustForwardHeader=true`
-- `authResponseHeaders=X-authentik-username,X-authentik-groups,X-authentik-email,X-authentik-name,X-authentik-uid`
+- **A shared `forwardauth` middleware** (`authentik@docker`):
+  - address → `http://<server>:9000/outpost.goauthentik.io/auth/traefik`
+  - `trustForwardHeader=true`
+  - `authResponseHeaders=X-authentik-username,X-authentik-groups,X-authentik-email,X-authentik-name,X-authentik-uid`
+- **One outpost-path router per protected host** — e.g.
+  ``Host(`dockge.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)`` →
+  the `server` service (port `9000`), `websecure`. Single-application forward
+  auth runs its handshake on each app's own host, so every protected host needs
+  this router; without it the post-login callback 404s.
 
-Protected routers reference it by adding `...middlewares=authentik@docker`.
+A protected router opts in by adding `...middlewares=authentik@docker`. Because
+Authentik selects the right Application by the forwarded host, the middleware
+definition is shared while authorization stays per app.
 
 ### `.env` (gitignored) / `.env.example` (committed)
 
@@ -153,12 +173,14 @@ pipefail`, `$BASH_SOURCE` path resolution, re-runnable:
 ### Changes to existing stacks
 
 - **`infra/dockge/compose.yaml`** — add `traefik.http.routers.dockge.middlewares:
-  authentik@docker` to the existing router. No other change; Dockge's own login
-  stays underneath.
-- **`infra/traefik/compose.yaml`** — enable the API/dashboard (`--api.dashboard=true`,
-  `--api=true`) and add a router `traefik.thefipster.de` → `api@internal` with the
-  `authentik@docker` middleware on the `websecure` entrypoint. The dashboard is
-  exposed *only because* forward-auth now guards it.
+  authentik@docker` to the existing router. (The matching
+  `/outpost.goauthentik.io/` router for `dockge.thefipster.de` lives on the
+  Authentik `server` container, above.) Dockge's own login stays underneath.
+- **`infra/traefik/compose.yaml`** — enable the API/dashboard (`--api=true`,
+  `--api.dashboard=true`) and add a router `traefik.thefipster.de` →
+  `api@internal` on `websecure` with the `authentik@docker` middleware. Its
+  `/outpost.goauthentik.io/` router also lives on the Authentik `server`
+  container. The dashboard is exposed *only because* forward-auth now guards it.
 - **`infra/forgejo/compose.yaml`** — unchanged structurally. OIDC is configured
   at runtime through the Forgejo UI (authentication source), not via compose;
   local login stays enabled for break-glass.
@@ -170,10 +192,13 @@ Traefik must be up first, as always. Then:
 1. **Deploy Authentik** — `scripts/init-authentik.sh`, fill any remaining `.env`
    values, `docker compose up -d`. Reach `https://auth.thefipster.de`, log in as
    `akadmin`.
-2. **Wire forward-auth** — in Authentik create the domain-level Proxy Provider
-   (forward-auth) + Application, assign it to the embedded outpost. Add the
-   `authentik@docker` middleware label to **Dockge** and the **Traefik
-   dashboard**; `up -d`. Verify both now require an Authentik login.
+2. **Wire forward-auth (per app)** — in Authentik, for **each** of Dockge and
+   the Traefik dashboard create a Proxy Provider (forward-auth, single
+   application; external host = that service's URL) + an Application with its own
+   access-policy binding, and add both to the embedded outpost. Ensure each
+   host's `/outpost.goauthentik.io/` router and the `authentik@docker` middleware
+   label are in place; `up -d`. Verify each service independently redirects to
+   Authentik and returns after login.
 3. **Wire Forgejo OIDC** — in Authentik create an OAuth2/OpenID Provider +
    Application for Forgejo (redirect URI
    `https://git.thefipster.de/user/oauth2/authentik/callback`). In Forgejo:
