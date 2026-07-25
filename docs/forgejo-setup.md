@@ -33,9 +33,10 @@ If you ever need to build untrusted / fork code, revert to an isolated runner
 
 - `infra/forgejo/compose.yaml` — Forgejo + Postgres + an Actions runner
 - `infra/forgejo/config.yml` — runner config (gets copied into place during setup)
+- `infra/forgejo/.env.example` — `.env` template (`init-forgejo.sh` fills it in)
 - `scripts/init-host.sh`, `scripts/init-forgejo.sh` — Part 0 setup automation
-- `Dockerfile` — multi-stage build for your Blazor app (goes in your repo)
-- `build-and-push.yml` — the pipeline workflow (goes in your repo)
+- `infra/forgejo/build-and-push.yml` — the pipeline workflow (goes in *your app
+  repo*, together with a `Dockerfile` you write there)
 
 ---
 
@@ -49,15 +50,19 @@ cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
 
 scripts/init-host.sh      # machine-level: install Docker + add you to the docker group
 # log out / back in (or: newgrp docker) so the group takes effect, then:
-scripts/init-dockge.sh    # optional: the Dockge management UI
-scripts/init-traefik.sh   # reverse proxy + TLS — complete docs/traefik-setup.md first!
-scripts/init-forgejo.sh   # project-level: data tree, DOCKER_GID
+scripts/init-traefik.sh   # reverse proxy + TLS — walk docs/traefik-setup.md
+scripts/init-authentik.sh # SSO — walk docs/authentik-setup.md Part 0
+scripts/init-dockge.sh    # optional: the Dockge management UI (gated by Authentik)
+scripts/init-forgejo.sh   # project-level: data tree, .env secrets
 ```
 
-> **Traefik comes first.** Forgejo's first-run screen is served at
+> **Traefik and Authentik come first.** Forgejo's first-run screen is served at
 > `https://git.thefipster.de`, so the [Traefik stack](traefik-setup.md) —
 > including the staging→production certificate flow — must be up **before**
-> you start Forgejo. There is no plain-HTTP phase.
+> you start Forgejo; there is no plain-HTTP phase. And
+> [Authentik](authentik-setup.md) must be up before Dockge, whose router is
+> gated by the `authentik@docker` forward-auth middleware and won't load
+> without it.
 
 > **Does Dockge replace `init-forgejo.sh`?** No. Dockge only runs the compose
 > *lifecycle* (`up`/`down`/logs) for stacks already sitting in `/opt/stacks`. It
@@ -74,18 +79,25 @@ What each one does:
    `docker` group so you can run it without `sudo`. Log out / back in (or
    `newgrp docker`) afterward for the group to take effect. Safe to re-run.
 
-2. **`init-dockge.sh` — management UI (optional).** Copies `infra/dockge/compose.yaml`
-   to `/opt/stacks/dockge/` and starts Dockge (reachable at
-   `https://dockge.thefipster.de` once Traefik is up). Purely for convenience —
-   skip it if you prefer driving `docker compose` from the CLI.
-
-3. **`init-traefik.sh` — reverse proxy + TLS.** Creates the shared `proxy`
+2. **`init-traefik.sh` — reverse proxy + TLS.** Creates the shared `proxy`
    Docker network and the ACME data dir, seeds `infra/traefik/.env`, and links
    the stack into `/opt/stacks`. Filling in the netcup credentials and walking
    the staging→production certificate flow is its own guide:
    [traefik-setup.md](traefik-setup.md).
 
-4. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
+3. **`init-authentik.sh` — SSO.** Creates the `/opt/authentik` data tree,
+   generates secrets into `infra/authentik/.env`, and links the stack into
+   `/opt/stacks`. Bringing the stack up and wiring providers is its own guide:
+   [authentik-setup.md](authentik-setup.md).
+
+4. **`init-dockge.sh` — management UI (optional).** Copies `infra/dockge/compose.yaml`
+   to `/opt/stacks/dockge/`, records the repo path in its `.env` (the compose
+   bind-mounts the checkout so the stack symlinks resolve inside the
+   container), and starts Dockge at `https://dockge.thefipster.de` — behind
+   Authentik forward-auth. Purely for convenience — skip it if you prefer
+   driving `docker compose` from the CLI.
+
+5. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
    steps that are specific to this compose stack:
 
    - Creates the data tree under `/opt/forgejo/{postgres,forgejo,runner}` and
@@ -95,6 +107,12 @@ What each one does:
 
      > If your login user isn't `1000:1000`, keep the compose `USER_UID`/`USER_GID`
      > and this ownership in agreement — they must match.
+
+   - Seeds `infra/forgejo/.env` from `.env.example` and generates
+     `FORGEJO_DB_PASSWORD` (the Postgres password) if it is still blank.
+     Postgres keeps the password its data dir was **first initialized** with,
+     so on an existing deployment set the variable to the current password by
+     hand instead (or rotate it via `ALTER USER`).
 
    - Records the host `docker` group's numeric GID in `.env`. The runner image
      runs as uid 1000, but `/var/run/docker.sock` is `root:docker`, so the runner
@@ -186,7 +204,7 @@ can't be scripted because the token is generated in the UI.
    docker compose up -d runner
    ```
 
-   > This works only if `DOCKER_GID` is set in `.env` (Part 0 step 3) — the
+   > This works only if `DOCKER_GID` is set in `.env` (Part 0, `init-forgejo.sh`) — the
    > runner needs the host `docker` group to open the socket. If the runner
    > restart-loops with *"Cannot connect to the Docker daemon at
    > unix:///var/run/docker.sock"*, check: (a) `.env` has `DOCKER_GID`, and
@@ -211,7 +229,7 @@ can't be scripted because the token is generated in the UI.
 4. Create. Forgejo clones the repo and will re-pull on that interval.
 
 > Reminder: a pull mirror updates Git data but does NOT fire `push` events,
-> so the workflow is schedule-driven (see below). This is expected.
+> so the workflow is triggered manually (see below). This is expected.
 
 ---
 
@@ -222,8 +240,11 @@ Forgejo copy is a *mirror* (read-only, overwritten on each pull), commit these
 to **GitHub**, let them mirror in:
 
 1. In your Blazor repo on GitHub, add:
-   - `Dockerfile` at the repo root (adjust `PROJECT_PATH` / `APP_DLL` ARGs).
-   - `.forgejo/workflows/build-and-push.yml` (from `build-and-push.yml` here).
+   - a `Dockerfile` for the app. The shipped workflow expects it at
+     `src/dotnet/Fip.Verdure.Web/Dockerfile` with build context `./src/dotnet` —
+     adjust the workflow's `context:` / `file:` / `tags:` to your repo layout.
+   - `.forgejo/workflows/build-and-push.yml` (from
+     `infra/forgejo/build-and-push.yml` here).
 2. Push to GitHub.
 3. Wait for the mirror interval (or in Forgejo, open the repo →
    **Settings → Mirror Settings → Synchronize Now**).
@@ -238,15 +259,17 @@ to **GitHub**, let them mirror in:
 
 ---
 
-## Part E — Watch it run
+## Part E — Run it
 
-- The schedule fires every 15 min. To test immediately, go to the repo's
-  **Actions** tab in Forgejo → select the workflow → **Run workflow**
-  (the `workflow_dispatch` trigger).
-- First run: change detection sees no `last-built` tag → builds → logs into
-  the registry → pushes → moves the `last-built` tag to HEAD.
-- Subsequent scheduled runs with no new commits: detected as unchanged →
-  skipped early. Push a new commit to GitHub → next run rebuilds.
+Builds are **manual-only**: mirrors don't fire `push` events, and the
+workflow's single trigger is `workflow_dispatch`.
+
+- Push to GitHub, wait for the mirror interval (or **Synchronize Now**), then
+  go to the repo's **Actions** tab in Forgejo → select the workflow →
+  **Run workflow**.
+- Every run checks out the mirrored HEAD, logs into the registry, builds and
+  pushes. There is no change detection — a run with no new commits simply
+  rebuilds the same code, so only trigger it when something changed.
 
 ---
 

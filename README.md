@@ -8,7 +8,7 @@ the compose stacks, setup scripts, and step-by-step guides to reproduce it.
 ## Architecture
 
 ```
-UniFi Dream Router  —  DHCP + DNS  (git/dockge → infra VM, *.thefipster.de → apps VM)
+UniFi Dream Router  —  DHCP + DNS  (infra host records → infra VM, *.thefipster.de → apps VM)
         │  LAN 192.168.1.0/24
         │
   Proxmox VE  ·  pve.thefipster.de  ·  .40   (hypervisor only)
@@ -64,12 +64,12 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   └── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-├── scripts/                     Setup automation (run on a VM)
+├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
-│   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
-│   ├── init-forgejo.sh           Forgejo Part 0: data tree, DOCKER_GID
-│   └── init-authentik.sh         Authentik: data tree, generate secrets
+│   ├── init-authentik.sh         Authentik: data tree, generate secrets
+│   ├── init-dockge.sh            Bring up the Dockge management UI
+│   └── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
 ├── infra/                       Stacks for the infra VM
 │   ├── traefik/
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
@@ -92,11 +92,14 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and the infra host records.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
-   infra VM (netcup DNS-01).
-4. **[Forgejo](docs/forgejo-setup.md)** — bring up CI/registry on the infra VM,
-   plus Dockge for stack management.
-5. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM; bring Forgejo
-   (OIDC), Dockge and the Traefik dashboard (forward-auth) under it.
+   infra VM (netcup DNS-01). With Traefik alone no cert is requested yet — the
+   first routed stack (Authentik, next) triggers issuance.
+4. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM. Comes before
+   the services it gates: Dockge and the Traefik dashboard reference its
+   forward-auth middleware, so their routers only load once Authentik runs.
+5. **[Forgejo](docs/forgejo-setup.md)** — Dockge for stack management, then
+   CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
+   (Authentik guide, Part B).
 6. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
 
 ## Status

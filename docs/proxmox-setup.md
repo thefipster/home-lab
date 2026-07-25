@@ -4,7 +4,7 @@ Turns the bare server into a hypervisor running two VMs:
 
 ```
 Proxmox VE  (pve.thefipster.de · .40)   ← this guide
- ├─ VM: infra  (.41)  → Forgejo stack + Dockge
+ ├─ VM: infra  (.41)  → Traefik + Authentik + Forgejo + Dockge
  └─ VM: apps   (.42)  → Coolify + your apps
 ```
 
@@ -133,6 +133,8 @@ DNS records to add on the UDR once the VMs are up (details in
 [wildcard-dns-udr.md](wildcard-dns-udr.md)):
 - `git.thefipster.de` → `192.168.1.41` (infra VM — Forgejo behind Traefik)
 - `dockge.thefipster.de` → `192.168.1.41` (infra VM — Dockge behind Traefik)
+- `auth.thefipster.de` → `192.168.1.41` (infra VM — Authentik SSO portal)
+- `traefik.thefipster.de` → `192.168.1.41` (infra VM — Traefik dashboard, gated)
 - `*.thefipster.de` → `192.168.1.42` (apps VM — Coolify routes by Host header)
 - `pve.thefipster.de` → `192.168.1.40` (optional — the Proxmox web UI)
 
@@ -159,8 +161,10 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next steps
 
-1. **infra VM** — `scripts/init-host.sh`, then [Dockge](../infra/dockge/) for a
-   management UI, then **Traefik** ([traefik-setup.md](traefik-setup.md)) for
-   TLS + routing, then the Forgejo stack ([forgejo-setup.md](forgejo-setup.md)).
+1. **infra VM** — `scripts/init-host.sh`, then **Traefik**
+   ([traefik-setup.md](traefik-setup.md)) for TLS + routing, then **Authentik**
+   ([authentik-setup.md](authentik-setup.md)) for SSO, then
+   [Dockge](../infra/dockge/) and the Forgejo stack
+   ([forgejo-setup.md](forgejo-setup.md)).
 2. **apps VM** — install Coolify (guide TBD); `*.thefipster.de` already points
    at it.

@@ -32,6 +32,10 @@ Same two-location convention as the Forgejo stack:
 ## Part 0 — Bring up Authentik
 
 Traefik must be up first (Authentik is served at `https://auth.thefipster.de`).
+Authentik is the **first routed stack** in the build order, so bringing it up
+is also what triggers Traefik's first wildcard certificate request — have the
+[staging→production flow](traefik-setup.md#staging--production) at hand; the
+first issuance takes 10–15 minutes.
 
 ```bash
 cd ~/home-lab
@@ -54,9 +58,9 @@ password. If the portal loads with a trusted cert, the stack and routing are
 good.
 
 > Deploy Authentik **before** the stacks that reference `authentik@docker`
-> (Dockge, Traefik dashboard). If those routers load while Authentik is down,
-> Traefik logs `middleware "authentik@docker" does not exist` and the route
-> 404s.
+> (Dockge, Traefik dashboard) — that's why it sits between Traefik and Dockge
+> in the build order. If those routers load while Authentik is down, Traefik
+> logs `middleware "authentik@docker" does not exist` and the route 404s.
 
 ## Part A — Forward-auth for Dockge and the Traefik dashboard
 
@@ -89,12 +93,16 @@ middleware and the per-host `/outpost.goauthentik.io/` routers live on the
 Authentik `server` container; Dockge and the dashboard carry the middleware
 label.
 
-**Verify:** open `https://dockge.thefipster.de` in a private window → you are
-redirected to Authentik, and after login land on Dockge. Repeat for
-`https://traefik.thefipster.de` (the dashboard should load, gated). Each is an
-independent app in **Admin → Events → Logs**.
+**Verify** (needs the Dockge stack running — `scripts/init-dockge.sh`, the
+next step in the build order): open `https://dockge.thefipster.de` in a private
+window → you are redirected to Authentik, and after login land on Dockge.
+Repeat for `https://traefik.thefipster.de` (the dashboard should load, gated).
+Each is an independent app in **Admin → Events → Logs**.
 
 ## Part B — Forgejo via OIDC
+
+Needs the Forgejo stack up and its admin account created
+([forgejo-setup.md](forgejo-setup.md), Parts 0–A) — come back here afterwards.
 
 1. **Create the Forgejo provider in Authentik.** **Providers → Create →
    OAuth2/OpenID Provider**.
