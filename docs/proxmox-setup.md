@@ -4,7 +4,7 @@ Turns the bare server into a hypervisor running two VMs:
 
 ```
 Proxmox VE  (pve.thefipster.de · .40)   ← this guide
- ├─ VM: infra  (.41)  → Forgejo stack + Dockge
+ ├─ VM: infra  (.41)  → Traefik + Authentik + Forgejo + Dockge
  └─ VM: apps   (.42)  → Coolify + your apps
 ```
 
@@ -125,14 +125,17 @@ Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs ar
 stable — `infra → 192.168.1.41`, `apps → 192.168.1.42` (see
 [wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
 
-Install Docker in **each** VM (this repo's [init-host.sh](../scripts/init-host.sh)
-does exactly this for the infra VM). Coolify installs its own Docker via its
-script on the apps VM.
+On the **infra VM**, clone this repo and install Docker —
+[traefik-setup.md, Step 0](traefik-setup.md#step-0--repo-and-docker-on-the-vm)
+covers both (clone + [init-host.sh](../scripts/init-host.sh) + re-login). On
+the **apps VM**, Coolify installs its own Docker via its script.
 
 DNS records to add on the UDR once the VMs are up (details in
 [wildcard-dns-udr.md](wildcard-dns-udr.md)):
 - `git.thefipster.de` → `192.168.1.41` (infra VM — Forgejo behind Traefik)
 - `dockge.thefipster.de` → `192.168.1.41` (infra VM — Dockge behind Traefik)
+- `auth.thefipster.de` → `192.168.1.41` (infra VM — Authentik SSO portal)
+- `traefik.thefipster.de` → `192.168.1.41` (infra VM — Traefik dashboard, gated)
 - `*.thefipster.de` → `192.168.1.42` (apps VM — Coolify routes by Host header)
 - `pve.thefipster.de` → `192.168.1.40` (optional — the Proxmox web UI)
 
@@ -159,8 +162,12 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next steps
 
-1. **infra VM** — `scripts/init-host.sh`, then [Dockge](../infra/dockge/) for a
-   management UI, then **Traefik** ([traefik-setup.md](traefik-setup.md)) for
-   TLS + routing, then the Forgejo stack ([forgejo-setup.md](forgejo-setup.md)).
-2. **apps VM** — install Coolify (guide TBD); `*.thefipster.de` already points
+1. **DNS** — the reservations and records from Part 6, in full detail:
+   [wildcard-dns-udr.md](wildcard-dns-udr.md).
+2. **infra VM** — repo + Docker (`scripts/init-host.sh`), then **Traefik**
+   ([traefik-setup.md](traefik-setup.md)) for TLS + routing, then **Authentik**
+   ([authentik-setup.md](authentik-setup.md)) for SSO, then
+   [Dockge](../infra/dockge/) and the Forgejo stack
+   ([forgejo-setup.md](forgejo-setup.md)).
+3. **apps VM** — install Coolify (guide TBD); `*.thefipster.de` already points
    at it.

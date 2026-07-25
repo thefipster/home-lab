@@ -8,7 +8,7 @@ the compose stacks, setup scripts, and step-by-step guides to reproduce it.
 ## Architecture
 
 ```
-UniFi Dream Router  —  DHCP + DNS  (git/dockge → infra VM, *.thefipster.de → apps VM)
+UniFi Dream Router  —  DHCP + DNS  (infra host records → infra VM, *.thefipster.de → apps VM)
         │  LAN 192.168.1.0/24
         │
   Proxmox VE  ·  pve.thefipster.de  ·  .40   (hypervisor only)
@@ -18,7 +18,8 @@ UniFi Dream Router  —  DHCP + DNS  (git/dockge → infra VM, *.thefipster.de �
   ┌─ infra VM (.41) ─┐   ┌─ apps VM (.42) ─┐
   │ Traefik: TLS +   │   │ Coolify: PaaS   │
   │   routing        │   │                 │
-  │ Forgejo: CI +    │   │ your apps       │
+  │ Authentik: SSO   │   │ your apps       │
+  │ Forgejo: CI +    │   │                 │
   │   registry       │   │                 │
   │ Dockge: compose  │   │                 │
   │   management UI  │   │                 │
@@ -28,7 +29,7 @@ UniFi Dream Router  —  DHCP + DNS  (git/dockge → infra VM, *.thefipster.de �
 | Layer | Runs | Purpose |
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | Traefik + Forgejo + Dockge | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), and a web UI for managing compose stacks. |
+| **infra VM** | Traefik + Authentik + Forgejo + Dockge | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), and a web UI for managing compose stacks. SSO (Authentik) fronts the infra UIs. |
 | **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker. |
 
 Why two VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Coolify
@@ -43,6 +44,8 @@ horizon — the public zone holds no A records):
 - `git.thefipster.de` → infra VM — Forgejo web + container registry, HTTPS via
   Traefik.
 - `dockge.thefipster.de` → infra VM — the Dockge management UI.
+- `auth.thefipster.de` → infra VM — Authentik SSO portal, HTTPS via Traefik.
+- `traefik.thefipster.de` → infra VM — Traefik dashboard, gated by Authentik.
 - `*.thefipster.de` → apps VM — Coolify's proxy routes each hostname to the
   right app by the HTTP `Host` header, so new apps need **no** new DNS records.
 
@@ -59,19 +62,26 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── proxmox-setup.md          Proxmox host + the two VMs (start here)
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
-│   └── forgejo-setup.md          Forgejo CI/registry on the infra VM
-├── scripts/                     Setup automation (run on a VM)
+│   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
+│   └── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
+├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
-│   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
-│   └── init-forgejo.sh           Forgejo Part 0: data tree, DOCKER_GID
+│   ├── init-authentik.sh         Authentik: data tree, generate secrets
+│   ├── init-dockge.sh            Bring up the Dockge management UI
+│   └── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
 ├── infra/                       Stacks for the infra VM
 │   ├── traefik/
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
 │   │   └── .env.example          netcup API credentials template
+│   ├── authentik/
+│   │   ├── compose.yaml          Authentik SSO (server, worker, postgres, redis)
+│   │   └── .env.example          secret-key / DB / bootstrap template
 │   ├── forgejo/
 │   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
-│   │   └── config.yml            Runner config
+│   │   ├── .env.example          DB password / DOCKER_GID template
+│   │   ├── config.yml            Runner config
+│   │   └── build-and-push.yml    CI workflow template (goes in your app repo)
 │   └── dockge/
 │       └── compose.yaml          Dockge (compose management UI)
 └── apps/                        Apps VM (Coolify) — see apps/README.md
@@ -84,10 +94,15 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and the infra host records.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
-   infra VM (netcup DNS-01).
-4. **[Forgejo](docs/forgejo-setup.md)** — bring up CI/registry on the infra VM,
-   plus Dockge for stack management.
-5. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
+   infra VM (netcup DNS-01). With Traefik alone no cert is requested yet — the
+   first routed stack (Authentik, next) triggers issuance.
+4. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM. Comes before
+   the services it gates: Dockge and the Traefik dashboard reference its
+   forward-auth middleware, so their routers only load once Authentik runs.
+5. **[Forgejo](docs/forgejo-setup.md)** — Dockge for stack management, then
+   CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
+   (Authentik guide, Part B).
+6. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
 
 ## Status
 
@@ -96,5 +111,6 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Forgejo stack + setup scripts | ✅ done |
 | Dockge management UI | ✅ done |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ stack + guide in repo |
+| Authentik SSO (OIDC + forward-auth) | ✅ stack + guide in repo |
 | Proxmox + DNS guides | ✅ written (not yet built out) |
 | Coolify install | ⬜ TBD — proxy gets the same netcup DNS-01 setup |

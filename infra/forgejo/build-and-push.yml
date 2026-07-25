@@ -4,15 +4,15 @@
 # Place this in your BLAZOR REPO at: .forgejo/workflows/build-and-push.yml
 #
 # Because you chose GitHub-primary + Forgejo pull-mirror, a normal `on: push`
-# will NOT fire (mirrors don't emit push events). So we run on a SCHEDULE,
-# check whether the mirrored HEAD changed since our last build, and only
-# build + push when there's something new. A manual trigger is included too.
+# will NOT fire (mirrors don't emit push events). Builds are therefore
+# MANUAL-ONLY: after the mirror has synced, trigger the workflow from the
+# repo's Actions tab (workflow_dispatch). Every run builds and pushes.
 # =============================================================================
 
-name: Build and Push (mirror-aware)
+name: Build and Push (manual)
 
 on:
-  workflow_dispatch: {}   # lets you trigger manually from the UI too
+  workflow_dispatch: {}   # mirrors never fire `push` — this is the only trigger
 
 jobs:
   build:
@@ -26,8 +26,8 @@ jobs:
       image: ghcr.io/catthehacker/ubuntu:act-22.04
     steps:
       # ---------------------------------------------------------------------
-      # 1. Check out the mirrored code. fetch-depth: 0 so we can read history
-      #    and compare against the last-built commit.
+      # 1. Check out the mirrored code. fetch-depth: 0 = full clone, so build
+      #    tooling can read tags/history if it wants to.
       # ---------------------------------------------------------------------
       - name: Checkout
         uses: https://code.forgejo.org/actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0
 
       # ---------------------------------------------------------------------
-      # 3. Log in to the Forgejo container registry.
+      # 2. Log in to the Forgejo container registry.
       #    The registry is served over HTTPS at the Forgejo host, so no
       #    insecure-registry configuration is needed anymore.
       # ---------------------------------------------------------------------
@@ -50,7 +50,7 @@ jobs:
         uses: https://code.forgejo.org/docker/setup-buildx-action@v3
 
       # ---------------------------------------------------------------------
-      # 4. Build the Blazor image from your Dockerfile and push it.
+      # 3. Build the Blazor image from your Dockerfile and push it.
       #    Image name: git.thefipster.de/<owner>/<repo>:<tag>
       #    We tag both the short SHA and `latest`.
       # ---------------------------------------------------------------------

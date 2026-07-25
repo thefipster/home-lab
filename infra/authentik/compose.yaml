@@ -1,0 +1,131 @@
+# Authentik — SSO identity provider for the INFRA VM.
+#
+# server + worker + a DEDICATED postgres/redis (not shared with Forgejo, so the
+# stack backs up and version-pins independently). Routed by Traefik at
+# auth.thefipster.de under the one wildcard cert (no per-router TLS labels).
+#
+# This stack also declares — as labels on the `server` container — the pieces
+# that let OTHER stacks use Authentik for forward-auth:
+#   * the shared `authentik@docker` forwardauth middleware, and
+#   * one /outpost.goauthentik.io/ router per protected host (dockge, traefik),
+#     required because single-application forward auth runs its handshake on
+#     each app's own domain.
+# Deploy (on the infra VM): scripts/init-authentik.sh, fill .env, compose up -d.
+# Authentik must be RUNNING before Dockge/Traefik reference authentik@docker,
+# or Traefik logs an "undefined middleware" error and those routers won't load.
+
+name: authentik
+
+services:
+  db:
+    image: postgres:16-alpine        # major pin, same policy as the Forgejo DB
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+      POSTGRES_DB: authentik
+    volumes:
+      - /opt/authentik/postgres:/var/lib/postgresql/data
+    networks:
+      - authentik-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine            # major pin
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - /opt/authentik/redis:/data
+    networks:
+      - authentik-net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    image: ghcr.io/goauthentik/server:2025.6   # major.minor pin — breaking DB
+    restart: unless-stopped                     # migrations between minors
+    command: server
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+      AUTHENTIK_POSTGRESQL__HOST: db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+      AUTHENTIK_REDIS__HOST: redis
+      # akadmin is created on FIRST boot from these. Keep it as break-glass.
+      AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
+      AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-}
+    volumes:
+      - /opt/authentik/media:/media
+      - /opt/authentik/templates:/templates
+      - /opt/authentik/certs:/certs
+    labels:
+      traefik.enable: "true"
+      # --- Authentik portal (auth.thefipster.de) ---------------------------
+      traefik.http.routers.authentik.rule: Host(`auth.thefipster.de`)
+      traefik.http.routers.authentik.entrypoints: websecure
+      traefik.http.services.authentik.loadbalancer.server.port: "9000"
+      # --- Shared forward-auth middleware (referenced as authentik@docker) --
+      # `authentik-server` is an explicit alias on the proxy network (declared
+      # below). The default service-name alias (`server`) is too generic for a
+      # network every stack joins — another stack's `server` would collide.
+      traefik.http.middlewares.authentik.forwardauth.address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
+      traefik.http.middlewares.authentik.forwardauth.trustForwardHeader: "true"
+      traefik.http.middlewares.authentik.forwardauth.authResponseHeaders: X-authentik-username,X-authentik-groups,X-authentik-email,X-authentik-name,X-authentik-uid
+      # --- Per-host outpost-path routers (single-application forward auth) --
+      # Each protected host must serve /outpost.goauthentik.io/ from the outpost
+      # so the post-login callback lands on the app's own domain (else it 404s).
+      traefik.http.routers.ak-outpost-dockge.rule: Host(`dockge.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
+      traefik.http.routers.ak-outpost-dockge.entrypoints: websecure
+      traefik.http.routers.ak-outpost-dockge.service: authentik
+      traefik.http.routers.ak-outpost-traefik.rule: Host(`traefik.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
+      traefik.http.routers.ak-outpost-traefik.entrypoints: websecure
+      traefik.http.routers.ak-outpost-traefik.service: authentik
+    networks:
+      authentik-net:
+      proxy:
+        aliases:
+          - authentik-server
+
+  worker:
+    image: ghcr.io/goauthentik/server:2025.6
+    restart: unless-stopped
+    command: worker
+    # No docker.sock mount: the embedded outpost runs in `server`, so the worker
+    # manages no outpost containers — keep its privilege minimal.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+      AUTHENTIK_POSTGRESQL__HOST: db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
+      AUTHENTIK_REDIS__HOST: redis
+    volumes:
+      - /opt/authentik/media:/media
+      - /opt/authentik/templates:/templates
+      - /opt/authentik/certs:/certs
+    networks:
+      - authentik-net
+
+networks:
+  authentik-net:
+    driver: bridge
+  proxy:
+    external: true

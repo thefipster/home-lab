@@ -6,11 +6,12 @@
 # there too so it's managed from the same UI (see "Managing Forgejo" below).
 #
 # Deploy (on the infra VM): run scripts/init-dockge.sh — it copies this file to
-# /opt/stacks/dockge/compose.yaml and starts it. Dockge lives under the stacks
-# dir so it manages itself alongside the others.
+# /opt/stacks/dockge/compose.yaml, writes REPO_DIR to .env there, and starts it.
+# Dockge lives under the stacks dir so it manages itself alongside the others.
 #   UI: https://dockge.thefipster.de   (via the Traefik stack — see infra/traefik)
-#   Until Traefik is up, the UI is unreachable — drive stacks from the CLI
-#   during bootstrap (or temporarily publish 5001 if you need to debug).
+#   Build order: Traefik and Authentik must be up FIRST — the router below is
+#   gated by authentik@docker, so without them it won't load at all. Drive
+#   stacks from the CLI until then (or temporarily publish 5001 to debug).
 
 services:
   dockge:
@@ -21,6 +22,12 @@ services:
       traefik.http.routers.dockge.rule: Host(`dockge.thefipster.de`)
       traefik.http.routers.dockge.entrypoints: websecure
       traefik.http.services.dockge.loadbalancer.server.port: "5001"
+      # Gate the UI behind Authentik (per-app forward auth). The middleware and
+      # the /outpost.goauthentik.io/ router for this host live on the Authentik
+      # `server` container (infra/authentik). Authentik must be up first, else
+      # Traefik reports an undefined middleware and this router won't load.
+      # Break-glass: comment this line and `docker compose up -d` to bypass.
+      traefik.http.routers.dockge.middlewares: authentik@docker
     networks:
       - proxy
     volumes:
@@ -33,6 +40,12 @@ services:
       # The managed stacks live here. This path must be IDENTICAL inside and out
       # so the compose commands Dockge runs resolve the same files on the host.
       - /opt/stacks:/opt/stacks
+      # The repo checkout, ALSO at an identical path: the other stacks are
+      # symlinked into /opt/stacks (target = the repo's infra/<stack>), and
+      # without this mount those symlinks dangle inside the container and
+      # Dockge can't read their compose files. REPO_DIR is written to .env by
+      # scripts/init-dockge.sh.
+      - ${REPO_DIR:?run scripts/init-dockge.sh — it records REPO_DIR in .env}:${REPO_DIR}
     environment:
       - DOCKGE_STACKS_DIR=/opt/stacks
 

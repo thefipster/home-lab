@@ -1,7 +1,8 @@
 # Traefik + Let's Encrypt via netcup DNS-01 (infra VM)
 
 Terminates TLS for every infra-VM service on real domain names —
-`git.thefipster.de` (Forgejo web + registry) and `dockge.thefipster.de` — with
+`auth.thefipster.de` (Authentik), `git.thefipster.de` (Forgejo web + registry),
+`dockge.thefipster.de` and `traefik.thefipster.de` (dashboard) — with
 one **wildcard certificate** (`*.thefipster.de`) from Let's Encrypt. The
 wildcard is deliberately the *only* name on the cert — no apex SAN: apex +
 wildcard would need two TXT records at the same `_acme-challenge` FQDN, and
@@ -37,12 +38,31 @@ run its own proxy with its own wildcard cert later — see
   **Master Data → API** → generate an **API key** and an **API password**. The
   **customer number** is the number you log in to the CCP with.
 - The **local DNS records** from [wildcard-dns-udr.md](wildcard-dns-udr.md) are
-  in place (`git`/`dockge` → `.41`, wildcard → `.42`).
-- Docker is installed on the infra VM (`scripts/init-host.sh`).
+  in place (the infra host records `git`/`dockge`/`auth`/`traefik` → `.41`,
+  wildcard → `.42`).
+- The repo and Docker are on the infra VM — Step 0 below covers both.
+
+## Step 0 — Repo and Docker on the VM
+
+This is the first guide that runs anything on the infra VM, so start by
+getting this repo and Docker onto it (every later guide assumes both):
+
+```bash
+cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
+scripts/init-host.sh
+```
+
+Then **log out and back in** (or run `newgrp docker`) so your user picks up
+the `docker` group — until you do, every `docker ...` command below fails with
+"permission denied".
+
+Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
+path, and Dockge later bind-mounts this checkout at the same absolute path —
+don't move it afterwards.
 
 ## Bring-up
 
-From the repo checked out on the infra VM:
+From `~/home-lab` on the infra VM:
 
 ```bash
 scripts/init-traefik.sh
@@ -66,10 +86,16 @@ Then:
 
 > **No cert request until a service needs one.** Traefik requests certificates
 > when a *router* demands TLS, and routers only exist once a labeled container
-> (Dockge, Forgejo) is running on the `proxy` network. With Traefik up alone,
-> the log stops after `Testing certificate renew...` and stays idle — that's
-> expected. Bring up the Dockge stack and the wildcard request fires
-> immediately.
+> is running on the `proxy` network. With Traefik up alone, the log stops after
+> `Testing certificate renew...` and stays idle — that's expected. In the build
+> order the first routed stack is **Authentik**
+> ([authentik-setup.md](authentik-setup.md), Part 0): bring it up and the
+> wildcard request fires immediately.
+>
+> You will also see `middleware "authentik@docker" does not exist` errors until
+> Authentik is running — the dashboard router (and later Dockge's) is gated by
+> that middleware and simply won't load before then. Expected during bring-up;
+> gone once the Authentik stack is up.
 
 > **First issuance takes 10–15 minutes. This is normal.** netcup's nameservers
 > are slow to publish new records, and Let's Encrypt can't validate the
@@ -87,17 +113,25 @@ fresh machine, **uncomment the staging line for the first bring-up**: staging
 certs are untrusted by browsers but have very generous rate limits — perfect
 for proving the netcup credentials and propagation timing without risk.
 
+**0. Trigger issuance.** Certificates are only requested once a routed stack
+runs (see the note above), so bring up **Authentik** now:
+[authentik-setup.md](authentik-setup.md), Part 0, up to and including
+`docker compose up -d` — then come back here and watch the Traefik logs.
+Hold off on Authentik's login step until step 2 below is done: until the
+switch to production, the portal serves the untrusted staging cert.
+
 **1. Verify the staging cert arrived.** In the logs, look for the certificate
 being obtained; then:
 
 ```bash
 docker compose exec traefik grep -o '"main": *"[^"]*"' /letsencrypt/acme.json
-curl -kIs https://git.thefipster.de | head -1
+curl -kIs https://auth.thefipster.de | head -1
 ```
 
 `acme.json` should mention `thefipster.de`, and the `curl` (with `-k`, since
-staging is untrusted) should return an HTTP status. You can also check the
-issuer: `openssl s_client -connect git.thefipster.de:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer`
+staging is untrusted) should return an HTTP status. (`auth.thefipster.de` is
+the first routed service; substitute any host that's already up.) You can also
+check the issuer: `openssl s_client -connect auth.thefipster.de:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer`
 — it will say `(STAGING) Let's Encrypt`.
 
 **2. Switch to production.** Re-comment the `caserver` line in
@@ -112,7 +146,7 @@ docker compose logs -f traefik
 Wait for issuance again (same 10–15 min), then confirm — no `-k` this time:
 
 ```bash
-curl -Is https://git.thefipster.de | head -1
+curl -Is https://auth.thefipster.de | head -1
 ```
 
 A clean `HTTP/2 200` (or `303` to the login page) with no TLS warning means
@@ -120,11 +154,25 @@ you're done.
 
 ## Verification checklist
 
-- [ ] `curl -I https://git.thefipster.de` — succeeds, production Let's Encrypt cert
-- [ ] `curl -I https://dockge.thefipster.de` — same
+Immediately after this guide (only Traefik + Authentik up):
+
+- [ ] `curl -I https://auth.thefipster.de` — succeeds, production Let's Encrypt cert
+- [ ] `http://auth.thefipster.de` redirects to `https://`
+
+As the later stacks come up ([authentik-setup.md](authentik-setup.md),
+[forgejo-setup.md](forgejo-setup.md)):
+
+- [ ] `curl -I https://dockge.thefipster.de` — succeeds (via the Authentik redirect)
+- [ ] `curl -I https://git.thefipster.de` — succeeds, same cert
 - [ ] `docker login git.thefipster.de` works from a machine with **zero** Docker
       daemon config — no `insecure-registries` anywhere, on any host
-- [ ] `http://git.thefipster.de` redirects to `https://`
+
+## Dashboard
+
+The API/dashboard is enabled (`--api.dashboard=true`) and served at
+`https://traefik.thefipster.de`, but **only** because Authentik forward-auth
+gates it (`traefik.http.routers.dashboard.middlewares: authentik@docker`). Do
+not expose it without that middleware. See [authentik-setup.md](authentik-setup.md).
 
 ## Troubleshooting
 
