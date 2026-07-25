@@ -63,7 +63,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
-│   └── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
+│   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
+│   └── roadmap/                  What's next (monitoring, CI hardening)
 ├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
@@ -94,8 +95,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and the infra host records.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
-   infra VM (netcup DNS-01). With Traefik alone no cert is requested yet — the
-   first routed stack (Authentik, next) triggers issuance.
+   infra VM (netcup DNS-01). The wildcard cert is requested at startup —
+   expect the ~10–15 min netcup propagation wait on first issuance.
 4. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM. Comes before
    the services it gates: Dockge and the Traefik dashboard reference its
    forward-auth middleware, so their routers only load once Authentik runs.
@@ -108,9 +109,15 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 
 | Piece | State |
 |-------|-------|
-| Forgejo stack + setup scripts | ✅ done |
-| Dockge management UI | ✅ done |
-| Traefik + Let's Encrypt (netcup DNS-01) | ✅ stack + guide in repo |
-| Authentik SSO (OIDC + forward-auth) | ✅ stack + guide in repo |
-| Proxmox + DNS guides | ✅ written (not yet built out) |
-| Coolify install | ⬜ TBD — proxy gets the same netcup DNS-01 setup |
+| Proxmox host + the two VMs | ✅ deployed |
+| DNS (UDR split-horizon + wildcard) | ✅ deployed |
+| Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
+| Authentik SSO (OIDC + forward-auth) | ✅ deployed |
+| Dockge management UI | ✅ deployed |
+| Forgejo CI + registry | ✅ deployed |
+| Monitoring (Grafana/Alloy/Loki) | 🔜 next — [roadmap](docs/roadmap/monitoring.md) |
+| CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
+| CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
+| CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
+| CI: container scanning + SBOM | ⬜ planned — [roadmap](docs/roadmap/ci-supply-chain.md) |
+| Coolify install (apps VM) | ⬜ after the infra VM is finished |

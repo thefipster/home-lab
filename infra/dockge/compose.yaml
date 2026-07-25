@@ -12,6 +12,8 @@
 #   Build order: Traefik and Authentik must be up FIRST — the router below is
 #   gated by authentik@docker, so without them it won't load at all. Drive
 #   stacks from the CLI until then (or temporarily publish 5001 to debug).
+#   Authentik is only the OUTER gate: Dockge keeps its own local login/admin
+#   underneath (created on first visit) — Authentik users don't exist in it.
 
 services:
   dockge:

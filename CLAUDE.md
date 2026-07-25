@@ -65,11 +65,10 @@ the sequence is:
 
 1. `scripts/init-host.sh` — installs Docker Engine + compose plugin (Ubuntu).
 2. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
-   `.env` from `.env.example`. With Traefik up alone, no cert is requested yet
-   (no routers exist).
+   `.env` from `.env.example`. The entrypoint-level `tls.domains` makes
+   Traefik request the wildcard cert at startup — no router needed.
 3. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
-   into `.env`. Authentik is the first *routed* stack, so bringing it up
-   triggers the first wildcard issuance — and it must run before the
+   into `.env`. Authentik is the first *routed* stack and must run before the
    forward-auth-gated routers (Dockge, Traefik dashboard) can load.
 4. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at
@@ -103,9 +102,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   negative-cache the empty answer). The wildcard has **no apex SAN** on purpose
   (two TXT records at the same `_acme-challenge` FQDN race on netcup's
   non-atomic zone updates). Don't "simplify" these away.
-- **First TLS bring-up uses the Let's Encrypt staging CA** (commented in
-  `infra/traefik/compose.yaml`) to prove creds under loose rate limits, then
-  switches to production by deleting `acme.json` and force-recreating.
+- **First TLS bring-up goes straight to the production CA** — one challenge
+  total. The staging CA stays available as a commented `caserver` line in
+  `infra/traefik/compose.yaml` purely for debugging failed issuance under
+  loose rate limits; switching CAs either way means deleting `acme.json` and
+  force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
   the Forgejo runner, and Traefik (read-only there). Acceptable only because
   this is a single-tenant box building the owner's own code — never extend this
@@ -123,7 +124,9 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. `docs/superpowers/{specs,plans}/` holds dated design specs and
+"Build order" links them in sequence. `docs/roadmap/` holds forward-looking
+plans (monitoring, CI hardening) — decisions and phases for work not built
+yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
 implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.
 When the config and a guide disagree, the compose/script files are the source of
 truth — update the guide to match.

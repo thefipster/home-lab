@@ -32,10 +32,11 @@ Same two-location convention as the Forgejo stack:
 ## Part 0 — Bring up Authentik
 
 Traefik must be up first (Authentik is served at `https://auth.thefipster.de`).
-Authentik is the **first routed stack** in the build order, so bringing it up
-is also what triggers Traefik's first wildcard certificate request — have the
-[staging→production flow](traefik-setup.md#staging--production) at hand; the
-first issuance takes 10–15 minutes.
+Authentik is the **first routed stack** — the first thing Traefik actually
+serves. The wildcard certificate was already *requested* when Traefik started
+([first issuance](traefik-setup.md#first-issuance) takes 10–15 minutes); until
+it completes, the portal serves Traefik's self-signed placeholder cert — wait
+it out before expecting a trusted cert here.
 
 ```bash
 cd ~/home-lab
@@ -53,15 +54,21 @@ docker compose up -d
 docker compose logs -f server    # wait for migrations; first boot takes a minute
 ```
 
-> **First bring-up?** Starting Authentik is what triggers Traefik's first
-> certificate request, and the portal serves an **untrusted staging cert**
-> until you complete the
-> [staging→production switch](traefik-setup.md#staging--production) in the
-> Traefik guide. Do that now, then come back and log in below.
-
 Open `https://auth.thefipster.de`, log in as **`akadmin`** with the bootstrap
 password. If the portal loads with a trusted cert, the stack and routing are
 good.
+
+> **"Invalid password" for akadmin on a first boot?** The bootstrap variables
+> must reach the **worker** — blueprints, including the one that creates
+> akadmin, are applied there, not on the server (the repo compose sets them on
+> both). Diagnose with
+> `docker compose exec worker printenv AUTHENTIK_BOOTSTRAP_PASSWORD` (must
+> print the value) and
+> `docker compose exec server ak shell -c "from authentik.core.models import User; print(User.objects.get(username='akadmin').has_usable_password())"`
+> — `False` means akadmin was created with **no** password. Recover without
+> reinstalling: set one at `https://auth.thefipster.de/if/flow/initial-setup/`,
+> or use the recovery key from the break-glass section. Fixing the env alone
+> does *not* help an existing install — bootstrap applies only at creation.
 
 > Deploy Authentik **before** the stacks that reference `authentik@docker`
 > (Dockge, Traefik dashboard) — that's why it sits between Traefik and Dockge
@@ -107,6 +114,17 @@ the Dockge stack running first (`scripts/init-dockge.sh` — next in the build
 order, documented in [forgejo-setup.md, Part 0](forgejo-setup.md)); then
 `https://dockge.thefipster.de` behaves the same way. Each shows up as an
 independent app in **Admin → Events → Logs**.
+
+> **Two logins at Dockge, by design.** Forward-auth is only the *outer* gate:
+> Authentik decides who may reach Dockge at all, but Dockge has no SSO
+> support and can't consume Authentik identities — its **own local login
+> stays underneath**. On the very first visit you'll land on Dockge's setup
+> screen: create its local admin there (an account that exists only inside
+> Dockge) and use *that* to log in. Authentik usernames are never valid
+> credentials in Dockge's own form. And if you don't see an Authentik
+> redirect at all, you're already logged in from an earlier verify —
+> forward-auth passes a valid session through silently; the private-window
+> test is what makes the flow visible.
 
 ## Part B — Forgejo via OIDC
 

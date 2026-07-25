@@ -35,6 +35,8 @@ services:
       - --entrypoints.websecure.address=:443
       # Every websecure router gets TLS from the letsencrypt resolver and is
       # covered by the one wildcard cert below — no per-router TLS labels.
+      # Declaring the domains at the ENTRYPOINT also means Traefik requests
+      # the wildcard proactively at STARTUP — no router needs to exist first.
       # Wildcard ONLY, no apex SAN: apex + wildcard need two TXT records at
       # the same FQDN (_acme-challenge), and netcup's non-atomic zone updates
       # race on that — one value gets clobbered and validation times out.
@@ -60,10 +62,11 @@ services:
       # exactly what Let's Encrypt sees. (Verify yours match:
       # `dig NS thefipster.de +short`.)
       - --certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=root-dns.netcup.net:53,second-dns.netcup.net:53,third-dns.netcup.net:53
-      # STAGING vs PRODUCTION — production is the default (this is the lab's
-      # live config). On a FRESH machine, uncomment the staging caserver below
-      # for the first bring-up to prove the netcup credentials with generous
-      # rate limits; once it works, re-comment it, delete acme.json, and
+      # Production CA is the default — first bring-up goes STRAIGHT to it,
+      # one challenge total. If issuance keeps FAILING, don't hammer
+      # production (≈5 failed validations/hostname/hour): uncomment the
+      # staging caserver below and debug under its loose rate limits, then
+      # switch back by re-commenting, deleting acme.json and
       # `docker compose up -d --force-recreate`. See docs/traefik-setup.md.
       # - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
     environment:

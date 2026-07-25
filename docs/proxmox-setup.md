@@ -125,11 +125,6 @@ Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs ar
 stable — `infra → 192.168.1.41`, `apps → 192.168.1.42` (see
 [wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
 
-On the **infra VM**, clone this repo and install Docker —
-[traefik-setup.md, Step 0](traefik-setup.md#step-0--repo-and-docker-on-the-vm)
-covers both (clone + [init-host.sh](../scripts/init-host.sh) + re-login). On
-the **apps VM**, Coolify installs its own Docker via its script.
-
 DNS records to add on the UDR once the VMs are up (details in
 [wildcard-dns-udr.md](wildcard-dns-udr.md)):
 - `git.thefipster.de` → `192.168.1.41` (infra VM — Forgejo behind Traefik)
@@ -141,7 +136,28 @@ DNS records to add on the UDR once the VMs are up (details in
 
 ---
 
-## Part 7 — Snapshot before you build
+## Part 7 — Repo and Docker on the infra VM
+
+Everything the infra VM runs is driven from this repo, so get it and Docker
+onto that VM now:
+
+```bash
+cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
+scripts/init-host.sh
+```
+
+Then **log out and back in** (or run `newgrp docker`) so your user picks up
+the `docker` group — until you do, every `docker ...` command fails with
+"permission denied".
+
+Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
+path, and Dockge later bind-mounts this checkout at the same absolute path —
+don't move it afterwards.
+
+The **apps VM** needs none of this — Coolify installs its own Docker via its
+install script.
+
+## Part 8 — Snapshot before you build
 
 Take a clean baseline you can roll back to: select the VM → **Snapshots → Take
 Snapshot** (name it `clean-install`). Do this again before risky changes — this is
@@ -164,7 +180,7 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 1. **DNS** — the reservations and records from Part 6, in full detail:
    [wildcard-dns-udr.md](wildcard-dns-udr.md).
-2. **infra VM** — repo + Docker (`scripts/init-host.sh`), then **Traefik**
+2. **infra VM** (repo + Docker already on it from Part 7) — **Traefik**
    ([traefik-setup.md](traefik-setup.md)) for TLS + routing, then **Authentik**
    ([authentik-setup.md](authentik-setup.md)) for SSO, then
    [Dockge](../infra/dockge/) and the Forgejo stack

@@ -40,25 +40,9 @@ run its own proxy with its own wildcard cert later — see
 - The **local DNS records** from [wildcard-dns-udr.md](wildcard-dns-udr.md) are
   in place (the infra host records `git`/`dockge`/`auth`/`traefik` → `.41`,
   wildcard → `.42`).
-- The repo and Docker are on the infra VM — Step 0 below covers both.
-
-## Step 0 — Repo and Docker on the VM
-
-This is the first guide that runs anything on the infra VM, so start by
-getting this repo and Docker onto it (every later guide assumes both):
-
-```bash
-cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
-scripts/init-host.sh
-```
-
-Then **log out and back in** (or run `newgrp docker`) so your user picks up
-the `docker` group — until you do, every `docker ...` command below fails with
-"permission denied".
-
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
+- The repo and Docker are on the infra VM
+  ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm):
+  clone to `~/home-lab`, `init-host.sh`, re-login).
 
 ## Bring-up
 
@@ -84,13 +68,12 @@ Then:
    docker compose logs -f traefik
    ```
 
-> **No cert request until a service needs one.** Traefik requests certificates
-> when a *router* demands TLS, and routers only exist once a labeled container
-> is running on the `proxy` network. With Traefik up alone, the log stops after
-> `Testing certificate renew...` and stays idle — that's expected. In the build
-> order the first routed stack is **Authentik**
-> ([authentik-setup.md](authentik-setup.md), Part 0): bring it up and the
-> wildcard request fires immediately.
+> **The wildcard request fires at startup.** The compose declares the cert
+> domains at the *entrypoint* (`tls.domains` + `certresolver`), so Traefik
+> requests `*.thefipster.de` the moment it starts — no router or routed
+> service needs to exist first. Expect `Register...` and `Obtaining bundled
+> SAN certificate` in the log right away, followed by the propagation wait
+> described below.
 >
 > You will also see `middleware "authentik@docker" does not exist` errors until
 > Authentik is running — the dashboard router (and later Dockge's) is gated by
@@ -105,52 +88,41 @@ Then:
 > mid-challenge. Renewals (every ~60 days) run unattended; you'll never watch
 > this again.
 
-## Staging → production
+## First issuance
 
-The compose file ships pointing at **production** (the lab's live config),
-with the staging CA available as a commented-out `acme.caserver` line. On a
-fresh machine, **uncomment the staging line for the first bring-up**: staging
-certs are untrusted by browsers but have very generous rate limits — perfect
-for proving the netcup credentials and propagation timing without risk.
+The compose points straight at Let's Encrypt **production** — one challenge
+total, and the request is already in flight from startup (see the note
+above). There is nothing to trigger; just watch the logs through the
+propagation wait.
 
-**0. Trigger issuance.** Certificates are only requested once a routed stack
-runs (see the note above), so bring up **Authentik** now:
-[authentik-setup.md](authentik-setup.md), Part 0, up to and including
-`docker compose up -d` — then come back here and watch the Traefik logs.
-Hold off on Authentik's login step until step 2 below is done: until the
-switch to production, the portal serves the untrusted staging cert.
-
-**1. Verify the staging cert arrived.** In the logs, look for the certificate
-being obtained; then:
+**Verify the cert arrived.** In the logs, look for the certificate being
+obtained; then:
 
 ```bash
 docker compose exec traefik grep -o '"main": *"[^"]*"' /letsencrypt/acme.json
-curl -kIs https://auth.thefipster.de | head -1
 ```
 
-`acme.json` should mention `thefipster.de`, and the `curl` (with `-k`, since
-staging is untrusted) should return an HTTP status. (`auth.thefipster.de` is
-the first routed service; substitute any host that's already up.) You can also
-check the issuer: `openssl s_client -connect auth.thefipster.de:443 </dev/null 2>/dev/null | openssl x509 -noout -issuer`
-— it will say `(STAGING) Let's Encrypt`.
-
-**2. Switch to production.** Re-comment the `caserver` line in
-`infra/traefik/compose.yaml`, wipe the staging state, and recreate:
-
-```bash
-sudo rm /opt/traefik/letsencrypt/acme.json
-docker compose up -d --force-recreate
-docker compose logs -f traefik
-```
-
-Wait for issuance again (same 10–15 min), then confirm — no `-k` this time:
+`acme.json` should mention `thefipster.de` — this check works with Traefik
+alone. The `curl`/browser checks need something actually *served* on the
+host, and the first such stack is **Authentik**
+([authentik-setup.md](authentik-setup.md), Part 0 — next in the build order);
+once it's up:
 
 ```bash
 curl -Is https://auth.thefipster.de | head -1
 ```
 
 A clean `HTTP/2 200` (or `303` to the login page) with no TLS warning means
-you're done.
+you're done — renewals (every ~60 days) run unattended from here.
+
+> **If issuance keeps failing, don't hammer production** — it allows ≈5
+> failed validations per hostname per hour and ≈5 duplicate certs per week.
+> Uncomment the staging `caserver` line in `infra/traefik/compose.yaml`
+> (untrusted certs, generous limits), recreate, and debug with the
+> [Troubleshooting](#troubleshooting) section. To switch CAs in either
+> direction: edit the `caserver` line, then
+> `sudo rm /opt/traefik/letsencrypt/acme.json` and
+> `docker compose up -d --force-recreate`.
 
 ## Verification checklist
 
@@ -199,9 +171,11 @@ not expose it without that middleware. See [authentik-setup.md](authentik-setup.
 - **Auth errors mentioning the netcup API** (`docker compose logs traefik | grep -i acme`) —
   customer number / API key / API password mismatch. Regenerate the API
   password in the CCP if unsure; it's only shown once.
-- **Rate limits** — only relevant on the production CA (≈5 duplicate certs per
-  week). The staging-first flow exists so you hit production exactly once,
-  working. If you do get limited, wait a week or go back to staging to debug.
+- **Rate limits** — production allows ≈5 duplicate certs per week and ≈5
+  failed validations per hostname per hour. If issuance keeps failing, switch
+  to the staging CA to debug (see [First issuance](#first-issuance)) instead
+  of retrying against production; if you do get limited, staging still works
+  while you wait it out.
 - **Cert renews but a service 404s** — the service's container isn't on the
   `proxy` network or its `traefik.*` labels are wrong; `docker network inspect
   proxy` should list traefik + the service.

@@ -118,7 +118,7 @@ If the UI won't take a wildcard on your firmware:
 TLS is real and automated: Traefik on the infra VM holds a genuine Let's
 Encrypt wildcard for `*.thefipster.de`, issued via the DNS-01 challenge against
 the netcup API — no browser warnings, no internal CA, nothing exposed to the
-internet. Setup, staging→production flow, and troubleshooting:
+internet. Setup, first issuance, and troubleshooting:
 [traefik-setup.md](traefik-setup.md).
 
 ## Sources
