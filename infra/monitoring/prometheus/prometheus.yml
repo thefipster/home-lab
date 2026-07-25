@@ -1,0 +1,15 @@
+# Prometheus here is STORAGE + QUERY ONLY.
+#
+# There are deliberately NO scrape_configs: Alloy is the single collector for
+# the whole lab and pushes everything in by remote write (enabled with
+# --web.enable-remote-write-receiver in compose.yaml). Adding scrape jobs here
+# would create a second, parallel path into storage — see the phase 1 design
+# spec. That means this server's own "Targets" page stays EMPTY BY DESIGN;
+# debug collection in Alloy's UI (127.0.0.1:12345 on the VM) instead.
+#
+# Retention lives on the command line (--storage.tsdb.retention.time=15d),
+# not in this file.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
