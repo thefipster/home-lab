@@ -84,13 +84,12 @@ Then:
    docker compose logs -f traefik
    ```
 
-> **No cert request until a service needs one.** Traefik requests certificates
-> when a *router* demands TLS, and routers only exist once a labeled container
-> is running on the `proxy` network. With Traefik up alone, the log stops after
-> `Testing certificate renew...` and stays idle — that's expected. In the build
-> order the first routed stack is **Authentik**
-> ([authentik-setup.md](authentik-setup.md), Part 0): bring it up and the
-> wildcard request fires immediately.
+> **The wildcard request fires at startup.** The compose declares the cert
+> domains at the *entrypoint* (`tls.domains` + `certresolver`), so Traefik
+> requests `*.thefipster.de` the moment it starts — no router or routed
+> service needs to exist first. Expect `Register...` and `Obtaining bundled
+> SAN certificate` in the log right away, followed by the propagation wait
+> described below.
 >
 > You will also see `middleware "authentik@docker" does not exist` errors until
 > Authentik is running — the dashboard router (and later Dockge's) is gated by
@@ -113,12 +112,14 @@ fresh machine, **uncomment the staging line for the first bring-up**: staging
 certs are untrusted by browsers but have very generous rate limits — perfect
 for proving the netcup credentials and propagation timing without risk.
 
-**0. Trigger issuance.** Certificates are only requested once a routed stack
-runs (see the note above), so bring up **Authentik** now:
-[authentik-setup.md](authentik-setup.md), Part 0, up to and including
-`docker compose up -d` — then come back here and watch the Traefik logs.
-Hold off on Authentik's login step until step 2 below is done: until the
-switch to production, the portal serves the untrusted staging cert.
+**0. Nothing to trigger.** The certificate request is already in flight — it
+fired when Traefik started (see the note above); just watch the logs through
+the propagation wait. The `acme.json` check below works with Traefik alone;
+the `curl`/browser checks need something actually *served* on the host, and
+the first such stack is **Authentik** ([authentik-setup.md](authentik-setup.md),
+Part 0 — next in the build order). Hold off on Authentik's login step until
+step 2 below is done: until the switch to production, everything serves the
+untrusted staging cert.
 
 **1. Verify the staging cert arrived.** In the logs, look for the certificate
 being obtained; then:

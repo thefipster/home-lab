@@ -65,11 +65,10 @@ the sequence is:
 
 1. `scripts/init-host.sh` — installs Docker Engine + compose plugin (Ubuntu).
 2. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
-   `.env` from `.env.example`. With Traefik up alone, no cert is requested yet
-   (no routers exist).
+   `.env` from `.env.example`. The entrypoint-level `tls.domains` makes
+   Traefik request the wildcard cert at startup — no router needed.
 3. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
-   into `.env`. Authentik is the first *routed* stack, so bringing it up
-   triggers the first wildcard issuance — and it must run before the
+   into `.env`. Authentik is the first *routed* stack and must run before the
    forward-auth-gated routers (Dockge, Traefik dashboard) can load.
 4. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at

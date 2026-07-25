@@ -35,6 +35,8 @@ services:
       - --entrypoints.websecure.address=:443
       # Every websecure router gets TLS from the letsencrypt resolver and is
       # covered by the one wildcard cert below — no per-router TLS labels.
+      # Declaring the domains at the ENTRYPOINT also means Traefik requests
+      # the wildcard proactively at STARTUP — no router needs to exist first.
       # Wildcard ONLY, no apex SAN: apex + wildcard need two TXT records at
       # the same FQDN (_acme-challenge), and netcup's non-atomic zone updates
       # race on that — one value gets clobbered and validation times out.

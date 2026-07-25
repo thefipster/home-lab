@@ -32,10 +32,12 @@ Same two-location convention as the Forgejo stack:
 ## Part 0 — Bring up Authentik
 
 Traefik must be up first (Authentik is served at `https://auth.thefipster.de`).
-Authentik is the **first routed stack** in the build order, so bringing it up
-is also what triggers Traefik's first wildcard certificate request — have the
-[staging→production flow](traefik-setup.md#staging--production) at hand; the
-first issuance takes 10–15 minutes.
+Authentik is the **first routed stack** — the first thing Traefik actually
+serves. The wildcard certificate was already *requested* when Traefik started
+(first issuance takes 10–15 minutes); if that's still running, or you began on
+the staging CA, finish the
+[staging→production flow](traefik-setup.md#staging--production) before
+expecting a trusted cert here.
 
 ```bash
 cd ~/home-lab
@@ -53,9 +55,8 @@ docker compose up -d
 docker compose logs -f server    # wait for migrations; first boot takes a minute
 ```
 
-> **First bring-up?** Starting Authentik is what triggers Traefik's first
-> certificate request, and the portal serves an **untrusted staging cert**
-> until you complete the
+> **First bring-up on the staging CA?** The portal serves an **untrusted
+> staging cert** until you complete the
 > [staging→production switch](traefik-setup.md#staging--production) in the
 > Traefik guide. Do that now, then come back and log in below.
 

@@ -94,8 +94,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and the infra host records.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
-   infra VM (netcup DNS-01). With Traefik alone no cert is requested yet — the
-   first routed stack (Authentik, next) triggers issuance.
+   infra VM (netcup DNS-01). The wildcard cert is requested at startup —
+   expect the ~10–15 min netcup propagation wait on first issuance.
 4. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM. Comes before
    the services it gates: Dockge and the Traefik dashboard reference its
    forward-auth middleware, so their routers only load once Authentik runs.
