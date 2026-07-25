@@ -36,6 +36,11 @@ fi
 echo "==> Creating persistent data tree under /opt/authentik"
 run_root mkdir -p /opt/authentik/postgres /opt/authentik/redis \
   /opt/authentik/media /opt/authentik/certs /opt/authentik/templates
+# server + worker run as UID/GID 1000 (non-root image) and must be able to
+# write these mounts — the tenant_files migration creates /media/public on
+# boot and crash-loops on a root-owned dir. Postgres/redis manage their own.
+run_root chown -R 1000:1000 /opt/authentik/media /opt/authentik/certs \
+  /opt/authentik/templates
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "==> Seeding ${ENV_FILE} from .env.example"
