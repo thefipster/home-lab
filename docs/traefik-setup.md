@@ -1,198 +1,266 @@
-# Traefik + Let's Encrypt via netcup DNS-01 (infra VM)
+# Traefik — TLS termination and routing (infra VM)
 
-Terminates TLS for every infra-VM service on real domain names — the full
-hostname set is in the registry, [dns-records.md](dns-records.md) — with
-one **wildcard certificate** (`*.thefipster.de`) from Let's Encrypt. The
-wildcard is deliberately the *only* name on the cert — no apex SAN: apex +
-wildcard would need two TXT records at the same `_acme-challenge` FQDN, and
-netcup's non-atomic zone updates race on that (one value clobbers the other
-and validation times out). Nothing is served at the bare apex anyway. See the [main README](../README.md) for how this fits into the wider
-homelab.
+**Prerequisite:** [wildcard-dns-udr.md](wildcard-dns-udr.md) complete — every
+record from [dns-records.md](dns-records.md) resolving, and the repo plus
+Docker on the infra VM ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm)).
 
-## How it works (and why nothing is exposed)
+Traefik is the only thing on the infra VM that terminates TLS and routes
+traffic. It serves every service on a real hostname under **one wildcard
+certificate** (`*.thefipster.de`) from Let's Encrypt, obtained through the
+**DNS-01 challenge** against the netcup API — so nothing is exposed to the
+internet and there is no internal CA to trust. Other stacks become reachable
+by joining the `proxy` network and adding `traefik.*` labels; no central
+configuration file lists them.
 
-The **DNS-01 challenge** proves domain control by publishing a temporary
-`_acme-challenge` TXT record in public DNS — no inbound connectivity needed, so
-the lab stays LAN-only with ports 80/443 reachable only from your own network.
-Traefik's ACME client has a built-in `netcup` provider: it creates and deletes
-the TXT records through the netcup DNS API automatically, at first issuance and
-at every renewal, forever.
+Nothing is routed yet when this guide finishes, and that is expected — Traefik
+comes up first precisely so everything after it has somewhere to be served.
 
-The public netcup zone never holds A records for the lab. Name resolution is
-**split-horizon**: the UniFi router answers `git.thefipster.de` → `192.168.1.41`
-locally (see [wildcard-dns-udr.md](wildcard-dns-udr.md)); publicly the name
-resolves to nothing. The only lab fingerprint visible to the internet is the
-Certificate Transparency log entry for `*.thefipster.de` — wildcards keep the
-individual hostnames private.
+## Steps
 
-One Traefik per VM: this stack serves the infra VM. The apps VM (Coolify) will
-run its own proxy with its own wildcard cert later — see
-[Apps VM](#apps-vm-later-coolify) below. No certs are copied between machines.
+### 1. Get netcup API credentials
 
-## Prerequisites
+In the netcup CCP (customer control panel): **Master Data → API** → generate an
+**API key** and an **API password**. The **customer number** is the number you
+log in with. Confirm the domain still uses netcup's nameservers:
 
-- The domain uses **netcup's nameservers** (it does, unless you've delegated it
-  away — check with `dig NS thefipster.de +short`).
-- **netcup API credentials**: log in to the CCP (customer control panel) →
-  **Master Data → API** → generate an **API key** and an **API password**. The
-  **customer number** is the number you log in to the CCP with.
-- The **local DNS records** from the registry ([dns-records.md](dns-records.md))
-  are in place — every infra host record → `.41`, wildcard → `.42`; added per
-  [wildcard-dns-udr.md](wildcard-dns-udr.md).
-- The repo and Docker are on the infra VM
-  ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm):
-  clone to `~/home-lab`, `init-host.sh`, re-login).
+```bash
+dig NS thefipster.de +short
+```
 
-## Bring-up
+### 2. Run the init script
 
-From `~/home-lab` on the infra VM:
+```bash
+cd ~/home-lab
+```
 
 ```bash
 scripts/init-traefik.sh
 ```
 
-This creates the shared `proxy` Docker network, the persistent ACME dir
+This creates the shared `proxy` Docker network and the ACME directory
 (`/opt/traefik/letsencrypt`), seeds `infra/traefik/.env` from `.env.example`,
-and links the stack into `/opt/stacks` for Dockge.
+and symlinks the stack into `/opt/stacks` for Dockge later.
 
-Then:
+### 3. Fill in the credentials
 
-1. Edit `infra/traefik/.env` — set `ACME_EMAIL` and the three netcup values.
-   The file is gitignored; credentials never leave the VM.
-2. Start the stack and watch the first issuance:
+Edit `infra/traefik/.env` and set `ACME_EMAIL` plus the three `NETCUP_*`
+values from step 1. The file is gitignored — credentials never leave the VM.
 
-   ```bash
-   cd infra/traefik
-   docker compose up -d
-   docker compose logs -f traefik
-   ```
+```bash
+nano ~/home-lab/infra/traefik/.env
+```
 
-> **The wildcard request fires at startup.** The compose declares the cert
-> domains at the *entrypoint* (`tls.domains` + `certresolver`), so Traefik
-> requests `*.thefipster.de` the moment it starts — no router or routed
-> service needs to exist first. Expect `Register...` and `Obtaining bundled
-> SAN certificate` in the log right away, followed by the propagation wait
-> described below.
->
-> You will also see `middleware "authentik@docker" does not exist` errors until
-> Authentik is running — the dashboard router (and later Dockge's) is gated by
-> that middleware and simply won't load before then. Expected during bring-up;
-> gone once the Authentik stack is up.
+### 4. Start the stack and watch the first issuance
 
-> **First issuance takes 10–15 minutes. This is normal.** netcup's nameservers
-> are slow to publish new records, and Let's Encrypt can't validate the
-> challenge until they have. The compose file sets
-> `NETCUP_PROPAGATION_TIMEOUT=900` / `NETCUP_POLLING_INTERVAL=30` for exactly
-> this reason — don't panic at the quiet log, and don't restart the container
-> mid-challenge. Renewals (every ~60 days) run unattended; you'll never watch
-> this again.
+```bash
+cd ~/home-lab/infra/traefik
+```
 
-## First issuance
+```bash
+docker compose up -d
+```
 
-The compose points straight at Let's Encrypt **production** — one challenge
-total, and the request is already in flight from startup (see the note
-above). There is nothing to trigger; just watch the logs through the
-propagation wait.
+```bash
+docker compose logs -f traefik
+```
 
-**Verify the cert arrived.** In the logs, look for the certificate being
-obtained; then:
+> **The wildcard request fires at startup.** The certificate domains are
+> declared at the *entrypoint*, so Traefik asks for `*.thefipster.de` the
+> moment it starts — no router or routed service has to exist first. Expect
+> `Register...` and `Obtaining bundled SAN certificate` right away.
+
+> **First issuance takes 10–15 minutes. This is normal.** netcup publishes new
+> TXT records slowly and Let's Encrypt cannot validate until they appear. The
+> compose sets a 900-second propagation timeout for exactly this reason — don't
+> panic at the quiet log, and **don't restart the container mid-challenge**.
+> Renewals run unattended from here; you will never watch this again.
+
+> **`middleware "authentik@docker" does not exist` is expected here.** The
+> dashboard router is gated by a middleware Authentik provides, and Authentik
+> isn't up yet. The error stops once it is
+> ([authentik-setup.md](authentik-setup.md)).
+
+### 5. Verify
+
+Everything below works with **only Traefik running** — no other stack needed.
+
+**The certificate was issued:**
 
 ```bash
 docker compose exec traefik grep -o '"main": *"[^"]*"' /letsencrypt/acme.json
 ```
 
-`acme.json` should mention `thefipster.de` — this check works with Traefik
-alone. The `curl`/browser checks need something actually *served* on the
-host, and the first such stack is **Authentik**
-([authentik-setup.md](authentik-setup.md), Part 0 — next in the build order);
-once it's up:
+Expect a line mentioning `thefipster.de`.
+
+**It is the real, trusted certificate:**
 
 ```bash
-curl -Is https://auth.thefipster.de | head -1
+echo | openssl s_client -connect 127.0.0.1:443 -servername traefik.thefipster.de 2>/dev/null | openssl x509 -noout -subject -issuer -dates
 ```
 
-A clean `HTTP/2 200` (or `303` to the login page) with no TLS warning means
-you're done — renewals (every ~60 days) run unattended from here.
+Expect subject `*.thefipster.de`, an issuer naming **Let's Encrypt**, and a
+validity window that contains today. (A self-signed `TRAEFIK DEFAULT CERT`
+means issuance has not finished — keep watching the log.)
 
-> **If issuance keeps failing, don't hammer production** — it allows ≈5
-> failed validations per hostname per hour and ≈5 duplicate certs per week.
-> Uncomment the staging `caserver` line in `infra/traefik/compose.yaml`
-> (untrusted certs, generous limits), recreate, and debug with the
-> [Troubleshooting](#troubleshooting) section. To switch CAs in either
-> direction: edit the `caserver` line, then
-> `sudo rm /opt/traefik/letsencrypt/acme.json` and
-> `docker compose up -d --force-recreate`.
+**TLS and routing are wired end to end:**
 
-## Verification checklist
+```bash
+curl -Is https://traefik.thefipster.de | head -1
+```
 
-Immediately after this guide (only Traefik + Authentik up):
+Expect **`HTTP/2 404`** — and that 404 *is* the success condition. It proves
+the name resolved to this VM, the TLS handshake completed against a publicly
+trusted certificate (curl verifies by default; a bad cert would error instead
+of returning a status), and Traefik answered. The 404 itself is the dashboard
+router refusing to load without Authentik's middleware, exactly as expected at
+this point in the build.
 
-- [ ] `curl -I https://auth.thefipster.de` — succeeds, production Let's Encrypt cert
-- [ ] `http://auth.thefipster.de` redirects to `https://`
+**HTTP redirects to HTTPS:**
 
-As the later stacks come up ([authentik-setup.md](authentik-setup.md),
-[forgejo-setup.md](forgejo-setup.md)):
+```bash
+curl -Is http://traefik.thefipster.de | head -1
+```
 
-- [ ] `curl -I https://dockge.thefipster.de` — succeeds (via the Authentik redirect)
-- [ ] `curl -I https://git.thefipster.de` — succeeds, same cert
-- [ ] `docker login git.thefipster.de` works from a machine with **zero** Docker
-      daemon config — no `insecure-registries` anywhere, on any host
+Expect `HTTP/1.1 301 Moved Permanently`.
 
-## Dashboard
+### Checklist
 
-The API/dashboard is enabled (`--api.dashboard=true`) and served at
-`https://traefik.thefipster.de`, but **only** because Authentik forward-auth
-gates it (`traefik.http.routers.dashboard.middlewares: authentik@docker`). Do
-not expose it without that middleware. See [authentik-setup.md](authentik-setup.md).
+- [ ] `acme.json` names `thefipster.de`
+- [ ] `openssl s_client` shows a Let's Encrypt–issued `*.thefipster.de` cert
+- [ ] `https://traefik.thefipster.de` → `HTTP/2 404` with **no** TLS warning
+- [ ] `http://traefik.thefipster.de` → `301`
+
+## Next
+
+**[authentik-setup.md](authentik-setup.md)** — SSO. It is the first stack
+Traefik actually serves, and it provides the forward-auth middleware that
+makes the dashboard (and later Dockge) reachable.
 
 ## Troubleshooting
 
-- **`did not return the expected TXT record` with NOTHING after the colon,
-  while the record is visible in the CCP** — a resolver negative-cached an
-  empty answer from a too-early query (typical after a failed order deleted
-  and re-created the record). This is why the compose points the propagation
-  check at netcup's **authoritative** nameservers
-  (`root-dns`/`second-dns`/`third-dns.netcup.net`) instead of public
-  resolvers: authoritative servers don't cache, so the check clears the
-  moment netcup publishes. If you changed the `resolvers` line, change it
-  back.
-- **Propagation timeout in the logs** — netcup was even slower than 15 minutes.
-  Raise `NETCUP_PROPAGATION_TIMEOUT` (e.g. `1800`) in the compose file and
-  recreate. Also confirm the domain really is on netcup NS:
-  `dig NS thefipster.de +short`.
-- **`did not return the expected TXT record` but the error lists *other*
-  values** — the resolver can see TXT records at `_acme-challenge`, just not
-  the expected one. This is the same-FQDN race: the cert requested more than
-  one name validated at the same challenge FQDN (e.g. apex + wildcard), and
-  netcup's non-atomic zone writes clobbered one value. Keep the cert
-  wildcard-only (the shipped config), or if you truly need the apex, expect
-  retries.
-- **Auth errors mentioning the netcup API** (`docker compose logs traefik | grep -i acme`) —
-  customer number / API key / API password mismatch. Regenerate the API
-  password in the CCP if unsure; it's only shown once.
-- **Rate limits** — production allows ≈5 duplicate certs per week and ≈5
-  failed validations per hostname per hour. If issuance keeps failing, switch
-  to the staging CA to debug (see [First issuance](#first-issuance)) instead
-  of retrying against production; if you do get limited, staging still works
-  while you wait it out.
-- **Cert renews but a service 404s** — the service's container isn't on the
-  `proxy` network or its `traefik.*` labels are wrong; `docker network inspect
-  proxy` should list traefik + the service.
+**`certificate has expired or is not yet valid` after a Proxmox snapshot
+rollback.** The VM clock is stale, not the certificate — a rollback resumes the
+guest with its clock frozen at snapshot time, before the cert was issued. See
+[proxmox-setup.md, Part 8](proxmox-setup.md#part-8--snapshot-before-you-build);
+the immediate fix is:
 
-## Apps VM later (Coolify)
+```bash
+sudo chronyc makestep
+```
 
-Coolify bundles its own Traefik. When you install it on the apps VM, give that
-proxy the same three `NETCUP_*` variables and the same wildcard-only
-(`*.thefipster.de`) DNS-01 configuration — it issues and
-renews its **own** cert, independent of the infra VM. The DNS side is already
-done: `*.thefipster.de` points at `.42`, so every app Coolify deploys gets a
-working HTTPS hostname with zero DNS work.
+**`did not return the expected TXT record`, with nothing after the colon,
+while the record is visible in the CCP.** A resolver negative-cached an empty
+answer from a too-early query. This is why the compose points the propagation
+check at netcup's **authoritative** nameservers rather than public resolvers —
+authoritative servers don't cache, so the check clears the moment netcup
+publishes. If you changed the `resolvers` line, change it back.
 
-## Escape hatch: if netcup propagation ever becomes unbearable
+**`did not return the expected TXT record`, but the error lists *other*
+values.** The same-FQDN race: more than one name is being validated at the same
+`_acme-challenge` FQDN (e.g. apex + wildcard) and netcup's non-atomic zone
+writes clobbered one value. Keep the certificate wildcard-only, as shipped.
 
-The slow first issuance is a one-time cost per machine, but if it ever matters:
-delegate just the challenge record via CNAME —
-`_acme-challenge.thefipster.de` → a zone on a fast ACME-oriented DNS service
-(acme-dns, deSEC). Traefik/lego follows the CNAME and updates the fast zone
-instead; netcup keeps serving everything else. Documented as an option only —
-not built, and with renewals running unattended you're unlikely to need it.
+**Propagation timeout.** netcup was slower than 15 minutes. Raise
+`NETCUP_PROPAGATION_TIMEOUT` (e.g. `1800`) in the compose file and recreate.
+Confirm the domain really is on netcup nameservers with `dig NS`.
+
+**Authentication errors mentioning the netcup API.**
+
+```bash
+docker compose logs traefik | grep -i acme
+```
+
+Customer number, API key or API password mismatch. Regenerate the API password
+in the CCP if unsure — it is shown only once.
+
+**Issuance keeps failing.** Don't hammer production: it allows roughly 5 failed
+validations per hostname per hour and 5 duplicate certificates per week.
+Uncomment the staging `caserver` line in `infra/traefik/compose.yaml` and debug
+under its loose limits (certificates will be untrusted — that's fine for
+debugging). Switching CAs in either direction means discarding the account and
+certificate store:
+
+```bash
+sudo rm /opt/traefik/letsencrypt/acme.json
+```
+
+```bash
+docker compose up -d --force-recreate
+```
+
+**A service 404s even though its stack is up.** Its container isn't on the
+`proxy` network, or its `traefik.*` labels are wrong:
+
+```bash
+docker network inspect proxy
+```
+
+Traefik and the service should both be listed.
+
+## Layout on the server
+
+| What | Where |
+|------|-------|
+| Compose project (this repo) | `infra/traefik/` |
+| Credentials | `infra/traefik/.env` — gitignored, VM-only |
+| ACME account + certificates | `/opt/traefik/letsencrypt/acme.json` |
+| Shared network | the external Docker network `proxy` |
+
+`acme.json` is the only state. Back it up if you like, but losing it costs only
+one re-issuance.
+
+## How it works
+
+**Why nothing is exposed.** The DNS-01 challenge proves domain control by
+publishing a temporary `_acme-challenge` TXT record in *public* DNS. No inbound
+connection is ever made to the lab, so ports 80 and 443 stay reachable only
+from the LAN. Traefik's ACME client drives the netcup API to create and delete
+those records itself, at first issuance and at every renewal, forever.
+
+**Split-horizon DNS.** The public netcup zone holds no A records for the lab;
+the UniFi router answers the lab's names locally
+([wildcard-dns-udr.md](wildcard-dns-udr.md)). Publicly the names resolve to
+nothing. The only fingerprint visible to the internet is the Certificate
+Transparency entry for `*.thefipster.de` — and a wildcard keeps the individual
+hostnames private.
+
+**One wildcard, no per-router TLS.** The certificate domains are declared once,
+on the `websecure` entrypoint, so every `websecure` router is covered
+automatically. When adding a service, copy the label block from
+`infra/forgejo` or `infra/dockge` and change the host and port — **never** add
+a TLS resolver or domain per router.
+
+**No apex SAN, deliberately.** Apex + wildcard would need two TXT records at
+the same `_acme-challenge` FQDN, and netcup's non-atomic zone updates race on
+that: one value clobbers the other and validation times out. Nothing is served
+at the bare apex anyway.
+
+**Straight to production.** First bring-up targets the production CA — one
+challenge total. Staging exists only as a commented `caserver` line for
+debugging repeated failures under looser rate limits.
+
+**The dashboard is gated, not public.** `--api.dashboard=true` is on, but the
+router carries `middlewares: authentik@docker`. Never serve it without that.
+
+## Apps VM, later (Coolify)
+
+Coolify bundles its own Traefik. Give that proxy the same three `NETCUP_*`
+variables and the same wildcard-only DNS-01 configuration; it issues and renews
+its **own** certificate, independent of this VM. No certificates are ever
+copied between machines. The DNS side is already done —
+`*.thefipster.de` points at the apps VM, so every app Coolify deploys gets a
+working HTTPS hostname with no new DNS records.
+
+## Escape hatch: if netcup propagation becomes unbearable
+
+Delegate just the challenge record: `CNAME _acme-challenge.thefipster.de` to a
+zone on a fast ACME-oriented service (acme-dns, deSEC). Traefik's ACME client
+follows the CNAME and updates the fast zone instead, while netcup keeps serving
+everything else. Documented as an option only — not built, and with renewals
+running unattended you are unlikely to need it.
+
+## Next
+
+**[authentik-setup.md](authentik-setup.md)** — SSO, and the first stack served
+through this proxy. The full sequence is in the
+[README build order](../README.md#build-order).

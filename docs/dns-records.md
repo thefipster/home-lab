@@ -48,9 +48,16 @@ Traefik problem when it isn't.
 
 From any LAN client resolving through the UDR:
 
+Each exact record should return the IP from the table above:
+
 ```bash
-getent hosts git.thefipster.de    # each exact record → the IP in the table
-getent hosts foo.thefipster.de    # any unlisted name → 192.168.1.42 (wildcard)
+getent hosts git.thefipster.de
+```
+
+Any unlisted name should fall through to the wildcard, `192.168.1.42`:
+
+```bash
+getent hosts foo.thefipster.de
 ```
 
 The full three-layer verification (workstation, VM, inside a container) is in

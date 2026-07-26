@@ -5,6 +5,17 @@ physical server is a hypervisor; everything real runs in VMs, split by purpose:
 **infrastructure** services on one, **your own apps** on another. This repo holds
 the compose stacks, setup scripts, and step-by-step guides to reproduce it.
 
+## Start here
+
+Building it from scratch? Go straight to
+**[docs/proxmox-setup.md](docs/proxmox-setup.md)** — each guide ends by linking
+the next, in the order below. The [build order](#build-order) is the map; the
+rest of this page is context you can read later.
+
+Every guide assumes a **from-scratch** bring-up of the current checkout. There
+are no migration paths and no upgrade branches — if a guide tells you to
+`git pull` anywhere but the initial clone, that is a bug.
+
 ## Architecture
 
 ```
@@ -62,11 +73,12 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
 │   ├── dns-records.md            Registry: every DNS record the lab needs
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
-│   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
 │   ├── sso-applications.md       Registry: every service behind Authentik
-│   ├── grafana-setup.md          Grafana platform: stack, routing, OIDC
-│   ├── monitoring-setup.md       Configuring what's monitored (logs, metrics)
+│   ├── dockge-setup.md           Dockge, the compose management UI
+│   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
+│   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
+│   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
@@ -102,28 +114,30 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 
 ## Build order
 
-1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install the
-   hypervisor, create the `infra` and `apps` VMs.
+1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
+   the hypervisor, create the `infra` and `apps` VMs.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
-   wildcard, and **every** infra host record from the registry
-   ([docs/dns-records.md](docs/dns-records.md)) — later steps assume they
-   exist.
+   wildcard, and **every** infra host record. Add the complete set now from the
+   registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
+   assumes they exist, and a missing record surfaces much later as a 404 behind
+   a valid certificate.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
-   infra VM (netcup DNS-01). The wildcard cert is requested at startup —
-   expect the ~10–15 min netcup propagation wait on first issuance.
-4. **[Authentik](docs/authentik-setup.md)** — SSO on the infra VM. Comes before
-   the services it gates: Dockge and the Traefik dashboard reference its
-   forward-auth middleware, so their routers only load once Authentik runs.
-5. **[Forgejo](docs/forgejo-setup.md)** — Dockge for stack management, then
-   CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
-   (Authentik guide, Part B).
-6. **[Grafana platform](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
-   Alloy on the infra VM; Grafana joins Authentik by OIDC. Its
-   `grafana.thefipster.de` host record is part of the registry (created in
-   step 2) — verify it resolves to the infra VM.
-7. **[Monitoring configuration](docs/monitoring-setup.md)** — point the platform
-   at something: container logs, service + host metrics, OTLP ingest with
-   traces, and the dashboards and alerts on top.
+   infra VM (netcup DNS-01). The certificate is requested at startup; expect
+   the ~10–15 min netcup propagation wait on first issuance.
+4. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
+   gates: the Traefik dashboard and Dockge reference its forward-auth
+   middleware, so their routers do not load until it runs. Each service that
+   joins SSO gets its row in the registry,
+   **[docs/sso-applications.md](docs/sso-applications.md)**, first.
+5. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
+   after Authentik (it has no ports published and its route is gated), and
+   before the remaining stacks so they can be driven from a browser.
+6. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
+   to Authentik by OIDC.
+7. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
+   Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
+   (container logs, service + host metrics, OTLP with traces, dashboards and
+   alerts).
 8. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
 
 ## Status
@@ -134,9 +148,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | DNS (UDR split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed |
-| Dockge management UI | ✅ deployed |
-| Forgejo CI + registry | ✅ deployed |
-| Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete (phases 1–5) — [platform](docs/grafana-setup.md), [configuration](docs/monitoring-setup.md), [roadmap](docs/roadmap/monitoring.md) |
+| Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
+| Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
+| Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |

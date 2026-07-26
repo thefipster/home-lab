@@ -26,7 +26,7 @@ services:
       - --log.level=INFO
       # --- access log ------------------------------------------------------
       # One JSON object per request, on stdout — where Alloy already collects
-      # this container's logs like any other (see docs/monitoring-setup.md).
+      # this container's logs like any other (see docs/grafana-setup.md).
       # JSON so Grafana can parse fields at query time.
       # The APPLICATION log above stays human-readable on purpose: it's what
       # you actually read during ACME trouble. So this container's stream

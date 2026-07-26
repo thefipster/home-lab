@@ -16,8 +16,8 @@
 # infra/authentik/compose.yaml is untouched by this stack.
 #
 # Deploy (on the infra VM): scripts/init-monitoring.sh, then bring it up and
-# wire Authentik afterwards — see docs/grafana-setup.md, then
-# docs/monitoring-setup.md for what it observes.
+# wire Authentik afterwards — see docs/grafana-setup.md, which also covers
+# verifying what it observes (logs, metrics, OTLP, dashboards, alerts).
 
 name: monitoring
 

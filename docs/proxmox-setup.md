@@ -63,14 +63,29 @@ free **no-subscription** repo. UI path: *Datacenter → pve → Updates →
 Repositories* — disable the `pve-enterprise` and `ceph` enterprise repos, then
 **Add → No-Subscription**. Or via the node shell:
 
+Disable the enterprise repositories:
+
 ```bash
-# Disable enterprise repos
 sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list 2>/dev/null || true
+```
+
+```bash
 sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/ceph.list 2>/dev/null || true
-# Add the no-subscription repo
-echo "deb http://download.proxmox.com/debian/pve $(. /etc/os-release && echo $VERSION_CODENAME) pve-no-subscription" \
-  > /etc/apt/sources.list.d/pve-no-subscription.list
+```
+
+Add the no-subscription repository:
+
+```bash
+echo "deb http://download.proxmox.com/debian/pve $(. /etc/os-release && echo $VERSION_CODENAME) pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+```
+
+Update and reboot:
+
+```bash
 apt update && apt -y dist-upgrade
+```
+
+```bash
 reboot
 ```
 
@@ -120,9 +135,14 @@ prompted).
 
 ## Part 6 — In-guest setup (run in each VM)
 
+Install the guest agent so Proxmox can see the VM's IP and shut it down
+cleanly:
+
 ```bash
-# Let Proxmox see the VM's IP and do clean shutdowns
 sudo apt update && sudo apt -y install qemu-guest-agent
+```
+
+```bash
 sudo systemctl enable --now qemu-guest-agent
 ```
 
@@ -144,13 +164,20 @@ Everything the infra VM runs is driven from this repo, so get it and Docker
 onto that VM now:
 
 ```bash
-cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
-scripts/init-host.sh
+cd ~ && git clone <this-repo> home-lab
+```
+
+```bash
+cd ~/home-lab && scripts/init-host.sh
 ```
 
 Then **log out and back in** (or run `newgrp docker`) so your user picks up
 the `docker` group — until you do, every `docker ...` command fails with
 "permission denied".
+
+Besides Docker, the script also reconfigures the VM's time-sync daemon so a
+snapshot rollback can't leave the clock permanently skewed — see the note in
+[Part 8](#part-8--snapshot-before-you-build) for why that matters.
 
 Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
 path, and Dockge later bind-mounts this checkout at the same absolute path —
@@ -167,6 +194,36 @@ the payoff for choosing Proxmox.
 
 For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS target).
 
+> **Rolling back skews the clock.** A rollback resumes the guest with its clock
+> frozen at the moment the snapshot was taken — potentially days behind. Until
+> the clock corrects, TLS fails in confusing ways: anything validating a
+> certificate issued *after* the snapshot errors with `certificate has expired
+> or is not yet valid`, which looks like a cert problem and isn't. Worse,
+> chrony's default policy (`makestep 1 3`) steps the clock only during its
+> first three updates after the service starts — a rollback happens long after
+> those, so a large offset would only ever be slewed, i.e. effectively never
+> corrected. On the **infra VM**, `scripts/init-host.sh` (Part 7) fixes the
+> policy (`makestep 1 -1` — step at any time), so the clock corrects itself
+> within moments of the next sync. To force it right away:
+>
+> ```bash
+> sudo chronyc makestep
+> ```
+>
+> (On a VM running systemd-timesyncd instead of chrony:
+> `sudo systemctl restart systemd-timesyncd`.)
+>
+> The **apps VM** never runs `init-host.sh`, so if you snapshot it — you should
+> — apply the same drop-in there once:
+>
+> ```bash
+> printf 'makestep 1 -1\n' | sudo tee /etc/chrony/conf.d/90-step-any-offset.conf
+> ```
+>
+> ```bash
+> sudo systemctl restart chrony
+> ```
+
 ---
 
 ## Optional — faster VM creation with cloud-init
@@ -178,15 +235,11 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ---
 
-## Next steps
+## Next
 
-1. **DNS** — the reservations and records from Part 6:
-   [dns-records.md](dns-records.md) is the registry of what to add,
-   [wildcard-dns-udr.md](wildcard-dns-udr.md) the how-to.
-2. **infra VM** (repo + Docker already on it from Part 7) — **Traefik**
-   ([traefik-setup.md](traefik-setup.md)) for TLS + routing, then **Authentik**
-   ([authentik-setup.md](authentik-setup.md)) for SSO, then
-   [Dockge](../infra/dockge/) and the Forgejo stack
-   ([forgejo-setup.md](forgejo-setup.md)).
-3. **apps VM** — install Coolify (guide TBD); `*.thefipster.de` already points
-   at it.
+**[wildcard-dns-udr.md](wildcard-dns-udr.md)** — put the lab's names on the
+router: the reservations and records from Part 6, with
+[dns-records.md](dns-records.md) as the registry of exactly what to add. Every
+guide after it assumes those records exist.
+
+The full sequence is the [README build order](../README.md#build-order).

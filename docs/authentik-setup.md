@@ -1,226 +1,263 @@
-# Authentik SSO (infra VM)
+# Authentik — single sign-on (infra VM)
 
-[Authentik](https://goauthentik.io) is the lab's single sign-on identity
-provider, at **`https://auth.thefipster.de`**, behind the
-[Traefik stack](traefik-setup.md) under the same wildcard cert. Services join
-it by one of two patterns — native **OIDC** where a service has real SSO
-support or authenticates non-browser traffic (`git push`, `docker login`, CI),
-**forward-auth** at the proxy for plain web UIs with none — never both. The
-full list of applications, and the exact values each is configured with, is
-the registry: **[sso-applications.md](sso-applications.md)**.
+**Prerequisite:** [traefik-setup.md](traefik-setup.md) complete — the wildcard
+certificate issued and Traefik serving.
 
-This guide wires the first three: Dockge and the Traefik dashboard by
-forward-auth (Part A), Forgejo by OIDC (Part B). Grafana joins later, also by
-OIDC, in [grafana-setup.md](grafana-setup.md).
+[Authentik](https://goauthentik.io) is the lab's identity provider, at
+**`https://auth.thefipster.de`**. It is the first stack Traefik actually
+serves, and it must run before the services it gates: the Traefik dashboard
+and Dockge reference a forward-auth middleware that Authentik provides, so
+their routers do not load without it.
 
-Forward-auth is **per application**: each protected host has its own Authentik
-Application + access policy, so services are authorized independently.
+Services join SSO by **one of two patterns, never both**:
 
-> **Break-glass first.** This is a single-node lab. Forgejo keeps **local login
-> enabled**, so an Authentik outage never locks you out of git. Forward-auth
-> guards only the browser route: comment the one `middlewares` label on Dockge
-> or Traefik and `docker compose up -d` to bypass. `akadmin` is Authentik's own
-> recovery account.
+- **OIDC** — for services with real SSO support, or that authenticate
+  non-browser traffic (`git push`, `docker login`, CI). Forgejo and Grafana.
+- **Forward-auth** — at the proxy, for plain web UIs with no SSO support at
+  all. The Traefik dashboard and Dockge.
+
+The full list of applications and the exact values each is created with is the
+registry: **[sso-applications.md](sso-applications.md)**. This guide sets up
+Authentik itself and gates the Traefik dashboard; the other services join from
+their own guides.
+
+> **Break-glass first.** This is a single-node lab, so plan for Authentik being
+> down. `akadmin` is Authentik's own recovery account. Forgejo and Grafana keep
+> **local login enabled**. Forward-auth guards only the browser route: comment
+> one label to bypass it. See [Break-glass](#break-glass).
+
+## Steps
+
+### 1. Run the init script
+
+```bash
+cd ~/home-lab
+```
+
+```bash
+scripts/init-authentik.sh
+```
+
+It creates `/opt/authentik/{postgres,redis,media,certs,templates}`, generates
+`AUTHENTIK_SECRET_KEY`, `PG_PASS` and `AUTHENTIK_BOOTSTRAP_PASSWORD` into
+`infra/authentik/.env`, and symlinks the stack into `/opt/stacks`.
+
+Read the bootstrap password out now — it is the initial `akadmin` login, and it
+is applied **only when akadmin is first created**:
+
+```bash
+grep AUTHENTIK_BOOTSTRAP_PASSWORD ~/home-lab/infra/authentik/.env
+```
+
+### 2. Start the stack and log in
+
+```bash
+cd ~/home-lab/infra/authentik
+```
+
+```bash
+docker compose up -d
+```
+
+```bash
+docker compose logs -f server
+```
+
+Wait for migrations to finish; first boot takes a minute. Then check that
+Traefik is serving it:
+
+```bash
+curl -Is https://auth.thefipster.de | head -1
+```
+
+Expect `HTTP/2 200` (or a `302`/`303` to the login flow) with no TLS warning —
+this is the first check that exercises the certificate against a real service.
+
+Open **`https://auth.thefipster.de`** and log in as **`akadmin`** with the
+bootstrap password from step 1.
+
+### 3. Gate the Traefik dashboard (forward-auth)
+
+This is the click-path for **every** forward-auth service; Dockge repeats it
+later with its own values. All per-service values are in the registry:
+[sso-applications.md](sso-applications.md#forward-auth-dockge--traefik-dashboard).
+
+1. **Create the provider.** **Admin → Applications → Providers → Create →
+   Proxy Provider**. Set the name, authorization flow, mode
+   (*Forward auth (single application)*) and external host exactly as the
+   registry specifies. Save.
+2. **Create the application.** **Admin → Applications → Applications →
+   Create**. Name and slug from the registry; provider = the one you just
+   made. Save. Leave the bindings empty for now — that means *any*
+   authenticated user is allowed, which [step 5](#5-control-who-reaches-what)
+   tightens.
+3. **Attach it to the embedded outpost.** **Admin → Applications → Outposts →
+   `authentik Embedded Outpost` → Edit → Applications**: add `Traefik`. Save.
+   The outpost picks it up within a few seconds.
+
+The Traefik side needs no work — the `authentik@docker` middleware and the
+per-host `/outpost.goauthentik.io/` routers are already labels on the Authentik
+`server` container, and the dashboard router already carries the middleware.
+
+**Verify:** open `https://traefik.thefipster.de` in a **private window**. You
+are redirected to Authentik; after login the dashboard loads. (In a normal
+window you may already hold a session and sail straight through — the private
+window is what makes the redirect visible.)
+
+### 4. Add a user and a group
+
+`akadmin` is break-glass, not a daily driver.
+
+1. **Group:** **Admin → Directory → Groups → Create** — e.g. `lab-users`.
+   Groups are what you bind applications to. One shared group is enough until
+   more people than you use the lab.
+2. **User:** **Admin → Directory → Users → Create**. **Email matters:**
+   Forgejo's OIDC account linking matches on email, so give this user the same
+   address you will use for the Forgejo admin account
+   ([forgejo-setup.md](forgejo-setup.md)). Save, open the user, and click
+   **Set password** — the lab sends no recovery mail.
+3. **Membership:** on the user's **Groups** tab → **Add to existing group** →
+   `lab-users`.
+
+Keep regular users **out** of the built-in `authentik Admins` group — it grants
+superuser over Authentik itself. `akadmin` stays the only admin.
+
+### 5. Control who reaches what
+
+An application with **no** bindings admits **any** authenticated user. The
+moment it has at least one binding, everyone not matched is denied. To
+restrict one:
+
+1. **Admin → Applications → Applications** → open the app → **Policy / Group /
+   User Bindings**.
+2. **Bind existing Group / User** → `lab-users` → Save.
+
+Do this for every application in the [registry](sso-applications.md) as it is
+created. What "denied" means depends on the pattern:
+
+- **Forward-auth** (Traefik dashboard, Dockge): enforced at the proxy — the
+  user authenticates but gets Authentik's access-denied page instead of the
+  service.
+- **OIDC** (Forgejo, Grafana): gates only the "Sign in with authentik" path.
+  Local accounts are unaffected — that is the break-glass path.
+
+**Verify:** in a private window, sign in at `https://traefik.thefipster.de` as
+the new user → the dashboard loads. Remove the user from `lab-users` and retry
+→ Authentik shows access denied.
+
+### Checklist
+
+- [ ] `https://auth.thefipster.de` serves the portal on the wildcard cert
+- [ ] `akadmin` logs in with the bootstrap password
+- [ ] Unauthenticated `https://traefik.thefipster.de` redirects to Authentik,
+      then shows the dashboard
+- [ ] A `lab-users` member reaches it; removing them from the group denies
+      access
+- [ ] `Traefik` appears as its own application under **Admin → Events → Logs**
+
+## Next
+
+**[dockge-setup.md](dockge-setup.md)** — the compose management UI, and the
+second forward-auth application. From there on you can drive stacks from a
+browser.
+
+## Troubleshooting
+
+**"Invalid password" for akadmin on a first boot.** The bootstrap variables
+must reach the **worker** — blueprints, including the one that creates akadmin,
+are applied there, not on the server (the repo compose sets them on both).
+Check the worker actually has it:
+
+```bash
+docker compose exec worker printenv AUTHENTIK_BOOTSTRAP_PASSWORD
+```
+
+Then check whether akadmin got a usable password at all:
+
+```bash
+docker compose exec server ak shell -c "from authentik.core.models import User; print(User.objects.get(username='akadmin').has_usable_password())"
+```
+
+`False` means akadmin was created with **no** password. Fixing the environment
+alone does not help — bootstrap applies only at creation. Recover by setting
+one at `https://auth.thefipster.de/if/flow/initial-setup/`, or with the
+recovery key below.
+
+**`middleware "authentik@docker" does not exist` in Traefik's log.** Authentik
+isn't running (or its `server` container isn't on the `proxy` network). Any
+router referencing the middleware 404s until it is.
+
+**The login redirect loops, or the callback 404s.** Single-application forward
+auth runs its handshake on *each app's own domain*, so every protected host
+needs its own `/outpost.goauthentik.io/` router. Those are labels on the
+Authentik `server` container — a new protected host needs a new pair added
+there.
+
+**A new forward-auth app authenticates but always denies.** It is not attached
+to the embedded outpost (step 3.3), or it has a binding that doesn't match your
+user (step 5).
+
+## Break-glass
+
+- **Authentik itself** — `akadmin` is the recovery account.
+  `AUTHENTIK_BOOTSTRAP_PASSWORD` applies **only** at creation; editing it later
+  does nothing. To get back in:
+
+  ```bash
+  docker compose exec server ak create_recovery_key 10 akadmin
+  ```
+
+  That prints a one-time login link; open it and set a new password from the
+  akadmin user settings.
+
+- **Traefik dashboard / Dockge** — comment the
+  `traefik.http.routers.*.middlewares: authentik@docker` label and
+  `docker compose up -d` to bypass the gate. Dockge's own login remains
+  underneath; drive Docker over SSH meanwhile.
+
+- **Forgejo / Grafana** — local login stays enabled by design. Nothing to do.
 
 ## Layout on the server
-
-Same two-location convention as the Forgejo stack:
 
 | What | Where |
 |------|-------|
 | Compose project (this repo) | `infra/authentik/` |
+| Secrets | `infra/authentik/.env` — gitignored, VM-only |
 | Persistent data | `/opt/authentik/{postgres,redis,media,certs,templates}` |
 
-## Part 0 — Bring up Authentik
+Keep `.env`: `AUTHENTIK_SECRET_KEY` is **not recoverable**, and losing it
+invalidates all sessions and encrypted secrets.
 
-Traefik must be up first (Authentik is served at `https://auth.thefipster.de`).
-Authentik is the **first routed stack** — the first thing Traefik actually
-serves. The wildcard certificate was already *requested* when Traefik started
-([first issuance](traefik-setup.md#first-issuance) takes 10–15 minutes); until
-it completes, the portal serves Traefik's self-signed placeholder cert — wait
-it out before expecting a trusted cert here.
+## How it works
 
-```bash
-cd ~/home-lab
-scripts/init-authentik.sh     # data tree, generates secrets in .env, symlinks for Dockge
-```
+**Two patterns, one rule.** Anything with native SSO uses **OIDC** — it is
+stronger (the app knows *who* the user is, not merely that someone passed a
+gate) and it is the only option for non-browser traffic like `git push` or
+`docker login`. Forward-auth is the fallback for UIs that have no SSO at all,
+and it never applies to a service that could use OIDC. Never both on one
+service: two gates on one door means two places to debug and two ways to be
+locked out.
 
-`init-authentik.sh` auto-generates `AUTHENTIK_SECRET_KEY`, `PG_PASS` and
-`AUTHENTIK_BOOTSTRAP_PASSWORD` into `infra/authentik/.env`. The bootstrap
-password is the initial `akadmin` login — it is applied **only when akadmin is
-first created**, so read it out of `.env` before first boot. Then:
+**How forward-auth is wired.** Three pieces, all already in the repo:
 
-```bash
-cd ~/home-lab/infra/authentik
-docker compose up -d
-docker compose logs -f server    # wait for migrations; first boot takes a minute
-```
+1. A `forwardauth` middleware named `authentik` — declared as labels on the
+   Authentik `server` container, so Traefik discovers it as
+   `authentik@docker`.
+2. One `/outpost.goauthentik.io/` router **per protected host**, also on the
+   `server` container. Single-application forward auth completes its handshake
+   on the app's own domain, so each host must serve that path from the
+   outpost.
+3. A `middlewares: authentik@docker` label on the protected router itself.
 
-Open `https://auth.thefipster.de`, log in as **`akadmin`** with the bootstrap
-password. If the portal loads with a trusted cert, the stack and routing are
-good.
+The `server` container joins the `proxy` network under the explicit alias
+`authentik-server`; the default alias (`server`) would be far too generic on a
+network every stack joins.
 
-> **"Invalid password" for akadmin on a first boot?** The bootstrap variables
-> must reach the **worker** — blueprints, including the one that creates
-> akadmin, are applied there, not on the server (the repo compose sets them on
-> both). Diagnose with
-> `docker compose exec worker printenv AUTHENTIK_BOOTSTRAP_PASSWORD` (must
-> print the value) and
-> `docker compose exec server ak shell -c "from authentik.core.models import User; print(User.objects.get(username='akadmin').has_usable_password())"`
-> — `False` means akadmin was created with **no** password. Recover without
-> reinstalling: set one at `https://auth.thefipster.de/if/flow/initial-setup/`,
-> or use the recovery key from the break-glass section. Fixing the env alone
-> does *not* help an existing install — bootstrap applies only at creation.
+**Per application, not per proxy.** Each protected host gets its own Authentik
+Application and its own bindings, so access is authorized independently rather
+than "anyone who can log in gets everything".
 
-> Deploy Authentik **before** the stacks that reference `authentik@docker`
-> (Dockge, Traefik dashboard) — that's why it sits between Traefik and Dockge
-> in the build order. If those routers load while Authentik is down, Traefik
-> logs `middleware "authentik@docker" does not exist` and the route 404s.
+## Next
 
-## Part A — Forward-auth for Dockge and the Traefik dashboard
-
-Do this **once per service** — the per-service values (provider name,
-external host, application name/slug, mode, flow) are in the registry:
-[sso-applications.md](sso-applications.md#forward-auth-dockge--traefik-dashboard).
-
-1. **Create the provider.** In Authentik: **Admin → Applications → Providers →
-   Create → Proxy Provider** — name, authorization flow, mode and external
-   host exactly as the registry specifies. Save.
-2. **Create the application.** **Admin → Applications → Applications → Create**.
-   - Name / Slug: from the registry.
-   - Provider: the provider you just made.
-   - Save. (Leave the policy engine unset for now = allow any authenticated
-     user; [Part C](#part-c--add-users-and-control-who-reaches-what) adds
-     group bindings.)
-3. **Attach both to the embedded outpost.** **Admin → Applications → Outposts →
-   `authentik Embedded Outpost` → Edit → Applications**: add both `Dockge` and
-   `Traefik`. Save. The outpost updates within a few seconds.
-
-The Traefik side is already wired (repo stacks): the `authentik@docker`
-middleware and the per-host `/outpost.goauthentik.io/` routers live on the
-Authentik `server` container; Dockge and the dashboard carry the middleware
-label.
-
-**Verify:** the dashboard half works right away — open
-`https://traefik.thefipster.de` in a private window → you are redirected to
-Authentik, and after login the dashboard loads, gated. The Dockge half needs
-the Dockge stack running first (`scripts/init-dockge.sh` — next in the build
-order, documented in [forgejo-setup.md, Part 0](forgejo-setup.md)); then
-`https://dockge.thefipster.de` behaves the same way. Each shows up as an
-independent app in **Admin → Events → Logs**.
-
-> **Two logins at Dockge, by design.** Forward-auth is only the *outer* gate:
-> Authentik decides who may reach Dockge at all, but Dockge has no SSO
-> support and can't consume Authentik identities — its **own local login
-> stays underneath**. On the very first visit you'll land on Dockge's setup
-> screen: create its local admin there (an account that exists only inside
-> Dockge) and use *that* to log in. Authentik usernames are never valid
-> credentials in Dockge's own form. And if you don't see an Authentik
-> redirect at all, you're already logged in from an earlier verify —
-> forward-auth passes a valid session through silently; the private-window
-> test is what makes the flow visible.
-
-## Part B — Forgejo via OIDC
-
-Needs the Forgejo stack up and its admin account created
-([forgejo-setup.md](forgejo-setup.md), Parts 0–A) — come back here afterwards.
-
-All field values for both sides are in the registry:
-[sso-applications.md](sso-applications.md#forgejo-oidc).
-
-1. **Create the Forgejo provider in Authentik.** **Providers → Create →
-   OAuth2/OpenID Provider** — name, flow, client type, redirect URI and
-   signing key exactly as the registry specifies. Save, then note the
-   generated **Client ID** and **Client Secret**.
-2. **Create the application:** **Applications → Create** — name/slug from the
-   registry, provider `forgejo`.
-3. **Add the source in Forgejo.** **Site Administration → Identity & Access →
-   Authentication Sources → Add Authentication Source** — type, authentication
-   name and discovery URL exactly as the registry specifies (the name **must**
-   be `authentik`; the registry says why), Client ID / Client Secret from
-   step 1. Enable **Auto Registration**; set account linking to **automatic**
-   (link by email) so your Authentik identity maps onto the existing Forgejo
-   admin account (same email) instead of creating a second user. Save.
-4. **Do NOT disable local login** — leave password sign-in on (break-glass).
-
-**Verify:** log out of Forgejo, open `https://git.thefipster.de`, click **Sign
-in with authentik**, authenticate → you land in the existing admin account.
-Local username/password login still works.
-
-## Part C — Add users and control who reaches what
-
-`akadmin` is break-glass, not a daily driver. Create a normal account for
-yourself (and anyone else), put it in a group, and bind the applications to
-that group.
-
-### Create a group and a user
-
-1. **Group:** **Admin → Directory → Groups → Create** — e.g. `lab-users`.
-   Groups are what you bind to applications. One shared group is fine to
-   start; per-app groups (`dockge-users`, …) only pay off once more people
-   than you use the lab.
-2. **User:** **Admin → Directory → Users → Create**.
-   - Username / Name as you like. **Email matters for Forgejo:** the OIDC
-     account linking from Part B matches by email, so give your own user the
-     same address as your Forgejo admin account.
-   - Save, open the user, and click **Set password** — the lab sends no
-     recovery mails, so set it directly.
-3. **Membership:** on the user's page → **Groups** tab → **Add to existing
-   group** → `lab-users`. (Equivalently from the group's **Users** tab.)
-
-Keep regular users **out** of the built-in `authentik Admins` group — it
-grants superuser over Authentik itself. `akadmin` stays your only admin.
-
-### Grant (and restrict) application access
-
-Parts A and B left every application without bindings, which means **any
-authenticated user** is allowed through. To restrict an application to a
-group:
-
-1. **Admin → Applications → Applications** → open the app (any from the
-   [registry](sso-applications.md) — `Dockge`, `Traefik`, `Forgejo`, later
-   `Grafana`) → **Policy / Group / User Bindings** tab.
-2. **Bind existing Group / User** → select `lab-users` → Save.
-
-The moment an application has at least one binding, everyone *not* matched by
-a binding is denied — so bind group(s) per application, and remember that
-applications with no bindings stay open to any authenticated login. What
-"denied" means differs by pattern:
-
-- **Forward-auth (Dockge, Traefik dashboard):** enforced at the proxy — a
-  denied user authenticates but gets Authentik's access-denied page instead
-  of the service.
-- **Forgejo (OIDC):** the binding gates only the "Sign in with authentik"
-  path. Forgejo-local accounts (break-glass) are unaffected.
-
-**Verify:** in a private window, log in at `https://dockge.thefipster.de` as
-the new user → you land in Dockge. Remove the user from `lab-users` and retry
-→ Authentik shows access denied.
-
-## Verification checklist (runtime)
-
-- [ ] `https://auth.thefipster.de` serves the Authentik portal on the wildcard cert.
-- [ ] Unauthenticated `https://dockge.thefipster.de` redirects to Authentik, returns after login.
-- [ ] Unauthenticated `https://traefik.thefipster.de` redirects to Authentik, then shows the dashboard.
-- [ ] Forgejo shows "Sign in with authentik"; using it logs into the existing admin; local login still works.
-- [ ] A non-admin user (Part C) reaches the bound apps; removing it from the group denies access.
-- [ ] `docker login git.thefipster.de` and an Actions build/push still succeed (OIDC didn't disturb git/registry auth).
-
-## Break-glass procedures
-
-- **Forgejo** — local admin password still works if Authentik is down.
-- **Dockge / Traefik dashboard** — comment the `traefik.http.routers.*.middlewares: authentik@docker` label and `docker compose up -d` to bypass; drive Docker over SSH meanwhile. Dockge's own login remains underneath.
-- **Authentik itself** — `akadmin` is the recovery account. `AUTHENTIK_BOOTSTRAP_PASSWORD` is applied **only when akadmin is first created**; editing it later does nothing. To get back in: `docker compose exec server ak create_recovery_key 10 akadmin` prints a one-time login link — open it, then set a new password under the akadmin user settings.
-
-## Teardown / backup
-
-State is bind-mounted under `/opt/authentik`, so `docker compose down` keeps
-data. Back up the filesystem plus a Postgres dump; keep `.env` (the
-`AUTHENTIK_SECRET_KEY` is not recoverable — losing it invalidates sessions and
-encrypted secrets).
-
-```bash
-docker compose down
-sudo tar czf authentik-backup-$(date +%F).tar.gz -C /opt authentik
-docker compose up -d
-```
+**[dockge-setup.md](dockge-setup.md)** — the compose management UI. The full
+sequence is in the [README build order](../README.md#build-order).
