@@ -1,25 +1,70 @@
 # Monitoring configuration (infra VM)
 
-The [Grafana platform](grafana-setup.md) is up and both datasources are green.
-This guide points it at something.
+The [Grafana platform](grafana-setup.md) is up. This guide covers what it
+observes: container logs, Traefik access logs, service and host metrics, OTLP
+ingest with traces, and the dashboards and alerts on top.
 
-It **grows**: phase 2 (container logs) is here now; the service metrics
-endpoints, OTLP intake and dashboards/alerts append as phases 3–5 land. See
-[roadmap/monitoring.md](roadmap/monitoring.md) for what's coming.
+It was built as phases 2–5 of [roadmap/monitoring.md](roadmap/monitoring.md),
+and Parts 1–6 below keep that order as a narrative — each part explains one
+capability and how to verify it. But the **config files ship in their final
+form**: on a fresh checkout everything below is already in `infra/monitoring`,
+`infra/traefik` and `infra/forgejo`, so you deploy once (next section) and then
+verify part by part. Nothing needs to be applied incrementally.
 
 ## Prerequisites
 
-[grafana-setup.md](grafana-setup.md) complete and verified — Grafana reachable
-at `https://grafana.thefipster.de`, both datasources passing **Test**, and the
-`up` query in Explore returning series for `alloy`, `prometheus`, `loki` and
-`grafana`.
+- [grafana-setup.md](grafana-setup.md) complete and verified — Grafana
+  reachable at `https://grafana.thefipster.de` with all three datasources
+  (Prometheus, Loki, Tempo) passing **Test**.
+- A second DNS host record, exactly like `grafana.`'s:
+  `otlp.thefipster.de` → `192.168.1.41` (the wildcard otherwise sends it to
+  the apps VM). Verify with `nslookup otlp.thefipster.de`.
+
+## Deploy
+
+One pass brings everything below online — the compose files already carry the
+access-log and metrics flags, and the monitoring stack already contains Tempo,
+the collection config, the dashboards and the alerts:
+
+```bash
+cd ~/home-lab && git pull
+```
+
+```bash
+scripts/init-monitoring.sh
+```
+
+```bash
+cd ~/home-lab/infra/traefik && docker compose up -d
+```
+
+```bash
+cd ~/home-lab/infra/forgejo && docker compose up -d forgejo
+```
+
+```bash
+cd ~/home-lab/infra/monitoring && docker compose up -d
+```
+
+On a fresh build, Traefik and Forgejo simply come up already carrying their
+flags. Then work through Parts 1–6 and the
+[verification checklist](#verification-checklist).
+
+> **Upgrading a live install instead?** The same commands apply, with two
+> caveats. Recreating Traefik briefly interrupts *every* routed service —
+> Grafana, Forgejo, Dockge, Authentik — so pick your moment; nothing is lost,
+> connections just drop for a few seconds. And if your install predates the
+> phase 5 label rename (`service` → `job` on metric targets), the old
+> `service`-labelled series simply age out within the 15-day retention while
+> the dashboards use the new `job` series immediately.
 
 ## Part 1 — Container logs
 
-Alloy gains the Docker socket and four new components: `discovery.docker` lists
-every container on the VM, `discovery.relabel` maps Docker metadata onto Loki
-labels, `loki.source.docker` tails each container, and `loki.write` ships to
-Loki. New containers are picked up within 15 seconds of starting.
+Alloy holds the Docker socket and runs four components for logs:
+`discovery.docker` lists every container on the VM, `discovery.relabel` maps
+Docker metadata onto Loki labels, `loki.source.docker` tails each container,
+and `loki.write` ships to Loki. New containers are picked up within 15 seconds
+of starting.
 
 > **This grants Alloy root-equivalent control of the VM's Docker.** The socket
 > is mounted `:ro`, which matches how Traefik declares it, but that is **not**
@@ -29,18 +74,10 @@ Loki. New containers are picked up within 15 seconds of starting.
 > it from Alloy until there was a capability that actually needed it. That
 > capability is this one.
 
-Apply:
+Verify — first that Alloy started clean:
 
 ```bash
-cd ~/home-lab && git pull
-```
-
-```bash
-cd ~/home-lab/infra/monitoring && docker compose up -d alloy
-```
-
-```bash
-docker compose logs --tail=20 alloy
+cd ~/home-lab/infra/monitoring && docker compose logs --tail=20 alloy
 ```
 
 Expect no errors about the socket or the config. Then, in Grafana
@@ -68,17 +105,9 @@ collected — see Troubleshooting.
 
 ## Part 2 — Traefik access logs
 
-Traefik gains `--accesslog=true --accesslog.format=json`. The access log goes to
-stdout, so Alloy already collects it — no change to the monitoring stack is
-needed.
-
-> **This restarts Traefik**, which briefly interrupts *every* routed service —
-> Grafana, Forgejo, Dockge, Authentik. Do it in the same maintenance window as
-> Part 1. Nothing is lost; connections just drop for a few seconds.
-
-```bash
-cd ~/home-lab/infra/traefik && docker compose up -d
-```
+Traefik runs with `--accesslog=true --accesslog.format=json` (see
+`infra/traefik/compose.yaml`). The access log goes to stdout, so Alloy collects
+it like any other container's — nothing in the monitoring stack refers to it.
 
 Verify, after generating some traffic by loading any lab URL:
 
@@ -142,23 +171,23 @@ Everything from one stack:
 
 ## Part 4 — Service and host metrics
 
-Phase 3 turns on the Prometheus endpoints the services already ship, and adds
-host-level metrics. Authentik needed **no change at all** — its metrics
-listener defaults to `:9300` on every component and was simply unreachable
-until now.
+Alloy scrapes the Prometheus endpoints the services already ship, plus
+host-level metrics through its embedded node exporter. Authentik needed **no
+change at all** — its metrics listener defaults to `:9300` on every component;
+it merely had to become reachable.
 
-| Stack | Change |
-|-------|--------|
+| Stack | What's on |
+|-------|-----------|
 | Traefik | a `metrics` entrypoint on `:8082` + Prometheus flags |
 | Forgejo | `FORGEJO__metrics__ENABLED=true` |
-| Authentik | nothing — already listening on `:9300` |
-| Monitoring | Alloy joins `proxy`, gains three read-only host mounts |
+| Authentik | nothing to enable — already listening on `:9300` |
+| Monitoring | Alloy on `proxy` + three read-only host mounts |
 
-> **Alloy joins the `proxy` network.** It sat on `monitoring-net` alone, which
-> is why it could not reach any of these endpoints — phase 1's targets all
-> happened to live inside its own stack. Nothing becomes exposed by this:
-> Traefik routes only containers carrying `traefik.enable` labels, and Alloy
-> has none.
+> **Alloy sits on the `proxy` network for this.** On `monitoring-net` alone it
+> could not reach any of these endpoints — phase 1's targets all happened to
+> live inside its own stack, which is what hid the gap. Nothing is exposed by
+> the membership itself: Traefik routes only what its labels tell it to, and
+> the only Alloy labels are the deliberate OTLP routes (Part 5).
 
 > **Forgejo's `/metrics` is open on the LAN.** It is served on port 3000 — the
 > same port Traefik publishes at `git.thefipster.de` — so
@@ -170,26 +199,6 @@ until now.
 > with an `ipAllowList` of `127.0.0.1/32`. Alloy scrapes the container
 > directly, so either change is invisible to collection.
 
-### Apply
-
-The Traefik restart blips every routed service, so use one window.
-
-```bash
-cd ~/home-lab && git pull
-```
-
-```bash
-cd ~/home-lab/infra/traefik && docker compose up -d
-```
-
-```bash
-cd ~/home-lab/infra/forgejo && docker compose up -d forgejo
-```
-
-```bash
-cd ~/home-lab/infra/monitoring && docker compose up -d alloy
-```
-
 ### Verify
 
 In **Explore → Prometheus**:
@@ -198,9 +207,10 @@ In **Explore → Prometheus**:
 up
 ```
 
-Expect `job` values `traefik`, `authentik`, `forgejo` and `node` (the host
-exporter) **on top of** phase 1's `alloy`, `prometheus`, `loki` and `grafana`.
-Any target sitting at 0 is unreachable — see Troubleshooting.
+Expect one series per `job`: the monitoring stack itself (`alloy`,
+`prometheus`, `loki`, `grafana`, `tempo`), the infra services (`traefik`,
+`authentik`, `forgejo`), and the host exporter (`node`). Any target sitting
+at 0 is unreachable — see Troubleshooting.
 
 ```promql
 traefik_service_requests_total
@@ -227,47 +237,20 @@ VM's. An empty result would be obvious; a wrong one is not.
 
 ## Part 5 — OTLP ingest and traces
 
-Phase 4 gives the lab an OpenTelemetry endpoint at `otlp.thefipster.de`. Apps
-point their OTel SDK at it, and the three signals fan out: **metrics** into the
-same Prometheus as the scrapes, **logs** into the same Loki as the container
-logs, **traces** into a new Tempo. Two things to be clear about up front:
+The lab has an OpenTelemetry endpoint at `otlp.thefipster.de` (the DNS record
+from Prerequisites). Apps point their OTel SDK at it, and the three signals fan
+out: **metrics** into the same Prometheus as the scrapes, **logs** into the
+same Loki as the container logs, **traces** into Tempo. Two things to be clear
+about up front:
 
-- **No app emits telemetry yet.** This builds and verifies the *receiving*
-  end — the checks below use `curl`, not an app.
+- **No app emits telemetry yet.** This is the *receiving* end, verifiable on
+  its own — the checks below use `curl`, not an app.
 - **The endpoint takes no authentication.** Anything on the LAN can write to
   the lab's storage. That is acceptable on a LAN-only lab with no untrusted
   users, and the same reasoning as Forgejo's open `/metrics` — but it is a
   larger surface (it *writes*), so it is called out here. To close it later,
   add a Traefik basic-auth middleware to the two OTLP routers plus an
   `Authorization` header in each app's exporter config.
-
-### Prerequisite: DNS
-
-An exact host record `otlp.thefipster.de` → `192.168.1.41`, like `grafana.`
-(the wildcard otherwise sends it to the apps VM). Verify:
-
-```bash
-nslookup otlp.thefipster.de
-```
-
-Expect `192.168.1.41`.
-
-### Apply
-
-```bash
-cd ~/home-lab && git pull
-```
-
-```bash
-scripts/init-monitoring.sh
-```
-
-```bash
-cd ~/home-lab/infra/monitoring && docker compose up -d
-```
-
-`docker compose up -d` with no service argument starts the new `tempo` service
-and recreates `alloy` with the OTLP config and the Traefik labels.
 
 ### Verify — synthetic payloads over HTTPS
 
@@ -324,24 +307,11 @@ even without a real gRPC client.
 The final piece: make the collected data visible and make failures loud. Two
 provisioned dashboards and three alerts.
 
-One correction rides along. The phase-1 `service` metric label was renamed to
-the idiomatic **`job`** (and the host exporter now carries `job="node"` +
-`instance="infra"`) so the community dashboards work with no editing. Redeploy
-Alloy for it to take effect — old `service`-labelled series simply age out
-within the 15-day retention.
-
-### Apply
-
-```bash
-cd ~/home-lab && git pull
-```
-
-```bash
-cd ~/home-lab/infra/monitoring && docker compose up -d alloy grafana
-```
-
-`alloy` picks up the `job` relabel; `grafana` loads the new dashboard and alert
-provisioning.
+Why they work unmodified: Alloy labels every metric target with the idiomatic
+**`job`** (the host exporter as `job="node"` + `instance="infra"`), which is
+exactly what community dashboards assume. That convention is the phase 5
+correction — the earlier phases briefly used a homegrown `service` label, and
+the [deploy section](#deploy)'s upgrade note covers the transition.
 
 ### Dashboards
 
@@ -365,7 +335,7 @@ In Grafana → **Alerting → Alert rules**, three rules, each `Normal`:
 
 | Rule | Fires when | For |
 |------|-----------|-----|
-| `DiskAlmostFull` | root filesystem over 80% used | 15m |
+| `DiskAlmostFull` | a real filesystem over 80% used | 15m |
 | `ServiceDown` | any scrape target's `up == 0` | 5m |
 | `CertExpiringSoon` | a TLS cert expires in under 21 days | 1h |
 
@@ -435,8 +405,8 @@ the blast radius is disk, not cardinality. Find the loudest service with the
 `count_over_time` query in Part 1, then `df -h` and
 `du -sh /opt/monitoring/loki`.
 
-**Traefik won't start after Part 2.** The two flags are additive and
-independently revertible — comment them out and `docker compose up -d`.
+**Traefik won't start with the access-log or metrics flags.** They are additive
+and independently revertible — comment them out and `docker compose up -d`.
 
 **OTLP `curl` returns 404.** The DNS record is missing (so the request never
 reached Traefik) or the router rule didn't match. HTTP payloads must POST to a
@@ -452,24 +422,32 @@ reached Alloy but didn't speak cleartext HTTP/2. Confirm
 
 ## Verification checklist
 
+Runnable top to bottom against a fresh deploy — one pass covers every part.
+
+**Metrics (Part 4):**
+
+- [ ] `up` returns one series per job: `alloy`, `prometheus`, `loki`, `grafana`, `tempo`, `traefik`, `authentik`, `forgejo`, `node` — none at 0
+- [ ] `traefik_service_requests_total` is non-zero after loading a lab URL
+- [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM (not the container's view)
+
+**Logs (Parts 1–2):**
+
 - [ ] `{job="docker"}` returns lines within seconds
 - [ ] `{compose_project="authentik"}` returns — labelling works across stacks
 - [ ] `sum by (compose_service) (count_over_time({job="docker"}[5m]))` lists every running service
 - [ ] `{compose_service="server"} | json | event != ""` — Authentik's JSON parses at query time
 - [ ] `{compose_service="traefik"} | json | __error__="" | DownstreamStatus >= 400` — access logs on and structured
 - [ ] Restarting Alloy causes no duplicate flood (read positions persisted)
-- [ ] The phase 1 `up` metrics query still works — logs did not disturb metrics
-- [ ] `up` returns `traefik`, `authentik`, `forgejo` and `node` (job label) alongside the phase 1 four
-- [ ] `traefik_service_requests_total` is non-zero after loading a lab URL
-- [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM (not the container's view)
-- [ ] An Authentik metric returns — proves cross-network scraping over `proxy`
-- [ ] Phase 2 logs still flow (`{job="docker"}`) after the metrics change
+
+**OTLP (Part 5):**
+
 - [ ] `POST /v1/logs` returns 200 and the line appears in Loki
 - [ ] `POST /v1/traces` returns 200 and the trace opens in Tempo
 - [ ] `POST /v1/metrics` returns 200 and the metric queries in Prometheus
 - [ ] The gRPC path returns a gRPC-shaped response, not 404 (h2c routing works)
-- [ ] Phases 1–3 series (`up`, `{job="docker"}`, host metrics) still return
-- [ ] After redeploying Alloy, `up{job="node"}` and `up{job="traefik"}` return
+
+**Dashboards + alerts (Part 6):**
+
 - [ ] Node Exporter Full: `job`/`instance` dropdowns populate, panels show data
 - [ ] Traefik dashboard: request/status panels move when a lab URL is loaded
 - [ ] Alerting lists DiskAlmostFull, ServiceDown, CertExpiringSoon — all Normal

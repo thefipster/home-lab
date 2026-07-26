@@ -1,29 +1,30 @@
-# Grafana platform setup — Grafana, Prometheus, Loki, Alloy (infra VM)
+# Grafana platform setup — Grafana, Prometheus, Loki, Tempo, Alloy (infra VM)
 
-One place to see the lab's metrics and (from phase 2) its logs, at
+One place to see the lab's metrics, logs and traces, at
 **`https://grafana.thefipster.de`**, behind the [Traefik stack](traefik-setup.md)
 under the same wildcard cert, with login through
 [Authentik](authentik-setup.md) by **OIDC**.
 
 | Piece | Role |
 |-------|------|
-| **Grafana** | the single pane — dashboards, Explore, and the only routed service here |
+| **Grafana** | the single pane — dashboards, Explore, and the only routed UI here |
 | **Prometheus** | metrics **storage + query only**; it never scrapes anything |
-| **Loki** | log storage — **empty until phase 2**, see below |
-| **Alloy** | the **only** collector; scrapes and pushes into Prometheus |
+| **Loki** | log storage |
+| **Tempo** | trace storage |
+| **Alloy** | the **only** collector; everything flows in through it |
 | **Postgres** | Grafana's database (dedicated to this stack) |
 
-> **This guide stands up the platform.** Configuring what it actually watches —
-> container logs, service metrics, dashboards — is
-> [monitoring-setup.md](monitoring-setup.md). Do this one first: it's the
-> prerequisite for that one.
+> **This guide stands up the platform** — bring-up, routing, SSO, break-glass.
+> What it observes and how — container logs, service metrics, OTLP, the
+> dashboards and alerts — is [monitoring-setup.md](monitoring-setup.md). Do
+> this one first: it's the prerequisite for that one.
 
-> **This is phase 1 — the stack skeleton.** Container-log collection, the other
-> stacks' metrics endpoints, host metrics, OTLP intake, dashboards and alerts
-> are phases 2–5, tracked in [roadmap/monitoring.md](roadmap/monitoring.md).
-> **Loki being empty at the end of this guide is expected, not a fault:**
-> nothing collects logs yet. What phase 1 proves is that the *metrics* path
-> works end to end and that Loki is up and wired.
+> **The checkout is the finished stack.** It was built in five phases
+> ([roadmap/monitoring.md](roadmap/monitoring.md) is the record), but the
+> config ships in final form — so unlike the original phase-1 bring-up, your
+> first start already collects logs, scrapes every service and loads the
+> dashboards. Where this guide says what to *expect*, it describes that
+> finished form.
 
 > **Break-glass first.** Grafana's **local `admin` login stays enabled** on
 > purpose — an Authentik outage must not lock you out of the very thing that
@@ -37,18 +38,19 @@ Same two-location convention as the other stacks:
 | What | Where |
 |------|-------|
 | Compose project (this repo) | `infra/monitoring/` |
-| Persistent data | `/opt/monitoring/{postgres,grafana,prometheus,loki,alloy}` |
+| Persistent data | `/opt/monitoring/{postgres,grafana,prometheus,loki,tempo,alloy}` |
 
-Config files (`alloy/config.alloy`, `loki/loki.yaml`, `prometheus/prometheus.yml`,
-`grafana/provisioning/`) live **in the repo** and are bind-mounted read-only, so
-the repo stays the source of truth: edit, `git pull` on the VM, restart.
+Config files (`alloy/config.alloy`, `loki/loki.yaml`, `tempo/tempo.yaml`,
+`prometheus/prometheus.yml`, `grafana/provisioning/`) live **in the repo** and
+are bind-mounted read-only, so the repo stays the source of truth: edit,
+`git pull` on the VM, restart.
 
 ## Prerequisites
 
 - [Traefik](traefik-setup.md) up, with the wildcard cert issued.
 - [Authentik](authentik-setup.md) up — needed for Part 3, not for Parts 0–2.
 - Docker installed ([`scripts/init-host.sh`](../scripts/init-host.sh)).
-- **Infra VM RAM ≥ 8 GB.** This adds five containers to a box already running
+- **Infra VM RAM ≥ 8 GB.** This adds six containers to a box already running
   Authentik and Forgejo. The lab VM was raised to 10 GB before phase 1; at the
   original 4 GB an OOM kill would most likely take Authentik with it.
 
@@ -92,14 +94,14 @@ docker compose up -d
 docker compose ps
 ```
 
-First start pulls roughly 1 GB of images. Expect five services, `db` healthy,
+First start pulls roughly 1 GB of images. Expect six services, `db` healthy,
 none restarting.
 
 > **A container restart-looping on first boot is almost always ownership.**
 > Each image runs as a different user — Grafana `472`, Prometheus `65534`, Loki
-> `10001`, Alloy root — and each must own its dir under `/opt/monitoring`.
-> Re-running `scripts/init-monitoring.sh` sets all of them; check with
-> `docker compose logs <service>` and `ls -ln /opt/monitoring`.
+> and Tempo `10001`, Alloy root — and each must own its dir under
+> `/opt/monitoring`. Re-running `scripts/init-monitoring.sh` sets all of them;
+> check with `docker compose logs <service>` and `ls -ln /opt/monitoring`.
 
 ## Part 2 — Verify the stack (before touching SSO)
 
@@ -112,7 +114,7 @@ curl -sI https://grafana.thefipster.de | head -1
 Expect a `HTTP/2 302` (Grafana redirecting to `/login`). A cert warning here
 means Traefik, not Grafana — see [traefik-setup.md](traefik-setup.md).
 
-**Loki is alive (empty, but ready):**
+**Loki is alive:**
 
 ```bash
 docker compose exec loki wget -qO- localhost:3100/ready
@@ -133,16 +135,21 @@ Then open `http://127.0.0.1:12345` and confirm every component reports
 **In the browser**, at `https://grafana.thefipster.de`, log in as **`admin`**
 with `GRAFANA_ADMIN_PASSWORD` from `.env`, then:
 
-1. **Connections → Data sources** — Prometheus (default) and Loki are both
-   listed, and both pass **Test**. They are marked read-only because they are
-   provisioned from the repo; that is correct.
+1. **Connections → Data sources** — Prometheus (default), Loki and Tempo are
+   all listed, and all three pass **Test**. They are marked read-only because
+   they are provisioned from the repo; that is correct.
 2. **Explore → Prometheus**, run:
    ```
    up
    ```
-   Expect one series each for `job="alloy"`, `"prometheus"`, `"loki"` and
-   `"grafana"`. **This is the end-to-end proof**: Alloy scraped it, remote-wrote
-   it, Prometheus stored it, Grafana read it back.
+   Expect a series per scrape target — at minimum `job="alloy"`,
+   `"prometheus"`, `"loki"`, `"grafana"` and `"tempo"`; the full set including
+   the infra services and the host is verified in
+   [monitoring-setup.md](monitoring-setup.md). **This is the end-to-end
+   proof**: Alloy scraped it, remote-wrote it, Prometheus stored it, Grafana
+   read it back. (Loki has data already too — the checkout ships with log
+   collection on, so `{job="docker"}` in Explore → Loki returning lines is
+   expected, not a fault.)
 3. **State really is in Postgres** — restart the stack and log in again:
    ```bash
    docker compose down && docker compose up -d
@@ -247,13 +254,12 @@ docker compose exec grafana wget -qO- -S https://auth.thefipster.de/-/health/liv
 ## Verification checklist
 
 - [ ] `nslookup grafana.thefipster.de` → `192.168.1.41`
-- [ ] `docker compose ps` → five services, `db` healthy, none restarting
+- [ ] `docker compose ps` → six services, `db` healthy, none restarting
 - [ ] `curl -sI https://grafana.thefipster.de` → `HTTP/2 302`, trusted cert
 - [ ] Loki `/ready` → `ready`
 - [ ] Alloy UI (via tunnel) → all components Healthy
 - [ ] Local `admin` login works (break-glass path)
-- [ ] Both datasources listed and passing **Test**
-- [ ] `up` in Explore → series for `alloy`, `prometheus`, `loki`, `grafana`
+- [ ] All three datasources listed and passing **Test**
+- [ ] `up` in Explore → series for `alloy`, `prometheus`, `loki`, `grafana`, `tempo` (at minimum)
 - [ ] `docker compose down && up -d` → account survives (state is in Postgres)
 - [ ] **Sign in with Authentik** completes and lands an **Admin** session
-- [ ] Loki is empty — expected in phase 1; phase 2 fills it
