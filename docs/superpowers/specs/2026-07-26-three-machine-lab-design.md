@@ -147,20 +147,27 @@ Per-VM reasoning for the increases:
 
 ### Disk — 714 GB provisioned of 2 TB
 
-- **infra 40 → 150 GB.** The driver is Forgejo's **container registry**, which
-  grows without bound — every CI run pushes an image. On top of that:
-  Prometheus 15 d, Loki 14 d, Tempo 7 d, plus Docker image layers. 40 GB is the
-  live risk in the current guide, not padding.
+- **infra 40 → 150 GB.** Prometheus 15 d, Loki 14 d, Tempo 7 d, Docker image
+  layers, and Forgejo's **container registry**, which today accumulates an image
+  per CI run. Registry retention is a known gap owned by the CI roadmap rather
+  than by this spec, so 150 GB is sized to be comfortable until that lands, not
+  to absorb unbounded growth forever.
 - **apps 80 → 500 GB.** App volumes, databases, build cache and image layers.
   Coolify's installer itself requires 30 GB free.
 - **HA 64 GB.** HAOS's own default is 32 GB; the recorder database, ESPHome
   build caches and add-ons make 64 GB comfortable.
 
-Under the default ext4 install these land on `local-lvm` (LVM-thin), so the
-disks are thin-provisioned and cost only what is written. Keeping the
-provisioned sum (714 GB) under the pool size leaves ~1.3 TB for snapshots and
-`vzdump` backups — which consume the same pool — and means there is no
-thin-pool-exhaustion scenario to reason about at all.
+The 2 TB is **dedicated to VM disks** — snapshots, `vzdump` backups and Proxmox
+itself get separate storage in the final build. So the provisioned sum (714 GB)
+is not competing with a backup pool, and there is roughly 1.3 TB of headroom for
+growing these three or adding a fourth machine. Under the default ext4 install
+the disks land on `local-lvm` (LVM-thin) and are thin-provisioned, costing only
+what is written.
+
+These numbers are a **starting point that will change** as the storage layout is
+finalized. The guide states them as suggestions with the reasoning attached, so
+the reasoning survives the numbers being revised — which is the same treatment
+the current guide gives the infra VM's 10 GB.
 
 One caveat the guide must state: the provisioned `DiskAlmostFull` alert reads
 `node_filesystem_*`, so it sees filesystems **inside** guests and on the
@@ -465,9 +472,12 @@ Nothing is moved or renamed, so no path reference breaks.
 - ESPHome, Mosquitto, Zigbee2MQTT or any other add-on configuration. The guide
   installs HAOS with the Supervisor so the add-on store is available; what gets
   installed from it is not this spec's concern.
-- Zigbee/Z-Wave USB passthrough to the HA VM. IOMMU is already enabled in the
-  existing prerequisites, but USB device mapping is deferred until there is
-  hardware to map.
+- Zigbee/Z-Wave USB passthrough to the HA VM — **not deferred, not needed.** The
+  lab's Zigbee coordinators are Ethernet adapters, so HA reaches them over the
+  LAN like any other network device and the hypervisor is not involved at all.
+  The HA guide should say this explicitly, because "pass the USB stick through"
+  is the standard advice for HA-on-Proxmox and its absence would otherwise read
+  as an omission.
 - Notification channels for Grafana alerts. Still UI-only, still Kuma's job.
 - Migrating an existing Home Assistant installation. Guides describe
   from-scratch bring-up only.
