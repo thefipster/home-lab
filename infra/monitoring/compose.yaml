@@ -205,13 +205,35 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/root:ro,rslave
+    labels:
+      # Phase 4: Alloy is now the lab's OTLP ingest endpoint, reached through
+      # Traefik at otlp.thefipster.de. This is a DELIBERATE reversal of phase
+      # 3, where Alloy carried no traefik labels — that was why joining `proxy`
+      # then exposed nothing. It IS exposed now, on purpose.
+      # One hostname, two protocols told apart by path. No per-router TLS
+      # labels: the one wildcard cert covers every websecure router.
+      traefik.enable: "true"
+      # OTLP/HTTP -> Alloy :4318. Covers /v1/traces, /v1/metrics, /v1/logs.
+      traefik.http.routers.otlp-http.rule: Host(`otlp.thefipster.de`) && PathPrefix(`/v1/`)
+      traefik.http.routers.otlp-http.entrypoints: websecure
+      traefik.http.routers.otlp-http.service: alloy-http
+      traefik.http.services.alloy-http.loadbalancer.server.port: "4318"
+      # OTLP/gRPC -> Alloy :4317. All gRPC methods live under this proto
+      # package prefix. h2c: Traefik must speak cleartext HTTP/2 to Alloy's
+      # gRPC listener.
+      traefik.http.routers.otlp-grpc.rule: Host(`otlp.thefipster.de`) && PathPrefix(`/opentelemetry.proto.collector.`)
+      traefik.http.routers.otlp-grpc.entrypoints: websecure
+      traefik.http.routers.otlp-grpc.service: alloy-grpc
+      traefik.http.services.alloy-grpc.loadbalancer.server.port: "4317"
+      traefik.http.services.alloy-grpc.loadbalancer.server.scheme: h2c
+      # No auth (LAN-only lab). To require it later, add ONE middleware label
+      # (a basic-auth middleware) to each router above — see the phase 4 spec.
     networks:
       - monitoring-net
       # Traefik, Authentik's server and Forgejo all live on `proxy` — joining
-      # it is how Alloy reaches their metrics endpoints (phase 3). Alloy's
-      # phase 1 targets were all inside this stack, so this wasn't needed then.
-      # Nothing becomes exposed: Traefik routes only containers carrying
-      # traefik.enable labels, and Alloy deliberately has none.
+      # it is how Alloy reaches their metrics endpoints (phase 3), and (phase
+      # 4) how Traefik reaches Alloy's OTLP listeners without any published
+      # port. See the traefik.* labels above.
       - proxy
 
 networks:
