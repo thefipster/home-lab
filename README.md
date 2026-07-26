@@ -36,13 +36,15 @@ UniFi Dream Router  —  DHCP + DNS  (infra host records → infra VM, *.thefips
   │   management UI  │   │                 │
   │ Grafana: metrics │   │                 │
   │   + logs         │   │                 │
+  │ Uptime Kuma:     │   │                 │
+  │   status + alerts│   │                 │
   └──────────────────┘   └─────────────────┘
 ```
 
 | Layer | Runs | Purpose |
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts). SSO (Authentik) fronts the infra UIs. |
+| **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Kuma, deliberately, so an Authentik outage stays visible. |
 | **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker. |
 
 Why two VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Coolify
@@ -78,6 +80,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── dockge-setup.md           Dockge, the compose management UI
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
+│   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
 │   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
@@ -86,7 +89,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── init-authentik.sh         Authentik: data tree, generate secrets
 │   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
-│   └── init-monitoring.sh        Monitoring: data tree, .env secrets
+│   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
+│   └── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
 ├── infra/                       Stacks for the infra VM
 │   ├── traefik/
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
@@ -101,14 +105,16 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── build-and-push.yml    CI workflow template (goes in your app repo)
 │   ├── dockge/
 │   │   └── compose.yaml          Dockge (compose management UI)
-│   └── monitoring/
-│       ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Tempo + Alloy
-│       ├── .env.example          Grafana DB / admin / OIDC template
-│       ├── alloy/config.alloy    The collector: metrics, logs, OTLP intake
-│       ├── loki/loki.yaml        Log storage, 14d retention
-│       ├── tempo/tempo.yaml      Trace storage, 7d retention
-│       ├── prometheus/           Metrics storage, 15d retention
-│       └── grafana/provisioning/ Datasources, dashboards + alerts as code
+│   ├── monitoring/
+│   │   ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Tempo + Alloy
+│   │   ├── .env.example          Grafana DB / admin / OIDC template
+│   │   ├── alloy/config.alloy    The collector: metrics, logs, OTLP intake
+│   │   ├── loki/loki.yaml        Log storage, 14d retention
+│   │   ├── tempo/tempo.yaml      Trace storage, 7d retention
+│   │   ├── prometheus/           Metrics storage, 15d retention
+│   │   └── grafana/provisioning/ Datasources, dashboards + alerts as code
+│   └── uptime-kuma/
+│       └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
 └── apps/                        Apps VM (Coolify) — see apps/README.md
 ```
 
@@ -138,7 +144,11 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
    Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
    (container logs, service + host metrics, OTLP with traces, dashboards and
    alerts).
-8. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
+8. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
+   monitoring and the lab's notification layer. Last on purpose: it watches
+   everything above it, and it is a separate stack precisely so it does not
+   share a lifecycle with the monitoring pipeline it also checks.
+9. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
 
 ## Status
 
@@ -151,6 +161,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
+| Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |

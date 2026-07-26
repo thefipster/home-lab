@@ -1,7 +1,7 @@
 // Alloy — the lab's ONLY collector. One config, three concerns, in order:
 //
-//   metrics — scrapes this stack, the infra services and the host, and
-//             remote-writes everything into Prometheus (which has no
+//   metrics — scrapes this stack, the infra services, this VM and the Proxmox
+//             host, and remote-writes everything into Prometheus (which has no
 //             scrape_configs of its own);
 //   logs    — discovers every container over the Docker API and tails its
 //             stdout into Loki, labeled by compose project/service;
@@ -107,6 +107,35 @@ discovery.relabel "host" {
 
 prometheus.scrape "host" {
   targets         = discovery.relabel.host.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// The PROXMOX HOST — the one scrape target in the lab that is not a container.
+// Alloy reaches it outbound over the LAN through the docker bridge, which is
+// why adding it needed no mount, no network change and no published port.
+//
+// Addressed by NAME like everything else in the lab, so Prometheus re-resolves
+// per scrape and a host IP change corrects itself. The failure mode is not the
+// obvious one: if the exact `pve.thefipster.de` record is missing the name does
+// NOT fail to resolve — the *.thefipster.de wildcard answers with the APPS VM
+// and this quietly scrapes the wrong machine. See docs/dns-records.md.
+//
+// `instance` is set INLINE deliberately: Prometheus derives it from __address__
+// only when the label is absent, and the bare `pve` is what keeps the FQDN out
+// of the dashboard's dropdown. Same job="node" as the infra VM above — that
+// shared label, plus a distinct instance, is the whole reason Node Exporter
+// Full picks this host up with no edit to its JSON.
+//
+// The exporter is Debian's prometheus-node-exporter running as a systemd unit
+// on the hypervisor (docs/grafana-setup.md step 6) — NOT a container, and not
+// an LXC guest, which would report lxcfs's virtualized /proc instead of the
+// host's.
+prometheus.scrape "proxmox_host" {
+  targets = [
+    {"__address__" = "pve.thefipster.de:9100", "job" = "node", "instance" = "pve"},
+  ]
+
   scrape_interval = "15s"
   forward_to      = [prometheus.remote_write.default.receiver]
 }

@@ -14,12 +14,18 @@ convention):
   non-browser traffic (git push, `docker login`/registry, CI).
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support.
 
+One service joins **neither**, deliberately — see
+[Uptime Kuma](#uptime-kuma-deliberately-not-joined). It is listed here so this
+registry stays an honest account of every service's relationship to Authentik,
+not only the ones that joined.
+
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
 | Traefik dashboard | forward-auth | Authentik only | [authentik-setup.md, step 3](authentik-setup.md#3-gate-the-traefik-dashboard-forward-auth) |
 | Dockge | forward-auth | Authentik only | [dockge-setup.md, step 1](dockge-setup.md#1-create-the-dockge-application-in-authentik) |
 | Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
+| Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
 
 ## Forward-auth: Dockge & Traefik dashboard
 
@@ -102,10 +108,29 @@ Grafana side — no admin-UI work: the Client ID / Client Secret go into
 Local `admin` login stays **enabled** (break-glass;
 `GRAFANA_ADMIN_PASSWORD` in the same `.env`).
 
+## Uptime Kuma (deliberately not joined)
+
+Kuma has no OIDC support, so the convention would point at forward-auth. It is
+**not** applied. Kuma's entire job is telling you what is down — gating it
+behind the identity provider makes an Authentik outage the one failure you
+cannot see, and the break-glass path (comment the middleware label, recreate
+the container) needs `ssh` at exactly the moment you are already firefighting.
+
+Kuma ships real local authentication (bcrypt, optional 2FA) and the lab is
+LAN-only, so the exposure is bounded. The cost is worth naming: anyone on the
+LAN reaches Kuma's login page, where every other infra UI would have shown them
+Authentik first.
+
+Nothing to click in Authentik, and nothing to undo:
+`infra/authentik/compose.yaml` carries **no** outpost router for this host, and
+`infra/uptime-kuma/compose.yaml` carries **no** `middlewares` label. Both
+absences are deliberate and commented in place.
+
 ## Access bindings
 
 An application with **no** bindings admits **any authenticated user**; the
 moment it has at least one, everyone not matched is denied. The lab binds
-each application above to the `lab-users` group —
+each Authentik application above to the `lab-users` group (Uptime Kuma has no
+application, so it has no binding) —
 [authentik-setup.md, step 5](authentik-setup.md#5-control-who-reaches-what)
 covers creating the group and users, and what "denied" means per pattern.

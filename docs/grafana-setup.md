@@ -18,9 +18,9 @@ certificate, with login through Authentik by **OIDC**.
 | **Postgres** | Grafana's database (dedicated to this stack) |
 
 Everything ships in final form: your first start already tails every
-container's logs, scrapes every service and the host, receives OTLP, and loads
-the dashboards and alerts. The steps below bring it up, wire SSO, and then
-verify each capability in turn.
+container's logs, scrapes every service and this VM, receives OTLP, and loads
+the dashboards and alerts. The steps below bring it up, wire SSO, add the
+Proxmox host, and then verify each capability in turn.
 
 > **Break-glass first.** Grafana's local **`admin`** login stays enabled on
 > purpose — an Authentik outage must not lock you out of the very thing that
@@ -137,7 +137,7 @@ with `GRAFANA_ADMIN_PASSWORD` from `.env`, then:
    provisioned from the repo; that is correct.
 2. **Explore → Prometheus**, run `up`. Expect a series per scrape target. This
    is the end-to-end proof: Alloy scraped it, remote-wrote it, Prometheus
-   stored it, Grafana read it back. ([Step 6](#6-verify-what-is-collected)
+   stored it, Grafana read it back. ([Step 7](#7-verify-what-is-collected)
    checks the full target list.)
 3. **State really is in Postgres** — restart and log in again:
 
@@ -189,7 +189,58 @@ are bounced through `auth.thefipster.de` and land in Grafana as an **Admin**
 > docker compose exec grafana printenv GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH
 > ```
 
-### 6. Verify what is collected
+### 6. Add the Proxmox host
+
+The hypervisor is the last blind spot: it runs both VMs, and so far nothing
+watches it. A full root filesystem on `.40` takes down everything else in this
+guide, and without this step you would find out from the outage rather than
+from the dashboard.
+
+This is the only step in any guide that runs **on the Proxmox host** instead of
+the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or SSH to
+`192.168.1.40`) and install Debian's node exporter:
+
+```bash
+apt install prometheus-node-exporter
+```
+
+It comes from **Debian main** — no Proxmox repo and no subscription — and the
+package starts its own systemd unit on `:9100`. Confirm both:
+
+```bash
+systemctl is-active prometheus-node-exporter
+```
+
+```bash
+curl -s localhost:9100/metrics | head -3
+```
+
+Then go **back to the infra VM** and exercise the exact path Alloy will take,
+name resolution included:
+
+```bash
+docker compose exec grafana wget -qO- http://pve.thefipster.de:9100/metrics | head -3
+```
+
+Alloy already carries the scrape target, so there is nothing to enable or
+restart — it picks the host up within 15 seconds. Nothing on this VM changed:
+no mount, no network, no port. This is also why `up{instance="pve"}` has been
+`0` since step 3, and why `ServiceDown` may already be firing for it; both
+clear on their own once the exporter answers.
+
+> **Check the name, not just the exporter.** `pve.thefipster.de` must exist as
+> an **exact** record ([dns-records.md](dns-records.md)). Without it the name
+> still resolves — the `*.thefipster.de` wildcard answers with the **apps VM** —
+> and Alloy scrapes `192.168.1.42:9100`. That presents as
+> `up{instance="pve"} == 0`, indistinguishable from a broken exporter on a host
+> where the exporter is perfectly fine.
+
+There is no init script for this one. Every *stack* in the repo has one, but
+this is a single `apt install` on a machine with no checkout of this repo —
+a script would have to be copied onto the hypervisor first, which is more
+moving parts than the command it would wrap.
+
+### 7. Verify what is collected
 
 #### Metrics
 
@@ -199,10 +250,11 @@ In **Explore → Prometheus**:
 up
 ```
 
-Expect one series per `job`: the monitoring stack itself (`alloy`,
-`prometheus`, `loki`, `grafana`, `tempo`), the infra services (`traefik`,
-`authentik`, `forgejo`), and the host exporter (`node`). Any target sitting at
-`0` is unreachable — see [Troubleshooting](#troubleshooting).
+Expect one series per `job` — the monitoring stack itself (`alloy`,
+`prometheus`, `loki`, `grafana`, `tempo`) and the infra services (`traefik`,
+`authentik`, `forgejo`) — plus **two** for `node`, one per host:
+`instance="infra"` and `instance="pve"`. Any target sitting at `0` is
+unreachable — see [Troubleshooting](#troubleshooting).
 
 ```promql
 traefik_service_requests_total
@@ -211,13 +263,30 @@ traefik_service_requests_total
 Non-zero after loading any lab URL.
 
 ```promql
-node_filesystem_avail_bytes
+node_uname_info{job="node"}
+```
+
+Two series with distinct `nodename` — the infra VM and the Proxmox host. This
+is the query the dashboard's dropdowns are built from, so if it returns one
+series they will offer one node.
+
+```promql
+node_filesystem_avail_bytes{instance="infra"}
 ```
 
 **Compare this against `df -h` on the VM — don't just confirm it returns.** If
 the mounts or path arguments were wrong, the exporter would report the
 *container's* filesystem: a plausible-looking number that simply isn't the
 VM's. An empty result would be obvious; a wrong one is not.
+
+```promql
+node_filesystem_avail_bytes{instance="pve"}
+```
+
+Same comparison, against `df -h` **on the Proxmox host**. The failure mode
+differs — nothing is containerised there — but the reasoning carries: a target
+resolving to the wrong machine returns entirely plausible filesystem numbers
+for a box you did not mean to measure.
 
 #### Logs
 
@@ -300,10 +369,13 @@ Expect a gRPC/HTTP2-shaped response (a `grpc-status` header, or 415/200) —
 
 In Grafana → **Dashboards**, two appear (provisioned, read-only):
 
-- **Node Exporter Full** — the `job` and `nodename`/`instance` dropdowns
-  populate (`node` / `infra`) and the panels show live CPU, RAM, disk and
-  network. Empty dropdowns mean the host exporter isn't labelled as expected —
-  check `up{job="node"}`.
+- **Node Exporter Full** — the `job` dropdown offers `node`, and **Nodename**
+  offers **two** entries: the infra VM and the Proxmox host. Switch between
+  them and the CPU, RAM, disk and network panels redraw with different values.
+  Empty dropdowns mean a host exporter isn't labelled as expected — check
+  `up{job="node"}`. A panel that is populated for one node and blank for the
+  other is *not* a fault: `infra` is measured by Alloy's embedded unix exporter
+  and `pve` by upstream node_exporter, and their collector sets differ slightly.
 - **Traefik Official Standalone Dashboard** — load any lab URL, then watch the
   request-rate and status-code panels move.
 
@@ -311,7 +383,7 @@ In **Alerting → Alert rules**, three rules, each `Normal`:
 
 | Rule | Fires when | For |
 |------|-----------|-----|
-| `DiskAlmostFull` | a real filesystem over 80% used | 15m |
+| `DiskAlmostFull` | a real filesystem over 80% used, **on either host** | 15m |
 | `ServiceDown` | any scrape target's `up == 0` | 5m |
 | `CertExpiringSoon` | a TLS certificate expires in under 21 days | 1h |
 
@@ -338,9 +410,14 @@ minute, then revert.
 **Metrics**
 
 - [ ] `up` returns one series per job — `alloy`, `prometheus`, `loki`,
-      `grafana`, `tempo`, `traefik`, `authentik`, `forgejo`, `node` — none at 0
+      `grafana`, `tempo`, `traefik`, `authentik`, `forgejo` — plus **two** for
+      `node` (`infra` and `pve`), none at 0
 - [ ] `traefik_service_requests_total` non-zero after loading a lab URL
-- [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM
+- [ ] `node_uname_info{job="node"}` returns two series with distinct `nodename`
+- [ ] `node_filesystem_avail_bytes{instance="infra"}` matches `df -h` on the
+      infra VM
+- [ ] `node_filesystem_avail_bytes{instance="pve"}` matches `df -h` on the
+      Proxmox host
 
 **Logs**
 
@@ -361,7 +438,8 @@ minute, then revert.
 
 **Dashboards and alerts**
 
-- [ ] Node Exporter Full: dropdowns populate, panels show data
+- [ ] Node Exporter Full: dropdowns populate, panels show data, and **Nodename**
+      switches between the infra VM and the Proxmox host
 - [ ] Traefik dashboard: panels move when a lab URL is loaded
 - [ ] Three alert rules listed, all `Normal`
 - [ ] Temporarily lowering the disk threshold flips `DiskAlmostFull` to
@@ -369,10 +447,10 @@ minute, then revert.
 
 ## Next
 
-That completes the infra VM. What remains is **Coolify on the apps VM** —
-guide TBD, see [apps/README.md](../apps/README.md). `*.thefipster.de` already
-points there, so every app it deploys gets a working HTTPS hostname with no new
-DNS records.
+**[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the lab's
+notification layer. It is a separate stack on purpose: this one is white-box
+and lives inside everything it watches, so it cannot be the thing that reports
+its own collector has died.
 
 ## Troubleshooting
 
@@ -409,6 +487,29 @@ docker run --rm --network monitoring_monitoring-net alpine wget -qO- http://loki
 **Host metrics show container values.** The mounts and the `procfs_path` /
 `sysfs_path` / `rootfs_path` arguments disagree. Compare
 `node_filesystem_avail_bytes` with `df -h`.
+
+**`up{instance="pve"} == 0`.** Work outwards from the host. On the Proxmox
+host:
+
+```bash
+systemctl is-active prometheus-node-exporter
+```
+
+If that reports `active`, suspect **DNS before the exporter**:
+
+```bash
+docker compose exec grafana getent hosts pve.thefipster.de
+```
+
+It must answer `192.168.1.40`. If it answers `192.168.1.42`, the exact
+`pve.thefipster.de` record is missing and the `*.thefipster.de` wildcard is
+catching the name — Alloy has been scraping the apps VM this whole time. Add
+the record ([dns-records.md](dns-records.md)); nothing here needs restarting,
+since the name is re-resolved on every scrape.
+
+If the name resolves correctly and the exporter is running, check the Proxmox
+firewall (*Datacenter → Firewall*). It is off by default, but if it was
+enabled it needs to allow `192.168.1.41` to reach `:9100`.
 
 **Forgejo `/metrics` returns 404.** The variable didn't reach the container:
 
@@ -503,6 +604,7 @@ shows the health of every stage.
 | Forgejo | `FORGEJO__metrics__ENABLED=true` |
 | Authentik | nothing — already listening on `:9300` |
 | Monitoring | Alloy on `proxy` + three read-only host mounts |
+| Proxmox host | Debian's `prometheus-node-exporter` on `:9100` — a systemd unit, not a stack |
 
 **Alloy sits on the `proxy` network** so it can reach those endpoints at all —
 they live in other stacks. The membership exposes nothing by itself: Traefik
@@ -536,12 +638,22 @@ which costs nothing at ingest. Useful starters:
 sum by (compose_service) (rate({job="docker"}[5m]))
 ```
 
-**Metric targets use the idiomatic `job` label** (the host exporter as
-`job="node"` with `instance="infra"`), which is exactly what community
-dashboards assume — that is why the two vendored dashboards work unmodified.
-Both come from grafana.com (Node Exporter Full #1860 rev 45, Traefik #17346 rev
-9) with their datasource UIDs rewired. Updating one means re-vendoring the JSON
-in the repo, not editing in the browser.
+**Metric targets use the idiomatic `job` label** (both host exporters as
+`job="node"`, told apart by `instance` — `infra` and `pve`), which is exactly
+what community dashboards assume — that is why the two vendored dashboards work
+unmodified. Both come from grafana.com (Node Exporter Full #1860 rev 45, Traefik
+#17346 rev 9) with their datasource UIDs rewired. Updating one means
+re-vendoring the JSON in the repo, not editing in the browser.
+
+**The Proxmox host is scraped natively, not through a container.** It runs
+Debian's `prometheus-node-exporter` as a systemd unit, so the hypervisor stays
+a hypervisor with no Docker on it — which makes it the only scrape target in
+the lab that is not a container, and the only one addressed by hostname rather
+than by Docker service name. An LXC container would have been the "native
+Proxmox" option and reports the wrong numbers: PVE virtualizes `/proc` through
+lxcfs, so the exporter would measure the container rather than the host. A
+second Alloy on the hypervisor would work and would also bring PVE's journald
+into Loki — that, not this, is the reason to reach for it later.
 
 **Alloy holds `docker.sock`, and that is root-equivalent.** The mount is `:ro`,
 matching how Traefik declares it, but that is **not** a security boundary: the
@@ -558,13 +670,24 @@ surface because it *writes*, so it is called out explicitly. To close it, add a
 Traefik basic-auth middleware to the two OTLP routers plus an `Authorization`
 header in each app's exporter config.
 
+**The Proxmox host exporter takes no authentication either.** `:9100` on the
+hypervisor answers any LAN client with its filesystems, kernel version and
+network devices. Same reasoning as the OTLP endpoint, and a smaller surface
+since it only *reads* — but it is a real widening of what the Proxmox host
+serves, so it is stated rather than left implicit. To close it, bind the
+exporter to `192.168.1.40` in `/etc/default/prometheus-node-exporter` and add a
+Proxmox firewall rule allowing only the infra VM.
+
 **Grafana uses Postgres, not SQLite**, so the whole lab has one backup story
 and because `pg_dump` runs against a live database — a consistent SQLite backup
 would need Grafana stopped.
 
-**Alerts are UI-only.** Nothing is delivered anywhere yet. For real
-notifications, add a contact point and a notification policy (SMTP or a chat
-webhook) — one provisioning file, no change to the existing rules.
+**Alerts are UI-only, and stay that way.** No contact point is provisioned
+here, because outbound notification is
+[Uptime Kuma's](uptime-kuma-setup.md) job — adding one on this side would mean
+duplicate alerts for overlapping conditions and two places to tune them. These
+rules remain visible in the Alerting UI and on panels, which is what you want
+once you have already been paged and are looking for the reason.
 
 The design decisions behind all of this, and the order they were built in, are
 recorded in [roadmap/monitoring.md](roadmap/monitoring.md) and the dated specs
@@ -572,6 +695,8 @@ under [superpowers/specs/](superpowers/specs/).
 
 ## Next
 
-The infra VM is complete. **Coolify on the apps VM** is what remains — see
+**[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the independent
+watcher and the lab's notification layer. After that the infra VM is complete
+and **Coolify on the apps VM** is what remains — see
 [apps/README.md](../apps/README.md) and the
 [README build order](../README.md#build-order).
