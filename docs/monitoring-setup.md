@@ -287,7 +287,8 @@ labels in Explore rather than assuming).
 **Traces:**
 
 ```bash
-curl -si -X POST https://otlp.thefipster.de/v1/traces -H 'Content-Type: application/json' -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"phase4-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000100000000"}]}]}]}' | head -1
+NOW=$(date +%s)000000000
+curl -si -X POST https://otlp.thefipster.de/v1/traces -H 'Content-Type: application/json' -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"phase4-span","kind":1,"startTimeUnixNano":"'$NOW'","endTimeUnixNano":"'$NOW'"}]}]}]}' | head -1
 ```
 
 Expect `HTTP/2 200`. Then Grafana → Tempo → search by trace ID
@@ -296,11 +297,17 @@ genuinely new storage.
 
 **Metrics:**
 
+A metric sample carries a timestamp, and **it must be current** — Prometheus
+rejects a sample dated hours in the past as out-of-order, and no recent query
+range would show it anyway. Generate it live rather than hard-coding one:
+
 ```bash
-curl -si -X POST https://otlp.thefipster.de/v1/metrics -H 'Content-Type: application/json' -d '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeMetrics":[{"metrics":[{"name":"phase4_smoketest_total","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[{"asInt":"1","timeUnixNano":"1700000000000000000"}]}}]}]}]}' | head -1
+NOW=$(date +%s)000000000
+curl -si -X POST https://otlp.thefipster.de/v1/metrics -H 'Content-Type: application/json' -d '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeMetrics":[{"metrics":[{"name":"phase4_smoketest_total","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[{"asInt":"1","timeUnixNano":"'$NOW'"}]}}]}]}]}' | head -1
 ```
 
-Expect `HTTP/2 200`. Then in Prometheus, query `phase4_smoketest_total`.
+Expect `HTTP/2 200`. Then in Prometheus, query `phase4_smoketest_total` over
+the last 5 minutes.
 
 **gRPC routing** (no gRPC client needed):
 
