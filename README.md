@@ -68,7 +68,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-│   ├── monitoring-setup.md       Grafana + Prometheus + Loki + Alloy
+│   ├── grafana-setup.md          Grafana platform: stack, routing, OIDC
 │   └── roadmap/                  What's next (monitoring phases 2-5, CI hardening)
 ├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
@@ -116,7 +116,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 5. **[Forgejo](docs/forgejo-setup.md)** — Dockge for stack management, then
    CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
    (Authentik guide, Part B).
-6. **[Monitoring](docs/monitoring-setup.md)** — Grafana + Prometheus + Loki +
+6. **[Grafana platform](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Alloy on the infra VM; Grafana joins Authentik by OIDC. Needs a new
    `grafana.thefipster.de` host record — the wildcard points at the apps VM.
 7. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
@@ -131,7 +131,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed |
 | Dockge management UI | ✅ deployed |
 | Forgejo CI + registry | ✅ deployed |
-| Monitoring: Grafana + Prometheus + Loki + Alloy | ✅ phase 1 deployed — [guide](docs/monitoring-setup.md); logs/dashboards next — [roadmap](docs/roadmap/monitoring.md) |
+| Monitoring: Grafana + Prometheus + Loki + Alloy | ✅ phase 1 deployed — [guide](docs/grafana-setup.md); logs/dashboards next — [roadmap](docs/roadmap/monitoring.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |

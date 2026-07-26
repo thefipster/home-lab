@@ -13,7 +13,7 @@
 # here, and infra/authentik/compose.yaml is untouched by this stack.
 #
 # Deploy (on the infra VM): scripts/init-monitoring.sh, then bring it up and
-# wire Authentik afterwards — see docs/monitoring-setup.md.
+# wire Authentik afterwards — see docs/grafana-setup.md.
 
 name: monitoring
 
@@ -76,7 +76,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env — run scripts/init-monitoring.sh}
       # --- Authentik OIDC ---------------------------------------------------
       # Starts DISABLED so the stack can come up and be verified BEFORE
-      # Authentik is wired (docs/monitoring-setup.md Part 3) — that separates
+      # Authentik is wired (docs/grafana-setup.md Part 3) — that separates
       # "does the stack work" from "does SSO work" when debugging. Flip
       # GRAFANA_OIDC_ENABLED to true in .env once the client id/secret are in.
       GF_AUTH_GENERIC_OAUTH_ENABLED: ${GRAFANA_OIDC_ENABLED:-false}

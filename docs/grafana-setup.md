@@ -1,4 +1,4 @@
-# Monitoring — Grafana, Prometheus, Loki, Alloy (infra VM)
+# Grafana platform setup — Grafana, Prometheus, Loki, Alloy (infra VM)
 
 One place to see the lab's metrics and (from phase 2) its logs, at
 **`https://grafana.thefipster.de`**, behind the [Traefik stack](traefik-setup.md)
@@ -12,6 +12,11 @@ under the same wildcard cert, with login through
 | **Loki** | log storage — **empty until phase 2**, see below |
 | **Alloy** | the **only** collector; scrapes and pushes into Prometheus |
 | **Postgres** | Grafana's database (dedicated to this stack) |
+
+> **This guide stands up the platform.** Configuring what it actually watches —
+> container logs, service metrics, dashboards — is
+> [monitoring-setup.md](monitoring-setup.md). Do this one first: it's the
+> prerequisite for that one.
 
 > **This is phase 1 — the stack skeleton.** Container-log collection, the other
 > stacks' metrics endpoints, host metrics, OTLP intake, dashboards and alerts

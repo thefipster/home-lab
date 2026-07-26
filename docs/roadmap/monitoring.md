@@ -47,7 +47,7 @@ this Loki/Prometheus over the LAN.
 
 ## Phases
 
-1. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+1. **✅ Landed** — see [docs/grafana-setup.md](../grafana-setup.md).
    **Stack skeleton** — Grafana + Loki + Prometheus + Alloy compose;
    `grafana.thefipster.de` routed; Grafana wired to Authentik as an
    OAuth2/OIDC app (guide part, like Forgejo's). Retention short: Loki 14d,

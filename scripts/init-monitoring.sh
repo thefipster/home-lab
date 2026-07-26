@@ -12,7 +12,7 @@
 #   4. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # The two Authentik OIDC values stay BLANK on purpose — they are copied by hand
-# from Authentik (docs/monitoring-setup.md Part 3), which is also when
+# from Authentik (docs/grafana-setup.md Part 3), which is also when
 # GRAFANA_OIDC_ENABLED flips to true. The stack comes up fine without them.
 #
 # Re-runnable: it never rotates a secret that is already set. Run from anywhere.
@@ -89,7 +89,7 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/monitoring"
 
 echo
-echo "Done. Next (see docs/monitoring-setup.md):"
+echo "Done. Next (see docs/grafana-setup.md):"
 echo "  1. Add a DNS host record on the UDR: grafana.thefipster.de -> the infra"
 echo "     VM (192.168.1.41). The *.thefipster.de wildcard points at the APPS"
 echo "     VM, so without an exact record the name resolves to the wrong box."
