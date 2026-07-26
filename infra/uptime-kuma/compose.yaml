@@ -1,0 +1,72 @@
+# Uptime Kuma — independent black-box monitoring for the INFRA VM.
+#
+# Deliberately its OWN stack, not part of infra/monitoring. That stack is a
+# white-box PIPELINE (Alloy collects -> Prometheus/Loki/Tempo store -> Grafana
+# displays) living inside everything it watches. Kuma is black-box and only
+# works from OUTSIDE: in the same compose project, one `docker compose down` on
+# monitoring would take out the pipeline AND the thing that tells you the
+# pipeline is down. It also covers a blind spot that stack documents about
+# itself — if Alloy dies, `up` goes stale, the ServiceDown rule evaluates
+# NoData -> OK, and nothing fires for the most total failure there is.
+#
+# Division of labour, so the two never grow into each other:
+#   Kuma    -> notices and NOTIFIES (ntfy). The thing that pokes you.
+#   Grafana -> metrics, logs, traces, dashboards. The thing that explains why.
+# Grafana's alert rules stay UI-only ON PURPOSE — adding a contact point there
+# would mean duplicate alerts for the same conditions and two places to tune.
+#
+# NO SSO, and that is a DELIBERATE DEVIATION from the repo convention (every
+# other UI joins Authentik by OIDC or forward-auth). Kuma has no OIDC, so the
+# convention would point at forward-auth — but gating the outage dashboard
+# behind the identity provider makes an Authentik outage the one failure you
+# cannot see, and the break-glass path (comment the middleware, recreate) needs
+# SSH at exactly the moment you are already firefighting. Kuma ships real local
+# auth (bcrypt, optional 2FA) and the lab is LAN-only, so the exposure is
+# bounded. Recorded in docs/sso-applications.md as an intentional
+# non-integration. infra/authentik/compose.yaml is untouched by this stack.
+#
+# Deploy (on the infra VM): scripts/init-uptime-kuma.sh, then bring it up —
+# see docs/uptime-kuma-setup.md, which also carries the monitor inventory
+# (monitors live in Kuma's SQLite, so the guide is what makes them
+# reproducible).
+
+name: uptime-kuma
+
+services:
+  uptime-kuma:
+    # Major-only pin, per repo policy. Verified against the registry: a bare
+    # `2` tag IS published (unlike alloy/tempo, which need a full patch pin).
+    image: louislam/uptime-kuma:2
+    restart: unless-stopped
+    volumes:
+      # SQLite, uploads, and every monitor/notification definition. Kuma is
+      # self-contained — no separate database service, and nothing here is
+      # provisioned from the repo (see the guide's monitor inventory).
+      # The default image runs as ROOT, so this dir needs no chown — same as
+      # Alloy, unlike the rest of the monitoring tree.
+      - /opt/uptime-kuma:/app/data
+      # Docker API — this is what lets Kuma report the state of containers it
+      # shares NO network with (Authentik's db/redis/worker, Loki, Prometheus,
+      # Tempo). It is why this stack needs no network changes anywhere else.
+      # The fourth socket mount in the lab, after Dockge, Traefik and Alloy,
+      # and it carries the same caveat: `:ro` makes the MOUNT read-only, NOT
+      # the API behind it. This is root-equivalent control of the VM's Docker.
+      # Acceptable only because this is a single-tenant box.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.uptime.rule: Host(`uptime.thefipster.de`)
+      traefik.http.routers.uptime.entrypoints: websecure
+      traefik.http.services.uptime.loadbalancer.server.port: "3001"
+      # Deliberately NO middlewares label — see the header. Kuma does its own
+      # login, and gating it behind Authentik would hide Authentik outages.
+    networks:
+      # `proxy` only. Kuma does NOT join monitoring-net or authentik-net:
+      # container state comes from the socket above, and the routed services
+      # are checked over HTTPS through Traefik — the real user path, which is
+      # the more honest black-box signal anyway.
+      - proxy
+
+networks:
+  proxy:
+    external: true
