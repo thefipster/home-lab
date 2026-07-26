@@ -113,6 +113,8 @@ strings:
 | Forgejo | Docker | `forgejo-forgejo-1` |
 | Forgejo DB | Docker | `forgejo-db-1` |
 | Forgejo runner | Docker | `forgejo-runner-1` |
+| Home Assistant | HTTP(s) | `https://ha.thefipster.de` |
+| Coolify | HTTP(s) | `https://coolify.thefipster.de` |
 
 `dockge-dockge-1` is the one name you cannot derive from the repo:
 `infra/dockge/compose.yaml` is the only stack with no `name:` key, so its
@@ -133,11 +135,23 @@ docker ps --format '{{.Names}}'
   `PathPrefix(/v1/)` and the gRPC proto prefix only, so a bare `GET /` returns a
   Traefik 404. `monitoring-alloy-1` covers Alloy instead.
 
-The three HTTP monitors buy something the Docker ones cannot: they exercise
+The HTTP monitors buy something the Docker ones cannot: they exercise
 DNS + Traefik + wildcard certificate + application in one shot, along the same
 path a browser takes. Kuma also tracks **certificate expiry per monitor** — a
 second, independent read on wildcard renewal that does not depend on Alloy
 being alive.
+
+**The last two monitors are HTTP-only, necessarily.** Home Assistant and Coolify
+run on *other VMs*, so there is no container here for a Docker check to look at —
+the socket Kuma reads is this VM's. That makes them the only services Kuma
+watches purely end-to-end, and it also makes them the only ones where "down" is
+genuinely ambiguous: a red Coolify monitor could be the app, the proxy on `.42`,
+or that VM being off. `ha.thefipster.de` has a third possibility, since it is
+proxied by Traefik *here* to `.43` — see
+[home-assistant-setup.md](home-assistant-setup.md) for telling 502 from 404.
+
+Both will be red until those machines are built; they are the last two steps of
+the [build order](../README.md#build-order).
 
 ### 6. Wire notifications (ntfy)
 

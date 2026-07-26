@@ -242,6 +242,20 @@ this is a single `apt install` on a machine with no checkout of this repo —
 a script would have to be copied onto the hypervisor first, which is more
 moving parts than the command it would wrap.
 
+**The apps VM joins the same job later**, by the same mechanism: Debian's
+`prometheus-node-exporter` as a systemd unit, this time wrapped in
+[`scripts/init-node-exporter.sh`](../scripts/init-node-exporter.sh) because that
+machine *does* have a checkout. It happens in
+[coolify-setup.md, step 6](coolify-setup.md#6-install-the-host-metrics-exporter),
+after this guide. When it does, the Node Exporter Full dashboard's `instance`
+dropdown gains **`apps`** beside `infra` and `pve` with no edit to its JSON —
+that is what the shared `job="node"` label buys.
+
+The one thing that differs: Alloy addresses the apps VM by **IP**
+(`192.168.1.42:9100`), uniquely in the whole config. `apps.thefipster.de` is not
+a record, so it would resolve only because the wildcard happens to point at that
+VM — the very accident the box above warns about for `pve`.
+
 ### 7. Verify what is collected
 
 #### Metrics
@@ -254,9 +268,15 @@ up
 
 Expect one series per `job` — the monitoring stack itself (`alloy`,
 `prometheus`, `loki`, `grafana`, `tempo`) and the infra services (`traefik`,
-`authentik`, `forgejo`) — plus **two** for `node`, one per host:
-`instance="infra"` and `instance="pve"`. Any target sitting at `0` is
-unreachable — see [Troubleshooting](#troubleshooting).
+`authentik`, `forgejo`) — plus **three** for `node`, one per host:
+`instance="infra"`, `instance="pve"` and `instance="apps"`. Any target sitting at
+`0` is unreachable — see [Troubleshooting](#troubleshooting).
+
+**Two of them are expected to be `0` right now**, and that is not a fault:
+`node{instance="apps"}` and `homeassistant` both point at machines built *after*
+this guide ([coolify-setup.md](coolify-setup.md),
+[home-assistant-setup.md](home-assistant-setup.md)). They come up on their own as
+those guides are completed. Everything else should be `1`.
 
 ```promql
 traefik_service_requests_total
@@ -268,9 +288,9 @@ Non-zero after loading any lab URL.
 node_uname_info{job="node"}
 ```
 
-Two series with distinct `nodename` — the infra VM and the Proxmox host. This
-is the query the dashboard's dropdowns are built from, so if it returns one
-series they will offer one node.
+Two series with distinct `nodename` — the infra VM and the Proxmox host (three,
+once the apps VM is built). This is the query the dashboard's dropdowns are built
+from, so if it returns one series they will offer one node.
 
 ```promql
 node_filesystem_avail_bytes{instance="infra"}
@@ -464,6 +484,27 @@ that endpoint 404s and metrics silently never arrive.
 **Prometheus's "Targets" page is empty.** Expected. Nothing scrapes *from*
 Prometheus in this design; Alloy pushes. Debug collection in Alloy's UI
 instead.
+
+**`ServiceDown` is red for `apps` or `homeassistant` and both are fine.**
+Expected, if you are following the build order: monitoring comes up on the infra
+VM before either of those machines exists. Nothing is sent anywhere — no contact
+point and no notification policy is provisioned, so these alerts are visible in
+Grafana and nowhere else. They clear on their own as
+[coolify-setup.md](coolify-setup.md) and
+[home-assistant-setup.md](home-assistant-setup.md) are completed.
+
+**`job="homeassistant"` returns nothing, or Alloy logs 401s for it.** The token
+is missing. `HA_PROMETHEUS_TOKEN` in `infra/monitoring/.env` must hold a
+long-lived access token minted in HA's own UI — it is the one secret the init
+script cannot generate. Environment variables are read at container creation, so
+editing `.env` needs `docker compose up -d alloy`, not a restart. Full procedure:
+[home-assistant-setup.md, step 7](home-assistant-setup.md#7-wire-up-metrics).
+
+**`job="homeassistant"` has series but nothing appears on Node Exporter Full.**
+Correct, and not fixable. Those are Home Assistant *entity* metrics — sensor
+states, not machine counters — so they share no metric names with a node
+exporter. Only `job="node"` targets (`infra`, `pve`, `apps`) appear on that
+dashboard.
 
 **A single target shows `up == 0`.** Only that target is affected. Isolate it
 from a container that sits on the same networks:
