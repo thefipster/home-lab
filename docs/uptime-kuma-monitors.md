@@ -73,27 +73,27 @@ below traverses it, so a Traefik failure turns most of this registry red at once
 
 ## Identity — authentik
 
-| Name | Type | Target |
-|---|---|---|
-| SSO Web | HTTP(s) | `https://auth.thefipster.de` |
-| SSO Backend | Docker | `authentik-server-1` |
-| SSO Worker | Docker | `authentik-worker-1` |
-| SSO Database | Docker | `authentik-db-1` |
-| SSO Caching | Docker | `authentik-redis-1` |
+| Name         | Type | Target |
+|--------------|---|---|
+| Auth Web     | HTTP(s) | `https://auth.thefipster.de` |
+| Auth Backend | Docker | `authentik-server-1` |
+| Auth Worker  | Docker | `authentik-worker-1` |
+| Auth Storage | Docker | `authentik-db-1` |
+| Auth Caching | Docker | `authentik-redis-1` |
 
 All four containers are listed because Authentik is the one stack whose partial
-failures are silent: `SSO Backend` can serve a login page while `SSO Worker` is
-dead and nothing sends email or runs a flow, and `SSO Caching` dying breaks
+failures are silent: `Auth Backend` can serve a login page while `Auth Worker` is
+dead and nothing sends email or runs a flow, and `Auth Caching` dying breaks
 sessions without touching the front page.
 
 ## Git — forgejo
 
-| Name | Type | Target |
-|---|---|---|
-| Git Web | HTTP(s) | `https://git.thefipster.de` |
+| Name        | Type | Target |
+|-------------|---|---|
+| Git Web     | HTTP(s) | `https://git.thefipster.de` |
 | Git Backend | Docker | `forgejo-forgejo-1` |
-| Git Runner | Docker | `forgejo-runner-1` |
-| Git Database | Docker | `forgejo-db-1` |
+| Git Runner  | Docker | `forgejo-runner-1` |
+| Git Storage | Docker | `forgejo-db-1` |
 
 `Git Web` and `Git Backend` are the same service checked two ways, on purpose —
 that pair is what distinguishes "Forgejo is down" from "the route to Forgejo is
@@ -146,10 +146,10 @@ Traefik 404. `Telemetry Collector` covers the same process.
 
 ## App platform — apps VM (Coolify)
 
-| Name | Type | Target |
-|---|---|---|
-| App Platform | HTTP(s) | `https://coolify.thefipster.de` |
-| Apps Host Reachable | Ping | `apps.thefipster.de` |
+| Name          | Type | Target |
+|---------------|---|---|
+| Apps Platform | HTTP(s) | `https://coolify.thefipster.de` |
+| Apps Host     | Ping | `apps.thefipster.de` |
 
 No Docker monitors: Coolify runs on **another VM**, so there is no container here
 for a Docker check to read. Add a row per deployed app as you deploy them — each
@@ -164,7 +164,7 @@ could mean the app, Coolify's proxy, or the VM being off; with
 | Name | Type | Target |
 |---|---|---|
 | Home Automation | HTTP(s) | `https://ha.thefipster.de` |
-| HA Host Reachable | Ping | `homeassistant.thefipster.de` |
+| HA Host | Ping | `homeassistant.thefipster.de` |
 
 Same shape, one extra failure mode: `Home Automation` traverses Traefik **on the
 infra VM**, which proxies to the HA VM. So a red HTTP monitor with a green ping
