@@ -51,6 +51,24 @@ prometheus.scrape "monitoring_stack" {
   forward_to      = [prometheus.remote_write.default.receiver]
 }
 
+// The lab's own services. All three endpoints ship with the products: Traefik
+// and Forgejo each needed one flag flipped (see their compose files), and
+// Authentik's has been live all along — AUTHENTIK_LISTEN__METRICS defaults to
+// :9300 on every component, so that stack needed no change at all.
+// These are reachable only because Alloy joined the `proxy` network; see
+// compose.yaml. Static targets on purpose: three entries that change roughly
+// never don't justify a discovery convention every stack has to opt into.
+prometheus.scrape "infra_services" {
+  targets = [
+    {"__address__" = "traefik:8082", "service" = "traefik"},
+    {"__address__" = "authentik-server:9300", "service" = "authentik"},
+    {"__address__" = "forgejo:3000", "service" = "forgejo"},
+  ]
+
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
 // --- logs -------------------------------------------------------------------
 //
 // Phase 2: every container on this VM, discovered over the Docker API and

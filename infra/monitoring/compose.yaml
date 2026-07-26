@@ -178,6 +178,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - monitoring-net
+      # Traefik, Authentik's server and Forgejo all live on `proxy` — joining
+      # it is how Alloy reaches their metrics endpoints (phase 3). Alloy's
+      # phase 1 targets were all inside this stack, so this wasn't needed then.
+      # Nothing becomes exposed: Traefik routes only containers carrying
+      # traefik.enable labels, and Alloy deliberately has none.
+      - proxy
 
 networks:
   monitoring-net:
