@@ -28,10 +28,13 @@ itself, so appending cannot collide.
 
 ## How it fits the lab
 
-- **Reached at `https://ha.thefipster.de`**, which resolves to the **infra VM**,
-  not to this one. Traefik terminates TLS there with the lab's wildcard
-  certificate and proxies to `192.168.1.43:8123`. HA has no container on the
-  infra VM to hang Traefik labels on, so its router is declared as a file:
+- **Two names, one machine.** `ha.thefipster.de` → the **infra VM** (`.41`), where
+  Traefik terminates TLS with the lab's wildcard certificate; that is the
+  **service**, and what every browser uses. `homeassistant.thefipster.de` → this
+  VM (`.43`) is the **machine**, and is what Traefik dials over plain HTTP on
+  `:8123`. They cannot be collapsed: the public name has to mean the proxy for
+  TLS to work, so it cannot also be the proxy's backend. HA has no container on
+  the infra VM to hang Traefik labels on, so its router is declared as a file:
   `infra/traefik/dynamic/ha.yaml`.
 - **No SSO, deliberately.** HA has no OIDC, and forward-auth would break the
   companion app, webhooks and every local API caller. It keeps its own local

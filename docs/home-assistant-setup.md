@@ -87,8 +87,20 @@ http://192.168.1.43:8123
 ```
 
 Create your Home Assistant account through the onboarding wizard. Add the DHCP
-reservation for this VM's MAC if you have not already — the target is in
-[dns-records.md](dns-records.md).
+reservation for this VM's MAC if you have not already, plus the **two** records
+this machine needs — the registry is [dns-records.md](dns-records.md):
+
+- `ha.thefipster.de` → `192.168.1.41` (the infra VM — the **service**)
+- `homeassistant.thefipster.de` → `192.168.1.43` (this VM — the **machine**,
+  which is what Traefik dials)
+
+```bash
+getent hosts ha.thefipster.de homeassistant.thefipster.de
+```
+
+Expect `.41` then `.43`. Two names for one service looks redundant until you try
+to collapse them: `ha.` has to point at the proxy for TLS, so it cannot also be
+the proxy's backend.
 
 > **No USB passthrough is configured, deliberately.** Every guide for
 > HA-on-Proxmox tells you to pass a Zigbee or Z-Wave stick through to the VM.
@@ -114,7 +126,7 @@ curl -sI https://ha.thefipster.de | head -1
 ```
 
 Expect `HTTP/2 200`, with no certificate warning — Traefik is terminating TLS
-with the lab's wildcard and proxying to `192.168.1.43:8123`. Open it in a browser
+with the lab's wildcard and proxying to `homeassistant.thefipster.de:8123`. Open it in a browser
 and confirm the frontend loads and stays live (the UI is websocket-driven, so a
 blank page after login means the upgrade is not getting through).
 
@@ -162,9 +174,21 @@ specifically: if you left *Pre-Enroll keys* ticked, delete the EFI disk and
 re-add it unticked. Also confirm *Options → Boot Order* actually has `scsi0`
 enabled and first — an imported disk is not bootable until you say so.
 
-**`https://ha.thefipster.de` returns 502.** Traefik reached the route but not the
-backend. Either the VM is down, or `infra/traefik/dynamic/ha.yaml` points at the
-wrong address — it must be `http://192.168.1.43:8123`.
+**`https://ha.thefipster.de` returns 502.** Traefik matched the route but could
+not reach the backend. Three causes, in order of likelihood:
+
+1. The VM is down or still booting.
+2. `homeassistant.thefipster.de` has no exact record, so it falls through the
+   wildcard to the apps VM, where nothing listens on `:8123`. Check it:
+
+```bash
+getent hosts homeassistant.thefipster.de
+```
+
+3. Someone changed the backend in `infra/traefik/dynamic/ha.yaml` to
+   `http://ha.thefipster.de:8123`. That name resolves to the **infra VM**, so
+   Traefik dials its own `:8123` and finds nothing. It must be
+   `http://homeassistant.thefipster.de:8123` — the machine, not the service.
 
 **`https://ha.thefipster.de` returns 404.** The opposite problem: Traefik has no
 router for that name. Check `ha.thefipster.de` resolves to the **infra VM**
@@ -211,11 +235,20 @@ same place — HA's own instructions say to pick an OVMF build without `secure` 
 `secboot` in the name, which in Proxmox terms is the EFI disk with *Pre-Enroll
 keys* off.
 
-**Why `ha.thefipster.de` points at the infra VM.** Because that is where the
-lab's only certificate lives. Pointing the record at `.43` would reach HA
-directly — over plain HTTP, with nothing to terminate TLS. Proxying costs one
-DNS row that looks wrong until you read it and one `trusted_proxies` line, and
-buys a genuine Let's Encrypt certificate on the same wildcard as everything else.
+**Why `ha.thefipster.de` points at the infra VM, and why there is a second name.**
+`ha.` points at `.41` because that is where the lab's only certificate lives;
+pointing it at `.43` would reach HA over plain HTTP with nothing to terminate TLS.
+But a proxy needs an address for its backend, and it cannot be the name that
+already means "the proxy" — that resolves to the infra VM and would have Traefik
+dialling its own `:8123`. So the machine gets its own name,
+`homeassistant.thefipster.de` → `.43`, and the split is deliberate: **`ha.` is
+the service, `homeassistant.` is the box.** The same distinction already exists
+for `pve.thefipster.de` and `apps.thefipster.de`, which name machines for
+internal access rather than services for browsers.
+
+Using a name rather than the raw IP means Traefik re-resolves per dial, so an HA
+VM address change corrects itself with no config edit — the same reason Alloy
+addresses every scrape target by name.
 
 **Why a file provider instead of labels.** Every other routed service is a
 container on the infra VM, so Traefik reads its `traefik.*` labels off the Docker

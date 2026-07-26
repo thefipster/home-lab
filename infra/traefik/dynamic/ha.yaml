@@ -1,9 +1,23 @@
 # Home Assistant — the lab's only file-provider router.
 #
-# HA runs on its OWN VM (192.168.1.43), so there is no container here for the
-# Docker provider to read labels from. Hence this file. ha.thefipster.de
-# resolves to the INFRA VM (.41) and Traefik proxies onward — see
-# docs/dns-records.md.
+# HA runs on its OWN VM, so there is no container here for the Docker provider to
+# read labels from. Hence this file. ha.thefipster.de resolves to the INFRA VM
+# (.41) and Traefik proxies onward — see docs/dns-records.md.
+#
+# TWO NAMES, ONE MACHINE, and they are not interchangeable:
+#   ha.thefipster.de             -> .41, the SERVICE. What browsers use. TLS.
+#   homeassistant.thefipster.de  -> .43, the MACHINE. The backend below. Plain
+#                                   HTTP, LAN only.
+# Do NOT be tempted to write the backend as http://ha.thefipster.de:8123. That
+# name resolves to the infra VM — Traefik itself — so Traefik would dial its own
+# :8123, where nothing listens, and every request would 502. The public name
+# belongs to the front door and cannot also mean the back end.
+#
+# homeassistant.thefipster.de needs an EXACT record: the *.thefipster.de wildcard
+# answers with the APPS VM, which is the wrong box. (Contrast apps.thefipster.de,
+# which needs no record precisely because the wildcard's answer is right.) If the
+# record is missing this fails LOUDLY — nothing on the apps VM listens on 8123,
+# so you get connection-refused and a 502, not a plausible-looking wrong page.
 #
 # No TLS section: the websecure entrypoint's tls.domains wildcard in
 # compose.yaml covers every router on it, this one included. Adding a resolver
@@ -33,4 +47,7 @@ http:
       loadBalancer:
         servers:
           # Plain HTTP over the LAN, terminated with TLS by Traefik above.
-          - url: http://192.168.1.43:8123
+          # By NAME, not by IP: Traefik re-resolves per dial, so an HA VM address
+          # change corrects itself here with no edit. Same reasoning as Alloy's
+          # scrape targets in infra/monitoring/alloy/config.alloy.
+          - url: http://homeassistant.thefipster.de:8123

@@ -37,7 +37,8 @@ All entries are type **Host (A)**:
 | `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
 | `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `192.168.1.41` | Uptime Kuma status monitoring (via Traefik) |
-| `ha.thefipster.de` | `192.168.1.41` | Home Assistant UI (Traefik proxies to the HA VM at `.43:8123`) |
+| `ha.thefipster.de` | `192.168.1.41` | Home Assistant UI — the **service** (via Traefik, which proxies to the row below) |
+| `homeassistant.thefipster.de` | `192.168.1.43` | the HA VM itself — the **machine**; Traefik's backend, and the only lab name served over plain HTTP |
 | `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI, and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
@@ -65,16 +66,31 @@ precisely *because* the wildcard would answer with the apps VM — the wrong box
 Same mechanism, opposite outcome: whether the wildcard is a safety net or a trap
 depends only on whether the name wants the apps VM.
 
-## One row that points somewhere surprising
+## Home Assistant has two names, on purpose
 
-`ha.thefipster.de` points at the **infra VM**, not at the HA VM. Traefik
-terminates TLS there with the lab's one wildcard certificate and proxies to
-`192.168.1.43:8123`. Pointing it at `.43` directly would reach Home Assistant
-over plain HTTP with no certificate at all.
+They are not interchangeable, and swapping them breaks the route:
 
-A consequence worth knowing if you ever edit the route: because this name means
-"the proxy", it **cannot** also be used as the proxy's backend address. The HA VM
-is reached by IP in `infra/traefik/dynamic/ha.yaml` for that reason.
+| Name | Points at | Means |
+|---|---|---|
+| `ha.thefipster.de` | `192.168.1.41` | the **service**. What you and every browser use. Traefik terminates TLS here with the lab's wildcard certificate. |
+| `homeassistant.thefipster.de` | `192.168.1.43` | the **machine**. Traefik's backend, over plain HTTP on `:8123`. Nothing else uses it. |
+
+`ha.` points at the infra VM because that is where the only certificate lives —
+pointing it at `.43` would reach Home Assistant over plain HTTP with none at all.
+Which is exactly why it **cannot** double as the backend address: a backend of
+`http://ha.thefipster.de:8123` resolves to the infra VM, so Traefik would dial
+its own `:8123`, find nothing listening, and 502 every request. The public name
+belongs to the front door.
+
+`homeassistant.` needs an **exact** record for the `pve` reason — the wildcard
+answers with the apps VM, the wrong box. Unlike the `pve` case, though, getting
+this wrong is **loud**: nothing on the apps VM listens on `:8123`, so a missing
+record gives connection-refused and a 502 rather than a plausible-looking wrong
+page. Verify it anyway:
+
+```bash
+getent hosts homeassistant.thefipster.de
+```
 
 **When a new infra service arrives, add its row here first.** A missing exact
 record silently resolves to the apps VM via the wildcard, and you get

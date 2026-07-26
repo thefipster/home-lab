@@ -42,10 +42,18 @@ router; the public zone holds no A records. `git.` / `dockge.` → infra VM,
 `*.thefipster.de` → apps VM. TLS everywhere is a genuine Let's Encrypt **wildcard**
 issued via DNS-01 against the netcup API — nothing is exposed to the internet.
 
-Two DNS entries are counter-intuitive and both are deliberate: **`ha.` points at
-the infra VM** (`.41`), not the HA VM, because Traefik terminates TLS there and
-proxies to `.43:8123`; and **`coolify.` has no exact record at all**, because the
-wildcard already reaches the apps VM whose proxy routes by `Host` header.
+Three DNS facts are counter-intuitive and all are deliberate:
+
+- **`ha.` points at the infra VM** (`.41`), not the HA VM, because Traefik
+  terminates TLS there.
+- **Home Assistant therefore has a second name**,
+  `homeassistant.thefipster.de` → `.43`, which is what Traefik dials. `ha.` is the
+  **service**, `homeassistant.` is the **machine**; they are not interchangeable,
+  and a backend of `http://ha.thefipster.de:8123` would have Traefik dialling its
+  own `:8123` and 502-ing every request. Same service/machine split as
+  `pve.` and `apps.`, which name boxes for internal access.
+- **`coolify.` and `apps.` have no exact record at all**, because the wildcard
+  already reaches the apps VM — the machine both names want.
 
 ## The routing convention (most important cross-file pattern)
 
