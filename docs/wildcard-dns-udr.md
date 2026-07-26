@@ -31,8 +31,8 @@ local wildcard can't shadow any real service.
   for DHCP clients). Local DNS records only apply to clients resolving
   *through* the UDR.
 - **DHCP reservations** so the target IPs never change. UDR: *Client Devices →
-  (select host) → Settings → **Fixed IP Address*** — infra VM `192.168.1.41`,
-  apps VM `192.168.1.42`.
+  (select host) → Settings → **Fixed IP Address*** — the reservation targets
+  are in the registry: [dns-records.md](dns-records.md).
 
 ## Add the wildcard record (UniFi UI)
 
@@ -58,17 +58,10 @@ The wildcard covers `foo.thefipster.de` but **not** the bare apex
 ## Exact host records for infra services
 
 A specific Host (A) record **beats the wildcard** — that's how the infra names
-escape the apps-VM catch-all. Add these the same way (Create Entry → Host (A)):
-
-| Domain Name | IP | Serves |
-|---|---|---|
-| `git.thefipster.de` | `192.168.1.41` | Forgejo web + registry (via Traefik) |
-| `dockge.thefipster.de` | `192.168.1.41` | Dockge UI (via Traefik) |
-| `auth.thefipster.de` | `192.168.1.41` | Authentik SSO portal (via Traefik) |
-| `traefik.thefipster.de` | `192.168.1.41` | Traefik dashboard (gated by Authentik) |
-| `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
-| `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
-| `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI (optional) |
+escape the apps-VM catch-all. The records to add are maintained in the
+registry: **[dns-records.md](dns-records.md)**. Add every row there the same
+way (Create Entry → Host (A)) — a missing record only surfaces much later, as
+Coolify's 404 behind a valid certificate.
 
 ## Verify at all three layers
 

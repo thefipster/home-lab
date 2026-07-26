@@ -93,9 +93,10 @@ run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/monitoring"
 
 echo
 echo "Done. Next (see docs/grafana-setup.md):"
-echo "  1. Add a DNS host record on the UDR: grafana.thefipster.de -> the infra"
-echo "     VM (192.168.1.41). The *.thefipster.de wildcard points at the APPS"
-echo "     VM, so without an exact record the name resolves to the wrong box."
+echo "  1. Verify the grafana.thefipster.de (and otlp.thefipster.de) host"
+echo "     records resolve to the infra VM (192.168.1.41) — the registry is"
+echo "     docs/dns-records.md. The *.thefipster.de wildcard points at the"
+echo "     APPS VM, so without an exact record the name hits the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://grafana.thefipster.de as 'admin' using"
 echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check all three datasources."

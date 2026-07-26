@@ -2,14 +2,16 @@
 
 [Authentik](https://goauthentik.io) is the lab's single sign-on identity
 provider, at **`https://auth.thefipster.de`**, behind the
-[Traefik stack](traefik-setup.md) under the same wildcard cert. It brings three
-services under SSO, each by the method that fits it:
+[Traefik stack](traefik-setup.md) under the same wildcard cert. Services join
+it by one of two patterns — native **OIDC** where a service has real SSO
+support or authenticates non-browser traffic (`git push`, `docker login`, CI),
+**forward-auth** at the proxy for plain web UIs with none — never both. The
+full list of applications, and the exact values each is configured with, is
+the registry: **[sso-applications.md](sso-applications.md)**.
 
-| Service | Method | Why |
-|---------|--------|-----|
-| Forgejo (`git.thefipster.de`) | native **OIDC** | Forgejo also authenticates `git push`, `docker login`/registry and CI — none carry a browser cookie, so only real OIDC accounts cover them. |
-| Dockge (`dockge.thefipster.de`) | **forward-auth** | No native SSO; gated at the proxy. |
-| Traefik dashboard (`traefik.thefipster.de`) | **forward-auth** | Exposed *only because* forward-auth guards it. |
+This guide wires the first three: Dockge and the Traefik dashboard by
+forward-auth (Part A), Forgejo by OIDC (Part B). Grafana joins later, also by
+OIDC, in [grafana-setup.md](grafana-setup.md).
 
 Forward-auth is **per application**: each protected host has its own Authentik
 Application + access policy, so services are authorized independently.
@@ -77,23 +79,15 @@ good.
 
 ## Part A — Forward-auth for Dockge and the Traefik dashboard
 
-Do this **once per service**. Values for the two services:
-
-| | Dockge | Traefik dashboard |
-|-|--------|-------------------|
-| Provider name | `dockge-forwardauth` | `traefik-forwardauth` |
-| External host | `https://dockge.thefipster.de` | `https://traefik.thefipster.de` |
-| Application name / slug | `Dockge` / `dockge` | `Traefik` / `traefik` |
+Do this **once per service** — the per-service values (provider name,
+external host, application name/slug, mode, flow) are in the registry:
+[sso-applications.md](sso-applications.md#forward-auth-dockge--traefik-dashboard).
 
 1. **Create the provider.** In Authentik: **Admin → Applications → Providers →
-   Create → Proxy Provider**.
-   - Name: as above.
-   - Authorization flow: `default-provider-authorization-implicit-consent`.
-   - Mode: **Forward auth (single application)**.
-   - External host: as above.
-   - Save.
+   Create → Proxy Provider** — name, authorization flow, mode and external
+   host exactly as the registry specifies. Save.
 2. **Create the application.** **Admin → Applications → Applications → Create**.
-   - Name / Slug: as above.
+   - Name / Slug: from the registry.
    - Provider: the provider you just made.
    - Save. (Leave the policy engine unset for now = allow any authenticated
      user; [Part C](#part-c--add-users-and-control-who-reaches-what) adds
@@ -131,32 +125,22 @@ independent app in **Admin → Events → Logs**.
 Needs the Forgejo stack up and its admin account created
 ([forgejo-setup.md](forgejo-setup.md), Parts 0–A) — come back here afterwards.
 
+All field values for both sides are in the registry:
+[sso-applications.md](sso-applications.md#forgejo-oidc).
+
 1. **Create the Forgejo provider in Authentik.** **Providers → Create →
-   OAuth2/OpenID Provider**.
-   - Name: `forgejo`.
-   - Authorization flow: `default-provider-authorization-implicit-consent`.
-   - Client type: **Confidential**.
-   - Redirect URIs (exact):
-     `https://git.thefipster.de/user/oauth2/authentik/callback`
-   - Signing Key: the default (`authentik Self-signed Certificate`).
-   - Save, then note the generated **Client ID** and **Client Secret**.
-2. **Create the application:** **Applications → Create** → Name `Forgejo`, Slug
-   `forgejo`, Provider `forgejo`.
-   - The discovery URL is then:
-     `https://auth.thefipster.de/application/o/forgejo/.well-known/openid-configuration`
+   OAuth2/OpenID Provider** — name, flow, client type, redirect URI and
+   signing key exactly as the registry specifies. Save, then note the
+   generated **Client ID** and **Client Secret**.
+2. **Create the application:** **Applications → Create** — name/slug from the
+   registry, provider `forgejo`.
 3. **Add the source in Forgejo.** **Site Administration → Identity & Access →
-   Authentication Sources → Add Authentication Source**.
-   - Type: **OAuth2**.
-   - Authentication Name: **`authentik`** — this MUST be `authentik`, because
-     Forgejo builds the callback as `/user/oauth2/<name>/callback`, and that
-     has to match the redirect URI in step 1.
-   - OAuth2 Provider: **OpenID Connect**.
-   - Client ID / Client Secret: from step 1.
-   - OpenID Connect Auto Discovery URL: the discovery URL from step 2.
-   - Enable **Auto Registration**; set account linking to **automatic** (link by
-     email) so your Authentik identity maps onto the existing Forgejo admin
-     account (same email) instead of creating a second user.
-   - Save.
+   Authentication Sources → Add Authentication Source** — type, authentication
+   name and discovery URL exactly as the registry specifies (the name **must**
+   be `authentik`; the registry says why), Client ID / Client Secret from
+   step 1. Enable **Auto Registration**; set account linking to **automatic**
+   (link by email) so your Authentik identity maps onto the existing Forgejo
+   admin account (same email) instead of creating a second user. Save.
 4. **Do NOT disable local login** — leave password sign-in on (break-glass).
 
 **Verify:** log out of Forgejo, open `https://git.thefipster.de`, click **Sign
@@ -193,8 +177,9 @@ Parts A and B left every application without bindings, which means **any
 authenticated user** is allowed through. To restrict an application to a
 group:
 
-1. **Admin → Applications → Applications** → open the app (`Dockge`,
-   `Traefik` or `Forgejo`) → **Policy / Group / User Bindings** tab.
+1. **Admin → Applications → Applications** → open the app (any from the
+   [registry](sso-applications.md) — `Dockge`, `Traefik`, `Forgejo`, later
+   `Grafana`) → **Policy / Group / User Bindings** tab.
 2. **Bind existing Group / User** → select `lab-users` → Save.
 
 The moment an application has at least one binding, everyone *not* matched by

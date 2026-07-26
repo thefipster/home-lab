@@ -1,8 +1,7 @@
 # Traefik + Let's Encrypt via netcup DNS-01 (infra VM)
 
-Terminates TLS for every infra-VM service on real domain names —
-`auth.thefipster.de` (Authentik), `git.thefipster.de` (Forgejo web + registry),
-`dockge.thefipster.de` and `traefik.thefipster.de` (dashboard) — with
+Terminates TLS for every infra-VM service on real domain names — the full
+hostname set is in the registry, [dns-records.md](dns-records.md) — with
 one **wildcard certificate** (`*.thefipster.de`) from Let's Encrypt. The
 wildcard is deliberately the *only* name on the cert — no apex SAN: apex +
 wildcard would need two TXT records at the same `_acme-challenge` FQDN, and
@@ -37,9 +36,9 @@ run its own proxy with its own wildcard cert later — see
 - **netcup API credentials**: log in to the CCP (customer control panel) →
   **Master Data → API** → generate an **API key** and an **API password**. The
   **customer number** is the number you log in to the CCP with.
-- The **local DNS records** from [wildcard-dns-udr.md](wildcard-dns-udr.md) are
-  in place (the infra host records `git`/`dockge`/`auth`/`traefik` → `.41`,
-  wildcard → `.42`).
+- The **local DNS records** from the registry ([dns-records.md](dns-records.md))
+  are in place — every infra host record → `.41`, wildcard → `.42`; added per
+  [wildcard-dns-udr.md](wildcard-dns-udr.md).
 - The repo and Docker are on the infra VM
   ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm):
   clone to `~/home-lab`, `init-host.sh`, re-login).

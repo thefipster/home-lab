@@ -142,7 +142,12 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. Monitoring is split in two on purpose:
+"Build order" links them in sequence. Two **registries** centralize the manual
+operations that live outside the repo: `dns-records.md` (every UDR DNS record)
+and `sso-applications.md` (every Authentik application and its exact config
+values). Guides link the registries instead of duplicating the lists — a new
+hostname or SSO app gets its registry row first, and per-service values should
+never be repeated inline in a guide. Monitoring is split in two on purpose:
 `grafana-setup.md` stands up the *platform* (stack, routing, OIDC), while
 `monitoring-setup.md` configures what it *observes* (logs, service + host
 metrics, OTLP/traces, dashboards, alerts). Adding a new observability

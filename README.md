@@ -41,21 +41,16 @@ wants to own a host outright; keeping it off the infra box avoids that conflict.
 
 Everything sits on the LAN behind a UniFi Dream Router. Names are real
 subdomains of `thefipster.de`, resolved **locally** by the router (split
-horizon — the public zone holds no A records):
-
-- `git.thefipster.de` → infra VM — Forgejo web + container registry, HTTPS via
-  Traefik.
-- `dockge.thefipster.de` → infra VM — the Dockge management UI.
-- `auth.thefipster.de` → infra VM — Authentik SSO portal, HTTPS via Traefik.
-- `traefik.thefipster.de` → infra VM — Traefik dashboard, gated by Authentik.
-- `grafana.thefipster.de` → infra VM — Grafana (metrics + logs), SSO via
-  Authentik OIDC.
-- `*.thefipster.de` → apps VM — Coolify's proxy routes each hostname to the
-  right app by the HTTP `Host` header, so new apps need **no** new DNS records.
+horizon — the public zone holds no A records): exact host records send the
+infra services (`git.`, `auth.`, `grafana.`, …) to the infra VM, and the
+`*.thefipster.de` wildcard sends everything else to the apps VM, where
+Coolify's proxy routes each hostname to the right app by the HTTP `Host`
+header — new apps need **no** new DNS records. The full record set is the
+registry [docs/dns-records.md](docs/dns-records.md); the router how-to is
+[docs/wildcard-dns-udr.md](docs/wildcard-dns-udr.md).
 
 Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
-[docs/wildcard-dns-udr.md](docs/wildcard-dns-udr.md) for the DNS setup and
 [docs/traefik-setup.md](docs/traefik-setup.md) for TLS.
 
 ## Repository layout
@@ -65,9 +60,11 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 ├── docs/                        Guides
 │   ├── proxmox-setup.md          Proxmox host + the two VMs (start here)
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
+│   ├── dns-records.md            Registry: every DNS record the lab needs
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
+│   ├── sso-applications.md       Registry: every service behind Authentik
 │   ├── grafana-setup.md          Grafana platform: stack, routing, OIDC
 │   ├── monitoring-setup.md       Configuring what's monitored (logs, metrics)
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
@@ -108,7 +105,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install the
    hypervisor, create the `infra` and `apps` VMs.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
-   wildcard, and the infra host records.
+   wildcard, and **every** infra host record from the registry
+   ([docs/dns-records.md](docs/dns-records.md)) — later steps assume they
+   exist.
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The wildcard cert is requested at startup —
    expect the ~10–15 min netcup propagation wait on first issuance.
@@ -119,8 +118,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
    CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
    (Authentik guide, Part B).
 6. **[Grafana platform](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
-   Alloy on the infra VM; Grafana joins Authentik by OIDC. Needs a new
-   `grafana.thefipster.de` host record — the wildcard points at the apps VM.
+   Alloy on the infra VM; Grafana joins Authentik by OIDC. Its
+   `grafana.thefipster.de` host record is part of the registry (created in
+   step 2) — verify it resolves to the infra VM.
 7. **[Monitoring configuration](docs/monitoring-setup.md)** — point the platform
    at something: container logs, service + host metrics, OTLP ingest with
    traces, and the dashboards and alerts on top.
