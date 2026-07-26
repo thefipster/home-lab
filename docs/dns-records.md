@@ -34,7 +34,7 @@ All entries are type **Host (A)**:
 | `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
 | `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `192.168.1.41` | Uptime Kuma status monitoring (via Traefik) |
-| `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI (optional) |
+| `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI, and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
 escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
