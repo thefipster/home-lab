@@ -44,13 +44,37 @@ An exact host record **beats the wildcard** — that is how the infra names
 escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
 `thefipster.de`; add an exact apex record only if you ever need one.
 
-**Two rows that look missing and are not.** `coolify.thefipster.de` has no exact
-record on purpose — the `*.thefipster.de` wildcard already sends it to the apps
-VM, and Coolify's own proxy routes it by `Host` header like any app it hosts.
-And `ha.thefipster.de` points at the **infra VM**, not at the HA VM: Traefik
+## Names the wildcard covers on purpose
+
+These resolve correctly with **no exact record**, because the wildcard's answer —
+the apps VM — is the machine they need. They are listed so their absence above
+reads as a decision rather than an oversight:
+
+| Domain Name | Resolves via | Used for |
+|---|---|---|
+| `coolify.thefipster.de` | wildcard → `192.168.1.42` | Coolify's own UI; its proxy routes by `Host` header like any app it hosts |
+| `apps.thefipster.de` | wildcard → `192.168.1.42` | the apps VM's node exporter, scraped by Alloy at `:9100` |
+
+**Do not "fix" these by adding exact records.** The wildcard already gives the
+right answer, and letting the name follow the wildcard is what makes an apps-VM
+IP change correct itself everywhere at once — including in Alloy's scrape config,
+which re-resolves per scrape.
+
+Note the contrast with `pve.thefipster.de`, which needs its exact record
+precisely *because* the wildcard would answer with the apps VM — the wrong box.
+Same mechanism, opposite outcome: whether the wildcard is a safety net or a trap
+depends only on whether the name wants the apps VM.
+
+## One row that points somewhere surprising
+
+`ha.thefipster.de` points at the **infra VM**, not at the HA VM. Traefik
 terminates TLS there with the lab's one wildcard certificate and proxies to
 `192.168.1.43:8123`. Pointing it at `.43` directly would reach Home Assistant
 over plain HTTP with no certificate at all.
+
+A consequence worth knowing if you ever edit the route: because this name means
+"the proxy", it **cannot** also be used as the proxy's backend address. The HA VM
+is reached by IP in `infra/traefik/dynamic/ha.yaml` for that reason.
 
 **When a new infra service arrives, add its row here first.** A missing exact
 record silently resolves to the apps VM via the wildcard, and you get

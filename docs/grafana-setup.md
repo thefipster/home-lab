@@ -251,10 +251,12 @@ after this guide. When it does, the Node Exporter Full dashboard's `instance`
 dropdown gains **`apps`** beside `infra` and `pve` with no edit to its JSON —
 that is what the shared `job="node"` label buys.
 
-The one thing that differs: Alloy addresses the apps VM by **IP**
-(`192.168.1.42:9100`), uniquely in the whole config. `apps.thefipster.de` is not
-a record, so it would resolve only because the wildcard happens to point at that
-VM — the very accident the box above warns about for `pve`.
+Alloy addresses it as `apps.thefipster.de:9100`, and that name needs **no DNS
+record** — the wildcard already answers with the apps VM. Which is the exact
+inverse of the box above: `pve` needs its record *because* the wildcard would
+answer with the apps VM, and `apps` needs none *because* it would. Same
+mechanism, opposite outcome. Both are recorded in
+[dns-records.md](dns-records.md).
 
 ### 7. Verify what is collected
 

@@ -254,11 +254,14 @@ the single source of truth; Dockge only drives start/stop/logs.
   without the exact record the `*.thefipster.de` wildcard answers with the apps VM
   and Alloy silently scrapes the wrong box, which looks exactly like a dead
   exporter.
-- **The apps VM is the one target addressed by IP** (`192.168.1.42:9100`), against
-  the lab's name-not-address habit, and on purpose:
-  `apps.thefipster.de` is **not a record**, so it would resolve only because the
-  wildcard happens to point at that very VM. Relying on that would be adopting
-  the exact accident the `pve` note above warns about.
+- **Whether the wildcard is a safety net or a trap depends only on which machine
+  the name wants.** `pve.thefipster.de` needs an exact record because the wildcard
+  would answer with the apps VM — the wrong box, presenting as a dead exporter.
+  `apps.thefipster.de` needs **no record at all**, because the wildcard's answer
+  *is* the apps VM; Alloy scrapes it at `:9100` by name and the registry lists it
+  as a deliberate non-row. Same for `coolify.thefipster.de`. Don't "fix" either by
+  adding an exact record: letting them follow the wildcard is what makes an
+  apps-VM IP change correct itself everywhere at once.
 - **Home Assistant is scraped differently from everything else** — over HTTPS
   through Traefik (`ha.thefipster.de:443`, `metrics_path = /api/prometheus`)
   rather than reached directly, so a broken route surfaces in monitoring instead

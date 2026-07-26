@@ -145,18 +145,19 @@ prometheus.scrape "proxmox_host" {
 // port needed. Debian's prometheus-node-exporter as a systemd unit, installed
 // by scripts/init-node-exporter.sh.
 //
-// The ONE target in this file addressed by IP rather than by name, and that is
-// deliberate: apps.thefipster.de is NOT a DNS record. It would resolve only
-// because the *.thefipster.de wildcard happens to point at this very VM —
-// exactly the accident docs/dns-records.md warns about for pve, so relying on
-// it here would be borrowing a bug as a feature.
+// Addressed by NAME, like everything else, and this name needs NO DNS record of
+// its own: the *.thefipster.de wildcard already answers with the apps VM, which
+// is the box we want. Note the contrast with pve above — there the wildcard
+// answers with the WRONG machine, which is why that one needs an exact record.
+// Here the general rule gives the right answer, so there is nothing to add.
+// See docs/dns-records.md, which records this as a deliberate non-row.
 //
 // Same job="node" as infra and pve, distinct instance — that shared label plus
 // a distinct instance is the whole reason all three land on the vendored Node
 // Exporter Full dashboard with no edit to its JSON.
 prometheus.scrape "apps_host" {
   targets = [
-    {"__address__" = "192.168.1.42:9100", "job" = "node", "instance" = "apps"},
+    {"__address__" = "apps.thefipster.de:9100", "job" = "node", "instance" = "apps"},
   ]
 
   scrape_interval = "15s"
