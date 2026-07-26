@@ -18,15 +18,15 @@ Router. **The repo root is the machine map** — one directory per VM — while
 `docs/` and `scripts/` stay flat, because their filenames already carry the
 service name and nesting them would add a `../` to every cross-guide link:
 
-- **Proxmox host** (`.40`) — hypervisor only, no Docker. A bad container can't
+- **Proxmox host** — hypervisor only, no Docker. A bad container can't
   take the box down.
-- **infra VM** (`.41`) — Traefik + Authentik + Forgejo + Dockge + monitoring
+- **infra VM** — Traefik + Authentik + Forgejo + Dockge + monitoring
   (the stacks in `infra/`). The only machine whose services this repo declares.
-- **apps VM** (`.42`) — Coolify (self-hosted PaaS). Coolify owns its own Docker
+- **apps VM** — Coolify (self-hosted PaaS). Coolify owns its own Docker
   and manages apps through its UI, so `apps/` holds **no compose file** — only a
   README and a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
   needs. App definitions live in Coolify's database, not this repo.
-- **home-assistant VM** (`.43`) — Home Assistant OS, Supervisor included, so
+- **home-assistant VM** — Home Assistant OS, Supervisor included, so
   add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
   repo cannot be its source of truth, so `home-assistant/` holds a README and a
@@ -62,10 +62,10 @@ should be a name.
 
 Three DNS facts are counter-intuitive and all are deliberate:
 
-- **`ha.` points at the infra VM** (`.41`), not the HA VM, because Traefik
+- **`ha.` points at the infra VM**, not the HA VM, because Traefik
   terminates TLS there.
 - **Home Assistant therefore has a second name**,
-  `homeassistant.thefipster.de` → `.43`, which is what Traefik dials. `ha.` is the
+  `homeassistant.thefipster.de` → the HA VM, which is what Traefik dials. `ha.` is the
   **service**, `homeassistant.` is the **machine**; they are not interchangeable,
   and a backend of `http://ha.thefipster.de:8123` would have Traefik dialling its
   own `:8123` and 502-ing every request. Same service/machine split as

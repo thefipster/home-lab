@@ -160,7 +160,7 @@ Exactly one thing in the lab genuinely needs an address — `trusted_proxies` in
 `home-assistant/configuration.yaml`, because Home Assistant validates that field
 as an address or CIDR range and will not accept a hostname. So the repo ships a
 **placeholder** there, `<infra-vm-ip>`, filled in on the machine during
-[home-assistant-setup.md, step 6](home-assistant-setup.md#6-make-it-reachable-through-traefik).
+[home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik).
 The value is derived from DNS rather than read off the router:
 
 ```bash

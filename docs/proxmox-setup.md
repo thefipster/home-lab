@@ -5,10 +5,10 @@
 Turns the bare server into a hypervisor running three VMs:
 
 ```
-Proxmox VE  (pve.thefipster.de · .40)   ← this guide
- ├─ VM: infra           (.41)  → Traefik + Authentik + Forgejo + Dockge + monitoring
- ├─ VM: apps            (.42)  → Coolify + your apps
- └─ VM: home-assistant  (.43)  → Home Assistant OS (Supervisor + add-ons)
+Proxmox VE  ·  pve.thefipster.de          ← this guide
+ ├─ VM: infra            → Traefik + Authentik + Forgejo + Dockge + monitoring
+ ├─ VM: apps             → Coolify + your apps
+ └─ VM: home-assistant   → Home Assistant OS (Supervisor + add-ons)
 ```
 
 Proxmox VE is a Debian-based type-1 hypervisor. Its native workloads are **KVM
@@ -43,11 +43,14 @@ Boot the server from the USB stick and pick **Install Proxmox VE (graphical)**.
    RAM for it (ZFS likes RAM). `Options` lets you cap the root filesystem size.
 3. Country / timezone / keyboard.
 4. **root password** + an admin **email**.
-5. **Management network**:
+5. **Management network** — the one place in the whole lab where you type
+   addresses in by hand, because no DNS exists yet:
    - **Hostname (FQDN):** `pve.thefipster.de`
-   - **IP (CIDR):** `192.168.1.40/24`  ← static, this is the host's own address
-   - **Gateway:** your router, e.g. `192.168.1.1`
-   - **DNS:** your router (`192.168.1.1`) so `*.thefipster.de` resolves
+   - **IP (CIDR):** the `pve ip` from [dns-records.md](dns-records.md), with your
+     LAN's prefix length — **static**, and the host's own address. Pick it outside
+     the router's DHCP pool.
+   - **Gateway:** your router's address
+   - **DNS:** your router, so `*.thefipster.de` resolves
 6. Install, then **reboot and remove the USB**.
 
 The installer auto-creates a Linux bridge **`vmbr0`** on the physical NIC. VMs
@@ -58,8 +61,16 @@ UDR — exactly what we want. No extra network config needed.
 
 ## Part 3 — Post-install housekeeping
 
-Open the web UI at **`https://192.168.1.40:8006`** (self-signed cert → accept the
-warning). Log in as `root`.
+**First, put the host's name on the router.** You chose a static address in
+Part 2, so you already know it — add the single record
+`pve.thefipster.de` → `pve ip` on the UDR now
+([dns-records.md](dns-records.md) is the registry,
+[wildcard-dns-udr.md](wildcard-dns-udr.md) the how-to). It takes a minute and
+every step from here on can use the name instead of an address. The *rest* of the
+record set waits for Part 6, when the VMs exist to point at.
+
+Then open the web UI at **`https://pve.thefipster.de:8006`** (self-signed cert →
+accept the warning). Log in as `root`.
 
 **Switch off the enterprise repo** (it 401s without a subscription) and enable the
 free **no-subscription** repo. UI path: *Datacenter → pve → Updates →
@@ -117,7 +128,7 @@ Suggested specs for all three — the reasoning is in
 |---|---|---|---|
 | Name | `infra` | `apps` | `homeassistant` |
 | VMID | 101 | 102 | 103 |
-| IP | `192.168.1.41` | `192.168.1.42` | `192.168.1.43` |
+| IP | `infra ip` | `apps ip` | `ha ip` |
 | Cores | 32 | 32 | 32 |
 | CPU type | `host` | `host` | `host` |
 | `cpuunits` | 100 (default) | 50 | 200 |

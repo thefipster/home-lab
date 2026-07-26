@@ -145,9 +145,9 @@ being alive.
 run on *other VMs*, so there is no container here for a Docker check to look at —
 the socket Kuma reads is this VM's. That makes them the only services Kuma
 watches purely end-to-end, and it also makes them the only ones where "down" is
-genuinely ambiguous: a red Coolify monitor could be the app, the proxy on `.42`,
-or that VM being off. `ha.thefipster.de` has a third possibility, since it is
-proxied by Traefik *here* to `.43` — see
+genuinely ambiguous: a red Coolify monitor could be the app, the proxy on the
+apps VM, or that VM being off. `ha.thefipster.de` has a third possibility, since
+it is proxied by Traefik *here* to the HA VM — see
 [home-assistant-setup.md](home-assistant-setup.md) for telling 502 from 404.
 
 Both will be red until those machines are built; they are the last two steps of

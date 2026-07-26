@@ -77,18 +77,16 @@ Do this **now**. HAOS grows its data partition when it boots, so resizing first
 gets the space for free; resizing later means expanding the partition by hand
 inside an appliance that does not want you in there.
 
-### 5. Start and onboard
+### 5. Start it, then name it
 
-Start the VM and open **Console**. First boot takes a few minutes while HAOS
-sets itself up, then:
+Start the VM and open **Console**. First boot takes a few minutes while HAOS sets
+itself up. It has no console login and nothing to configure there — you are
+watching for it to settle, not logging in.
 
-```bash
-http://192.168.1.43:8123
-```
-
-Create your Home Assistant account through the onboarding wizard. Add the DHCP
-reservation for this VM's MAC if you have not already, plus the **two** records
-this machine needs — the registry is [dns-records.md](dns-records.md):
+**Name it before you open it.** HAOS ships the guest agent, so Proxmox shows the
+VM's address on its **Summary** tab as soon as it boots. Use that to set things up
+on the **UDR** — a DHCP reservation for this VM's MAC, then the **two** records
+this machine needs ([dns-records.md](dns-records.md) is the registry):
 
 - `ha.thefipster.de` → the **infra VM** (the *service* — Traefik answers here)
 - `homeassistant.thefipster.de` → **this VM** (the *machine* — what Traefik dials)
@@ -102,13 +100,26 @@ If they match, one of the records is wrong. Two names for one service looks
 redundant until you try to collapse them — `ha.` has to point at the proxy for TLS,
 so it cannot also be the proxy's backend.
 
+### 6. Onboard
+
+With the records in place, open Home Assistant by name and create your account
+through the onboarding wizard:
+
+```bash
+http://homeassistant.thefipster.de:8123
+```
+
+Plain HTTP and the machine name, deliberately: Traefik is not in the path yet, and
+`ha.thefipster.de` would reach the infra VM, which has nothing to serve you until
+the next step.
+
 > **No USB passthrough is configured, deliberately.** Every guide for
 > HA-on-Proxmox tells you to pass a Zigbee or Z-Wave stick through to the VM.
 > This lab uses **Ethernet** Zigbee coordinators, so HA reaches them over the
 > LAN like any other network device and the hypervisor is not involved. Nothing
 > is missing here.
 
-### 6. Make it reachable through Traefik
+### 7. Make it reachable through Traefik
 
 HA is now on the LAN but only over plain HTTP. Append the two blocks from
 [`home-assistant/configuration.yaml`](../home-assistant/configuration.yaml) to
@@ -151,9 +162,9 @@ blank page after login means the upgrade is not getting through).
 > service in the lab that joins neither SSO pattern — see
 > [sso-applications.md](sso-applications.md).
 
-### 7. Wire up metrics
+### 8. Wire up metrics
 
-The `prometheus:` key from step 6 exposes `/api/prometheus`, which needs a token.
+The `prometheus:` key from step 7 exposes `/api/prometheus`, which needs a token.
 In HA: *your profile → Security → Long-lived access tokens → Create token*. Copy
 it — it is shown once.
 
@@ -208,8 +219,8 @@ getent hosts homeassistant.thefipster.de
    `http://homeassistant.thefipster.de:8123` — the machine, not the service.
 
 **`https://ha.thefipster.de` returns 404.** The opposite problem: Traefik has no
-router for that name. Check `ha.thefipster.de` resolves to the **infra VM**
-(`.41`) and not to the apps VM via the wildcard:
+router for that name. Check `ha.thefipster.de` resolves to the **infra VM** and
+not to the apps VM via the wildcard:
 
 ```bash
 getent hosts ha.thefipster.de
@@ -218,10 +229,10 @@ getent hosts ha.thefipster.de
 **HA will not start, and the log says the `http` config is invalid.** The
 `<infra-vm-ip>` placeholder is still in `trusted_proxies` — HA validates that
 field as an address and rejects the string. This is the intended failure: loud at
-startup rather than a puzzling 400 later. Fill it in per step 6.
+startup rather than a puzzling 400 later. Fill it in per step 7.
 
 **HA returns `400 Bad Request` and its log mentions an untrusted proxy.** The
-`http:` block from step 6 is missing, or `trusted_proxies` holds an address that
+`http:` block from step 7 is missing, or `trusted_proxies` holds an address that
 is no longer the infra VM's. Re-derive it:
 
 ```bash
@@ -266,12 +277,13 @@ same place — HA's own instructions say to pick an OVMF build without `secure` 
 keys* off.
 
 **Why `ha.thefipster.de` points at the infra VM, and why there is a second name.**
-`ha.` points at `.41` because that is where the lab's only certificate lives;
-pointing it at `.43` would reach HA over plain HTTP with nothing to terminate TLS.
+`ha.` points at the infra VM because that is where the lab's only certificate
+lives; pointing it at this VM would reach HA over plain HTTP with nothing to
+terminate TLS.
 But a proxy needs an address for its backend, and it cannot be the name that
 already means "the proxy" — that resolves to the infra VM and would have Traefik
 dialling its own `:8123`. So the machine gets its own name,
-`homeassistant.thefipster.de` → `.43`, and the split is deliberate: **`ha.` is
+`homeassistant.thefipster.de` → this VM, and the split is deliberate: **`ha.` is
 the service, `homeassistant.` is the box.** The same distinction already exists
 for `pve.thefipster.de` and `apps.thefipster.de`, which name machines for
 internal access rather than services for browsers.

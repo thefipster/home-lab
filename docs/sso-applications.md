@@ -31,7 +31,7 @@ the moment you are least able to use it.
 | Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
-| Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 6](home-assistant-setup.md#6-make-it-reachable-through-traefik) |
+| Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik) |
 
 ## Forward-auth: Dockge & Traefik dashboard
 

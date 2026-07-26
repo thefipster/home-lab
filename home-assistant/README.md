@@ -28,10 +28,10 @@ itself, so appending cannot collide.
 
 ## How it fits the lab
 
-- **Two names, one machine.** `ha.thefipster.de` → the **infra VM** (`.41`), where
+- **Two names, one machine.** `ha.thefipster.de` → the **infra VM**, where
   Traefik terminates TLS with the lab's wildcard certificate; that is the
   **service**, and what every browser uses. `homeassistant.thefipster.de` → this
-  VM (`.43`) is the **machine**, and is what Traefik dials over plain HTTP on
+  VM is the **machine**, and is what Traefik dials over plain HTTP on
   `:8123`. They cannot be collapsed: the public name has to mean the proxy for
   TLS to work, so it cannot also be the proxy's backend. HA has no container on
   the infra VM to hang Traefik labels on, so its router is declared as a file:
