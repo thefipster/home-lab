@@ -369,10 +369,10 @@ minute, then revert.
 
 ## Next
 
-That completes the infra VM. What remains is **Coolify on the apps VM** —
-guide TBD, see [apps/README.md](../apps/README.md). `*.thefipster.de` already
-points there, so every app it deploys gets a working HTTPS hostname with no new
-DNS records.
+**[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the lab's
+notification layer. It is a separate stack on purpose: this one is white-box
+and lives inside everything it watches, so it cannot be the thing that reports
+its own collector has died.
 
 ## Troubleshooting
 
@@ -562,9 +562,12 @@ header in each app's exporter config.
 and because `pg_dump` runs against a live database — a consistent SQLite backup
 would need Grafana stopped.
 
-**Alerts are UI-only.** Nothing is delivered anywhere yet. For real
-notifications, add a contact point and a notification policy (SMTP or a chat
-webhook) — one provisioning file, no change to the existing rules.
+**Alerts are UI-only, and stay that way.** No contact point is provisioned
+here, because outbound notification is
+[Uptime Kuma's](uptime-kuma-setup.md) job — adding one on this side would mean
+duplicate alerts for overlapping conditions and two places to tune them. These
+rules remain visible in the Alerting UI and on panels, which is what you want
+once you have already been paged and are looking for the reason.
 
 The design decisions behind all of this, and the order they were built in, are
 recorded in [roadmap/monitoring.md](roadmap/monitoring.md) and the dated specs
@@ -572,6 +575,8 @@ under [superpowers/specs/](superpowers/specs/).
 
 ## Next
 
-The infra VM is complete. **Coolify on the apps VM** is what remains — see
+**[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the independent
+watcher and the lab's notification layer. After that the infra VM is complete
+and **Coolify on the apps VM** is what remains — see
 [apps/README.md](../apps/README.md) and the
 [README build order](../README.md#build-order).

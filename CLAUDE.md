@@ -60,6 +60,15 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
+**One service joins neither, deliberately: Uptime Kuma.** It has no OIDC, so
+the convention would point at forward-auth — but gating the outage dashboard
+behind the identity provider makes an Authentik outage the one failure you
+cannot see, and break-glass would need SSH mid-incident. It keeps its own local
+login instead. Treat this as a stated exception, not a gap to close:
+`infra/uptime-kuma/compose.yaml` carries no `middlewares` label and
+`infra/authentik/compose.yaml` no outpost router for it, both commented in
+place, with the reasoning in `sso-applications.md`.
+
 Not every SSO knob is clickwork: Forgejo's auto-registration and account
 linking are **instance settings** in the compose
 (`FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION`, `...__ACCOUNT_LINKING`),
@@ -106,6 +115,12 @@ the sequence is:
    Grafana's OIDC needs a provider — but the stack starts fine before SSO is
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
    verified first.
+7. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
+   stack. The **shortest** init script in the repo and the only stack with **no
+   `.env` and no `.env.example`**: Kuma has no database and creates its admin
+   through its own first-run web form, so there is nothing to seed. No `chown`
+   either — the default image runs as root, like Alloy. Last on purpose; it
+   watches everything above it.
 
 All init scripts are **idempotent-ish and re-runnable**, use `set -euo pipefail`,
 resolve paths from `$BASH_SOURCE` (run from anywhere), and share a `run_root()`
@@ -141,8 +156,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   loose rate limits; switching CAs either way means deleting `acme.json` and
   force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
-  the Forgejo runner, Traefik (read-only there) and Alloy (container discovery
-  + log tailing). `:ro` is **not** a security boundary for a socket — the mount
+  the Forgejo runner, Traefik (read-only there), Alloy (container discovery
+  + log tailing) and Uptime Kuma (container-state monitors — it is what lets
+  Kuma report on stacks it shares no network with, which is why adding it
+  changed no other stack's networks). `:ro` is **not** a security boundary for
+  a socket — the mount
   is read-only, the API behind it is not. Alloy additionally bind-mounts the
   host's `/proc`, `/sys` and `/` read-only for host metrics; that widens what
   it can *see* but does not move the trust boundary the socket already crossed.
@@ -162,7 +180,8 @@ the single source of truth; Dockge only drives start/stop/logs.
 `docs/` holds the reproduction guides, one per build-order step:
 `proxmox-setup.md` → `wildcard-dns-udr.md` → `traefik-setup.md` →
 `authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
-`grafana-setup.md`. The README's "Build order" links them in sequence and each
+`grafana-setup.md` → `uptime-kuma-setup.md`. The README's "Build order" links
+them in sequence and each
 guide ends by linking the next. `grafana-setup.md` owns **all** of monitoring —
 the platform *and* what it observes; an earlier split into a second
 `monitoring-setup.md` was merged away because, on a fresh checkout, the second

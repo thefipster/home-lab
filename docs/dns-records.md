@@ -33,6 +33,7 @@ All entries are type **Host (A)**:
 | `traefik.thefipster.de` | `192.168.1.41` | Traefik dashboard (gated by Authentik) |
 | `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
 | `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
+| `uptime.thefipster.de` | `192.168.1.41` | Uptime Kuma status monitoring (via Traefik) |
 | `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI (optional) |
 
 An exact host record **beats the wildcard** — that is how the infra names
