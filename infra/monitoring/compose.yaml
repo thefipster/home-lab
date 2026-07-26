@@ -145,6 +145,23 @@ services:
       - monitoring-net
 
   # ---------------------------------------------------------------------------
+  # Tempo — trace storage (phase 4). Alloy writes OTLP traces here; Grafana
+  # reads them. Not routed and not published: monitoring-net only.
+  # ---------------------------------------------------------------------------
+  tempo:
+    # FULL PATCH pin, like grafana/alloy: Tempo publishes only vX.Y.Z tags —
+    # there is no `2` and no `2.9`.
+    image: grafana/tempo:2.9.4
+    restart: unless-stopped
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      # Image runs as UID 10001 — init-monitoring.sh chowns it.
+      - /opt/monitoring/tempo:/tempo
+    networks:
+      - monitoring-net
+
+  # ---------------------------------------------------------------------------
   # Alloy — the single collector for the whole lab.
   # ---------------------------------------------------------------------------
   alloy:

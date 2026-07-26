@@ -1,0 +1,36 @@
+# Tempo — single-binary trace storage, filesystem-backed, 7-day retention.
+#
+# Sized for a one-person lab: no clustering, no object storage. Receives traces
+# from Alloy over OTLP gRPC on 4317; Grafana queries the API on 3200. Nothing
+# external talks to it — only Alloy writes, only Grafana reads.
+#
+# metrics_generator (service graphs / span metrics) is deliberately OFF: it
+# needs its own remote_write and belongs with phase 5's dashboards.
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tempo/blocks
+    wal:
+      path: /tempo/wal
+
+compactor:
+  compaction:
+    # 7 days — shorter than logs (14d) and metrics (15d): traces are far
+    # bulkier per unit of insight.
+    block_retention: 168h
+
+# Don't phone home from a private lab (matches Loki's setting).
+usage_report:
+  reporting_enabled: false

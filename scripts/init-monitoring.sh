@@ -41,18 +41,21 @@ fi
 
 echo "==> Creating persistent data tree under /opt/monitoring"
 run_root mkdir -p /opt/monitoring/postgres /opt/monitoring/grafana \
-  /opt/monitoring/prometheus /opt/monitoring/loki /opt/monitoring/alloy
+  /opt/monitoring/prometheus /opt/monitoring/loki /opt/monitoring/alloy \
+  /opt/monitoring/tempo
 # Each image drops to a different user and must own its data dir, or it
 # crash-loops on first boot. These UIDs were read from the PINNED images'
 # own configs, not guessed:
 #   grafana/grafana:13.1  -> 472
 #   prom/prometheus:v3    -> nobody (65534)
 #   grafana/loki:3        -> 10001
+#   grafana/tempo:2.9.4   -> 10001
 #   grafana/alloy:v1.18.0 -> root, so its dir needs no chown
 # Postgres manages its own dir's ownership.
 run_root chown -R 472:472 /opt/monitoring/grafana
 run_root chown -R 65534:65534 /opt/monitoring/prometheus
 run_root chown -R 10001:10001 /opt/monitoring/loki
+run_root chown -R 10001:10001 /opt/monitoring/tempo
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "==> Seeding ${ENV_FILE} from .env.example"
