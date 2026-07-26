@@ -84,10 +84,19 @@ this Loki/Prometheus over the LAN.
    traces yet" didn't mean untestable. Routed through Traefik at
    `otlp.thefipster.de` with TLS (not plain ports), which is why Alloy gained
    the traefik labels phase 3 said it lacked.
-5. **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik
+5. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+   **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik
    dashboard (status codes, cert expiry), and 2–3 alerts that matter
    (disk >80 %, service down, cert not renewed). More than that is noise in
    a one-person lab.
+   Shipped as two pinned community dashboards (Node Exporter Full #1860,
+   Traefik Official Standalone #17346) and three UI-only alerts. Required
+   renaming the phase-1 `service` metric label to the idiomatic `job` so the
+   dashboards work unmodified.
+
+**The monitoring roadmap is complete.** All five phases are deployed; further
+work (external alert delivery, app-level RED dashboards, span metrics) attaches
+when a real need appears, not before.
 
 ## Constraints & notes
 

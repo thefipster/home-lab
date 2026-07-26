@@ -319,6 +319,64 @@ Expect a gRPC/HTTP2-shaped response (a `grpc-status` header, or 415/200) —
 **not a 404**. That proves the gRPC router and the h2c scheme resolve to Alloy
 even without a real gRPC client.
 
+## Part 6 — Dashboards and alerts
+
+The final piece: make the collected data visible and make failures loud. Two
+provisioned dashboards and three alerts.
+
+One correction rides along. The phase-1 `service` metric label was renamed to
+the idiomatic **`job`** (and the host exporter now carries `job="node"` +
+`instance="infra"`) so the community dashboards work with no editing. Redeploy
+Alloy for it to take effect — old `service`-labelled series simply age out
+within the 15-day retention.
+
+### Apply
+
+```bash
+cd ~/home-lab && git pull
+```
+
+```bash
+cd ~/home-lab/infra/monitoring && docker compose up -d alloy grafana
+```
+
+`alloy` picks up the `job` relabel; `grafana` loads the new dashboard and alert
+provisioning.
+
+### Dashboards
+
+In Grafana → **Dashboards**, two appear (provisioned, read-only):
+
+- **Node Exporter Full** — open it; the `job` and `nodename`/`instance`
+  dropdowns populate (`node` / `infra`) and the panels show live CPU, RAM, disk
+  and network. If the dropdowns are empty, Alloy didn't pick up the rename —
+  check `up{job="node"}` in Explore.
+- **Traefik Official Standalone Dashboard** — load any lab URL, then watch the
+  request-rate and status-code panels move.
+
+Both are vendored from grafana.com (Node Exporter Full #1860 rev 45, Traefik
+#17346 rev 9) with their datasource UIDs rewired to ours. Updating one means
+re-vendoring the JSON in the repo, not editing in the browser — provisioned
+dashboards are read-only there by design.
+
+### Alerts
+
+In Grafana → **Alerting → Alert rules**, three rules, each `Normal`:
+
+| Rule | Fires when | For |
+|------|-----------|-----|
+| `DiskAlmostFull` | root filesystem over 80% used | 15m |
+| `ServiceDown` | any scrape target's `up == 0` | 5m |
+| `CertExpiringSoon` | a TLS cert expires in under 21 days | 1h |
+
+They are **UI-only** — nothing is sent anywhere yet; they show here and on
+panels. To prove the path without waiting for a real disk to fill, lower
+`DiskAlmostFull`'s threshold in `infra/monitoring/grafana/provisioning/alerting/rules.yaml`
+below current usage, `docker compose up -d grafana`, watch it flip to `Firing`
+within a minute, then revert. For real notifications later, add a contact point
+and a notification policy (SMTP or a chat webhook) — one provisioning file, no
+change to these rules.
+
 ## Troubleshooting
 
 **A target shows `up == 0`.** Only that target is affected; everything else
@@ -411,9 +469,15 @@ reached Alloy but didn't speak cleartext HTTP/2. Confirm
 - [ ] `POST /v1/metrics` returns 200 and the metric queries in Prometheus
 - [ ] The gRPC path returns a gRPC-shaped response, not 404 (h2c routing works)
 - [ ] Phases 1–3 series (`up`, `{job="docker"}`, host metrics) still return
+- [ ] After redeploying Alloy, `up{job="node"}` and `up{job="traefik"}` return
+- [ ] Node Exporter Full: `job`/`instance` dropdowns populate, panels show data
+- [ ] Traefik dashboard: request/status panels move when a lab URL is loaded
+- [ ] Alerting lists DiskAlmostFull, ServiceDown, CertExpiringSoon — all Normal
+- [ ] Temporarily lowering the disk threshold flips DiskAlmostFull to Firing
 
-## What's next
+## Done
 
-Phase 5 in [roadmap/monitoring.md](roadmap/monitoring.md): dashboards (a VM
-dashboard, a Traefik dashboard) and the two or three alerts worth having —
-disk >80 %, a service down, a cert not renewed.
+That completes the monitoring build — platform, logs, metrics, traces,
+dashboards and alerts. The [roadmap](roadmap/monitoring.md) is closed; further
+work (external alert delivery, app-level dashboards, span metrics) attaches when
+a real need appears, not before.
