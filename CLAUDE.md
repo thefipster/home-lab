@@ -122,9 +122,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   loose rate limits; switching CAs either way means deleting `acme.json` and
   force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
-  the Forgejo runner, and Traefik (read-only there). Acceptable only because
-  this is a single-tenant box building the owner's own code — never extend this
-  to untrusted/fork code.
+  the Forgejo runner, Traefik (read-only there) and Alloy (container discovery
+  + log tailing). `:ro` is **not** a security boundary for a socket — the mount
+  is read-only, the API behind it is not. Acceptable only because this is a
+  single-tenant box building the owner's own code — never extend this to
+  untrusted/fork code.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
   `workflow_dispatch`, and every manual run builds and pushes (see
@@ -138,7 +140,11 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. `docs/roadmap/` holds forward-looking
+"Build order" links them in sequence. Monitoring is split in two on purpose:
+`grafana-setup.md` stands up the *platform* (stack, routing, OIDC), while
+`monitoring-setup.md` configures what it *observes* (logs now, metrics and
+dashboards as later phases land). Adding a new observability capability means
+editing the second, not the first. `docs/roadmap/` holds forward-looking
 plans (monitoring, CI hardening) — decisions and phases for work not built
 yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
 implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.

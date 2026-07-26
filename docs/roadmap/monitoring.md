@@ -57,9 +57,14 @@ this Loki/Prometheus over the LAN.
    `docker.sock` mount on Alloy — phase 2 adds the socket together with
    `discovery.docker`, so the root-equivalent grant follows the capability
    that needs it. Loki is intentionally empty until then.
-2. **Logs** — Alloy `discovery.docker` + `loki.source.docker`: every container
+2. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+   **Logs** — Alloy `discovery.docker` + `loki.source.docker`: every container
    on the VM, labeled by compose project/service. Verify Authentik's JSON
    logs land parsed and Traefik access logs are on (`--accesslog=true`).
+   Shipped with four labels only (`job`, `compose_project`, `compose_service`,
+   `container`) and **no ingest-time parsing** — JSON is parsed at query time
+   with `| json`. Alloy took the `docker.sock` mount here, as phase 1 said it
+   would.
 3. **Metrics** — enable the endpoints that already exist: Traefik
    (`--metrics.prometheus`), Authentik (`AUTHENTIK_LISTEN__METRICS`, :9300),
    Forgejo (`FORGEJO__metrics__ENABLED`); host + per-container via Alloy's
