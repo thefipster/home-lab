@@ -156,8 +156,11 @@ services:
     command: -config.file=/etc/tempo/tempo.yaml
     volumes:
       - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
-      # Image runs as UID 10001 — init-monitoring.sh chowns it.
-      - /opt/monitoring/tempo:/tempo
+      # Data at /var/tempo, NOT /tempo: the image's ENTRYPOINT binary IS
+      # /tempo, so mounting a dir there collides with the executable ("not a
+      # directory"). Image runs as UID 10001 — init-monitoring.sh chowns the
+      # host dir.
+      - /opt/monitoring/tempo:/var/tempo
     networks:
       - monitoring-net
 

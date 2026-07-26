@@ -21,9 +21,9 @@ storage:
   trace:
     backend: local
     local:
-      path: /tempo/blocks
+      path: /var/tempo/blocks
     wal:
-      path: /tempo/wal
+      path: /var/tempo/wal
 
 compactor:
   compaction:
