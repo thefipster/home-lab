@@ -1,5 +1,7 @@
 # Traefik — TLS termination and routing (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [wildcard-dns-udr.md](wildcard-dns-udr.md) complete — every
 record from [dns-records.md](dns-records.md) resolving, and the repo plus
 Docker on the infra VM ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm)).

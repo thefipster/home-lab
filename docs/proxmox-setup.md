@@ -1,5 +1,7 @@
 # Proxmox VE setup (greenfield homelab foundation)
 
+**Runs on:** the bare server, then the Proxmox host shell
+
 Turns the bare server into a hypervisor running two VMs:
 
 ```

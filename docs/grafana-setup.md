@@ -1,5 +1,7 @@
 # Monitoring — Grafana, Prometheus, Loki, Tempo, Alloy (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [forgejo-setup.md](forgejo-setup.md) complete — the stack
 scrapes Traefik, Authentik and Forgejo, so they should exist before you verify
 collection.

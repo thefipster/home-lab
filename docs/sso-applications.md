@@ -1,5 +1,7 @@
 # SSO applications (registry)
 
+**Runs on:** Authentik on the infra VM — registry, not a build step
+
 Every service behind [Authentik](authentik-setup.md), with the exact values
 its provider and application are created with. All of this is **manual
 clickwork in the Authentik admin UI** — none of it lives in a compose file —

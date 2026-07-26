@@ -1,5 +1,7 @@
 # DNS records (registry)
 
+**Runs on:** the UniFi Dream Router — registry, not a build step
+
 Every DNS entry the lab needs, in one place. All of these are **manual
 operations on the UniFi Dream Router** — they live on the router, not in this
 repo — so this registry is the record of what must exist. How to add them

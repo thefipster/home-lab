@@ -204,7 +204,10 @@ Authentik application and its exact config values). Guides link the registries
 instead of duplicating the lists — a new hostname or SSO app gets its registry
 row first, and per-service values should never be repeated inline in a guide.
 
-**Every guide follows the same structure**, in this order: headline;
+**Every guide follows the same structure**, in this order: headline; a
+`**Runs on:** <machine>` line naming the machine whose shell you are in (the two
+registries say `— registry, not a build step` instead, because they describe
+manual operations that span machines);
 one-line prerequisite linking the previous guide (never a restatement of it);
 short explanation of the stack; numbered steps with verification, **each
 command in its own fenced block**; jump-off to the next guide;

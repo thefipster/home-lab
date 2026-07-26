@@ -1,5 +1,7 @@
 # Authentik — single sign-on (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [traefik-setup.md](traefik-setup.md) complete — the wildcard
 certificate issued and Traefik serving.
 

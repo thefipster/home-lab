@@ -1,5 +1,7 @@
 # Forgejo — CI and container registry (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [dockge-setup.md](dockge-setup.md) complete — which means
 Traefik, Authentik and Dockge are all up. This is the first stack you can bring
 up from the Dockge UI instead of the CLI, though the commands below use the CLI

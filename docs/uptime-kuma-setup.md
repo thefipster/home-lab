@@ -1,5 +1,7 @@
 # Uptime Kuma — independent status monitoring (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [grafana-setup.md](grafana-setup.md) complete — Kuma watches
 that stack, so it is the last thing built.
 

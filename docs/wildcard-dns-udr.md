@@ -1,5 +1,7 @@
 # Lab DNS on a UniFi Dream Router
 
+**Runs on:** the UniFi Dream Router
+
 **Prerequisite:** [proxmox-setup.md](proxmox-setup.md) complete — both VMs
 exist and have DHCP reservations, so the records below have something stable to
 point at.

@@ -1,5 +1,7 @@
 # Dockge — compose management UI (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [authentik-setup.md](authentik-setup.md) complete — Authentik
 must be running before Dockge's router will load at all.
 
