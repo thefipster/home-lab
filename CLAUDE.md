@@ -324,11 +324,19 @@ the platform *and* what it observes; an earlier split into a second
 `monitoring-setup.md` was merged away because, on a fresh checkout, the second
 guide was pure verification.
 
-Two **registries** centralize the manual operations that live outside the repo:
-`dns-records.md` (every UDR DNS record) and `sso-applications.md` (every
-Authentik application and its exact config values). Guides link the registries
-instead of duplicating the lists — a new hostname or SSO app gets its registry
-row first, and per-service values should never be repeated inline in a guide.
+Three **registries** centralize the manual operations that live outside the repo:
+`dns-records.md` (every UDR DNS record), `sso-applications.md` (every Authentik
+application and its exact config values) and `uptime-kuma-monitors.md` (every
+Kuma monitor, grouped by stack). Guides link the registries instead of duplicating
+the lists — a new hostname, SSO app or monitor gets its registry row first, and
+per-service values should never be repeated inline in a guide.
+
+All three carry `**Runs on:** … — registry, not a build step`, and all three list
+their **deliberate absences** alongside their entries, because a registry that
+only records what exists cannot tell you whether a gap was a decision. The
+absences are load-bearing: `coolify.`/`apps.` have no DNS row, Kuma and Home
+Assistant have no SSO entry, and Kuma does not monitor itself or the hypervisor.
+When adding a service, decide about all three and say so in each.
 
 **Every guide follows the same structure**, in this order: headline; a
 `**Runs on:** <machine>` line naming the machine whose shell you are in (the two

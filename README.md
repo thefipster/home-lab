@@ -91,6 +91,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
+│   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
@@ -187,7 +188,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 8. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
    monitoring and the lab's notification layer. Last on purpose: it watches
    everything above it, and it is a separate stack precisely so it does not
-   share a lifecycle with the monitoring pipeline it also checks.
+   share a lifecycle with the monitoring pipeline it also checks. The monitors
+   themselves are the registry,
+   **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
+   service gets its rows there.
 
 ### apps VM — your own applications
 
