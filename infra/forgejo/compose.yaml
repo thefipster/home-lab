@@ -63,6 +63,21 @@ services:
       # Alloy scrapes forgejo:3000 DIRECTLY over the proxy network, never
       # through Traefik, so neither change affects collection.
       FORGEJO__metrics__ENABLED: "true"
+      # --- SSO (Authentik via OIDC) ----------------------------------------
+      # These are INSTANCE-level settings, NOT fields on the "Add
+      # Authentication Source" form — that form has neither, which is why the
+      # SSO registry used to list them as clickwork that doesn't exist.
+      #   ENABLE_AUTO_REGISTRATION: create the Forgejo user on first SSO login
+      #     (default false, which otherwise rejects the login outright).
+      #   ACCOUNT_LINKING=auto: link to an existing local account with the SAME
+      #     EMAIL instead of creating a duplicate user (default "login", which
+      #     stops at a manual link-account prompt). This is what maps your
+      #     Authentik identity onto the Forgejo admin created at first run — so
+      #     the two accounts must share an email address.
+      # Local password login stays enabled regardless: it is the break-glass
+      # path when Authentik is down. See docs/sso-applications.md.
+      FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION: "true"
+      FORGEJO__oauth2_client__ACCOUNT_LINKING: "auto"
     volumes:
       # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
       # this dir must be chown'd to 1000:1000 — see the README setup step.
@@ -99,6 +114,14 @@ services:
       - "${DOCKER_GID:?set DOCKER_GID in .env — run: getent group docker | cut -d: -f3}"
     volumes:
       - /opt/forgejo/runner:/data
+      # Runner config straight from the repo, read-only — the same convention
+      # the monitoring stack uses for its configs, and the repo stays the
+      # single source of truth. Mounted INSIDE /data because that is the path
+      # the daemon is started with (--config /data/config.yml), so the config
+      # and the registration state (.runner) sit together. This replaces the
+      # manual `sudo cp config.yml /opt/forgejo/runner/` + chown step: edit
+      # here, `git pull` on the VM, restart the runner.
+      - ./config.yml:/data/config.yml:ro
       # Run job containers on the host's Docker daemon via the mounted socket.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:

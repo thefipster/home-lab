@@ -1,317 +1,315 @@
-# Forgejo CI + registry (infra VM)
+# Forgejo — CI and container registry (infra VM)
 
-Runs the chain **GitHub → Forgejo (pull mirror) → build → push to Forgejo
-registry** on the **infra VM** (Ubuntu Server 26.04). See the [main
-README](../README.md) for how this fits into the wider homelab.
+**Prerequisite:** [dockge-setup.md](dockge-setup.md) complete — which means
+Traefik, Authentik and Dockge are all up. This is the first stack you can bring
+up from the Dockge UI instead of the CLI, though the commands below use the CLI
+so they work either way.
 
-Forgejo sits behind the [Traefik stack](traefik-setup.md) at
-**`https://git.thefipster.de`** from its very first run — real TLS via a Let's
-Encrypt wildcard, which also makes the built-in container registry a plain
-trusted HTTPS registry that any Docker daemon can use with zero configuration.
+[Forgejo](https://forgejo.org) is a self-hosted Git forge with a built-in
+container registry and an Actions runner, at **`https://git.thefipster.de`**.
+It runs the chain **GitHub → Forgejo (pull mirror) → build → push to the
+Forgejo registry**. Because Traefik serves it under the real wildcard
+certificate from its very first run, the registry is a plain trusted HTTPS
+registry — any Docker daemon on the LAN can use it with **zero** configuration:
+no `insecure-registries`, no CA to distribute.
+
+## Steps
+
+### 1. Run the init script
+
+```bash
+cd ~/home-lab
+```
+
+```bash
+scripts/init-forgejo.sh
+```
+
+It creates `/opt/forgejo/{postgres,forgejo,runner}` and `chown`s the Forgejo
+and runner directories to `1000:1000` (the UID the image runs as), seeds
+`infra/forgejo/.env` and generates `FORGEJO_DB_PASSWORD`, records the host
+`docker` group's numeric GID as `DOCKER_GID`, and symlinks the stack into
+`/opt/stacks` so Dockge lists it.
+
+> **Dockge does not replace this script.** Dockge runs the compose *lifecycle*
+> for stacks already in `/opt/stacks`; it cannot create and `chown` data
+> directories, compute `DOCKER_GID`, or register a runner. Every stack still
+> starts with its init script — Dockge takes over from there.
+
+### 2. Start Forgejo
+
+Everything except the runner — it waits for a registration file that does not
+exist yet.
+
+```bash
+cd ~/home-lab/infra/forgejo
+```
+
+```bash
+docker compose up -d db forgejo
+```
+
+### 3. Complete the first-run screen
+
+Open **`https://git.thefipster.de`**. Traefik picks the container up over the
+`proxy` network and serves it with the wildcard certificate — there is no
+plain-HTTP phase and no port to open.
+
+- The database settings are already injected through the environment; leave
+  them.
+- Create the **admin account**. Use the **same email address** as the Authentik
+  user from [authentik-setup.md, step 4](authentik-setup.md#4-add-a-user-and-a-group)
+  — SSO account linking matches on email, and a mismatch creates a second,
+  separate user instead of linking to this one.
+- Accept the defaults for everything else.
+
+Then confirm Actions is enabled: **Site Administration → Actions → Runners**
+should load (empty for now). If the Actions menu is missing, the
+`FORGEJO__actions__ENABLED` environment variable didn't take — check the
+container logs.
+
+### 4. Register the runner
+
+The runner needs a token that only the UI can generate, which is why this one
+step cannot be scripted.
+
+In Forgejo: **Site Administration → Actions → Runners → Create new runner**.
+Copy the **registration token**, then:
+
+```bash
+docker compose run --rm \
+  -v "/opt/forgejo/runner:/data" \
+  --entrypoint forgejo-runner \
+  runner register --no-interactive \
+    --instance https://git.thefipster.de \
+    --token <PASTE_TOKEN_HERE> \
+    --name lab-runner \
+    --labels docker
+```
+
+That writes `/opt/forgejo/runner/.runner`. The runner's `config.yml` is
+bind-mounted from the repo, so there is nothing to copy. Start the daemon:
+
+```bash
+docker compose up -d runner
+```
+
+**Verify:** back in **Admin → Actions → Runners**, the runner shows as
+**Idle / online** with the `docker` label. That green status is the milestone —
+Actions can now execute.
+
+### 5. Join SSO (OIDC via Authentik)
+
+Forgejo authenticates non-browser traffic — `git push`, `docker login`, CI — so
+it joins SSO by **OIDC**, never forward-auth. All field values are in the
+registry: [sso-applications.md](sso-applications.md#forgejo-oidc).
+
+1. **Create the provider in Authentik.** **Admin → Applications → Providers →
+   Create → OAuth2/OpenID Provider** — name, flow, client type, redirect URI
+   and signing key exactly as the registry specifies. Save, then note the
+   generated **Client ID** and **Client Secret**.
+2. **Create the application.** **Admin → Applications → Applications →
+   Create** — name and slug from the registry, provider `forgejo`. Bind it to
+   `lab-users` ([authentik-setup.md, step 5](authentik-setup.md#5-control-who-reaches-what)).
+3. **Add the source in Forgejo.** **Site Administration → Identity & Access →
+   Authentication Sources → Add Authentication Source** — type **OAuth2**,
+   provider **OpenID Connect**. The authentication name **must** be exactly
+   `authentik` (Forgejo builds the callback path from it, and it has to match
+   the redirect URI). Fill in the discovery URL and the Client ID / Secret from
+   step 1. Save.
+
+Auto-registration and account linking need no clicks — they are instance
+settings already shipped in `infra/forgejo/compose.yaml`
+(`ENABLE_AUTO_REGISTRATION=true`, `ACCOUNT_LINKING=auto`), which is what maps
+your Authentik identity onto the admin account from step 3 by email.
+
+> **Do not disable local login.** Password sign-in is the break-glass path when
+> Authentik is down, and it is the only way back into a forge that holds your
+> code.
+
+**Verify:** log out, open `https://git.thefipster.de`, click **Sign in with
+authentik**, authenticate → you land in the **existing** admin account (not a
+new one). Local username/password login still works.
+
+### 6. Mirror a repo from GitHub
+
+1. **+ (top right) → New Migration → GitHub**.
+2. Enter the repo URL. For a private repo, supply a GitHub personal access
+   token (read-only on the repo is enough).
+3. **Check "This repository will be a mirror"** and set an interval (e.g.
+   10m).
+4. Create. Forgejo clones it and re-pulls on that interval.
+
+> A pull mirror updates Git data but does **not** fire `push` events. Builds
+> are therefore manual — see [step 8](#8-run-a-build-and-verify-the-image).
+
+### 7. Add the pipeline to your repo
+
+The workflow and Dockerfile must live in the repo being built, and the Forgejo
+copy is a read-only mirror, so commit them to **GitHub** and let them mirror
+in. In your app repo on GitHub, add:
+
+- a `Dockerfile` for the app, and
+- `.forgejo/workflows/build-and-push.yml`, from
+  [`infra/forgejo/build-and-push.yml`](../infra/forgejo/build-and-push.yml)
+  here — adjust its `context:` / `file:` / `tags:` to your layout.
+
+Push, then wait for the mirror interval (or **Settings → Mirror Settings →
+Synchronize Now** in Forgejo).
+
+### 8. Run a build and verify the image
+
+In the repo's **Actions** tab → select the workflow → **Run workflow**. Every
+run checks out the mirrored HEAD, logs into the registry, builds and pushes.
+
+Then check the image landed: the owner's **Packages** tab should list a
+container package with `latest` and a SHA tag. Or pull it from any LAN machine
+with no daemon configuration at all:
+
+```bash
+docker login git.thefipster.de
+```
+
+```bash
+docker pull git.thefipster.de/<owner>/<repo>:latest
+```
+
+### Checklist
+
+- [ ] `https://git.thefipster.de` serves the UI on the wildcard certificate
+- [ ] The runner shows **Idle / online** with the `docker` label
+- [ ] **Sign in with authentik** lands in the existing admin account
+- [ ] Local password login still works (break-glass)
+- [ ] A manual workflow run completes and pushes an image
+- [ ] `docker login git.thefipster.de` succeeds from a machine with **zero**
+      Docker daemon configuration
+
+## Next
+
+**[grafana-setup.md](grafana-setup.md)** — the monitoring stack: metrics, logs,
+traces, dashboards and alerts for everything built so far.
+
+## Troubleshooting
+
+**The runner logs `Cannot ping the Forgejo instance server` with `x509:
+certificate has expired or is not yet valid`.** The VM clock is stale, not the
+certificate — the usual cause is a Proxmox snapshot rollback, which resumes the
+guest with its clock frozen at snapshot time, *before* the wildcard was issued.
+The runner is normally the first thing to notice, being the first non-browser
+TLS client. Check and fix:
+
+```bash
+timedatectl
+```
+
+```bash
+sudo chronyc makestep
+```
+
+Background and the permanent fix are in
+[proxmox-setup.md, Part 8](proxmox-setup.md#part-8--snapshot-before-you-build).
+
+**The runner restart-loops with "Cannot connect to the Docker daemon at
+unix:///var/run/docker.sock".** Either `DOCKER_GID` is missing from `.env`
+(re-run `scripts/init-forgejo.sh`), or the socket volume didn't mount:
+
+```bash
+docker compose run --rm --entrypoint sh runner -c 'ls -l /var/run/docker.sock'
+```
+
+It should show a socket, not "No such file". If it's missing, your running
+compose is stale:
+
+```bash
+docker compose up -d --remove-orphans
+```
+
+**`docker: not found` inside a CI job.** The job image must contain **both**
+Node (for the checkout/login/build-push actions) **and** the `docker` CLI with
+buildx. A plain `node` image fails; the shipped workflow uses
+`ghcr.io/catthehacker/ubuntu:act-22.04`, which has both. The first run pulls it
+(~1.5 GB) onto the host daemon and caches it.
+
+**SSO signs you into a *new* account instead of the admin.** The emails don't
+match. Account linking matches by email only — fix the address on either side
+and delete the stray user.
+
+**Postgres refuses the password after a redeploy.** Postgres keeps the password
+its data directory was **first** initialized with. On an existing deployment,
+set `FORGEJO_DB_PASSWORD` in `.env` to the current value by hand, or rotate it
+with `ALTER USER`.
 
 ## Layout on the server
 
-Two locations, by design:
-
 | What | Where | Why |
 |------|-------|-----|
-| Compose project (this repo) | `~/home-lab` — the Forgejo stack lives in `infra/forgejo/` | You edit/redeploy it as your normal user; no root needed to run `docker compose`. |
-| Persistent data | `/opt/forgejo/{postgres,forgejo,runner}` | Stateful data you want to find, `chown`, and back up. Bind mounts, not named volumes. |
+| Compose project (this repo) | `infra/forgejo/` | edit and redeploy as your normal user; no root needed |
+| Runner config | `infra/forgejo/config.yml` | bind-mounted read-only into the runner — the repo stays the source of truth |
+| Persistent data | `/opt/forgejo/{postgres,forgejo,runner}` | bind mounts, not named volumes: easy to find, `chown` and back up |
 
-## CI build daemon: host Docker socket (no DinD)
+Forgejo and the runner run as UID/GID `1000` and must own their data
+directories. If your login user isn't `1000:1000`, keep the compose
+`USER_UID`/`USER_GID` and that ownership in agreement.
 
-The Actions runner runs job containers on the **host Docker daemon** via a
-mounted `/var/run/docker.sock`, rather than a Docker-in-Docker service. It's
-simpler and reuses the host's layer cache.
+### Teardown and backup
 
-The tradeoff: a job with the socket has **root-equivalent control of host
-Docker**. That's fine here because CI only ever builds *your own* mirrored repos.
-If you ever need to build untrusted / fork code, revert to an isolated runner
-(DinD or ephemeral VMs) instead.
-
-## What's here
-
-- `infra/forgejo/compose.yaml` — Forgejo + Postgres + an Actions runner
-- `infra/forgejo/config.yml` — runner config (gets copied into place during setup)
-- `infra/forgejo/.env.example` — `.env` template (`init-forgejo.sh` fills it in)
-- `scripts/init-host.sh`, `scripts/init-forgejo.sh` — Part 0 setup automation
-- `infra/forgejo/build-and-push.yml` — the pipeline workflow (goes in *your app
-  repo*, together with a `Dockerfile` you write there)
-
----
-
-## Part 0 — Server prerequisites
-
-Init scripts automate this section. If you followed the build order,
-everything up to `init-forgejo.sh` has already happened — the full sequence,
-run from the repo checked out in your home folder, is:
-
-```bash
-cd ~ && git clone <this-repo> home-lab && cd ~/home-lab
-
-scripts/init-host.sh      # machine-level: install Docker + add you to the docker group
-# log out / back in (or: newgrp docker) so the group takes effect, then:
-scripts/init-traefik.sh   # reverse proxy + TLS — walk docs/traefik-setup.md
-scripts/init-authentik.sh # SSO — walk docs/authentik-setup.md Part 0
-scripts/init-dockge.sh    # optional: the Dockge management UI (gated by Authentik)
-scripts/init-forgejo.sh   # project-level: data tree, .env secrets
-```
-
-> **Traefik and Authentik come first.** Forgejo's first-run screen is served at
-> `https://git.thefipster.de`, so the [Traefik stack](traefik-setup.md) —
-> including the first certificate issuance — must be up **before**
-> you start Forgejo; there is no plain-HTTP phase. And
-> [Authentik](authentik-setup.md) must be up before Dockge, whose router is
-> gated by the `authentik@docker` forward-auth middleware and won't load
-> without it.
-
-> **Does Dockge replace `init-forgejo.sh`?** No. Dockge only runs the compose
-> *lifecycle* (`up`/`down`/logs) for stacks already sitting in `/opt/stacks`. It
-> can't do the host-level prep this stack needs — creating and `chown`ing the
-> `/opt/forgejo` data dirs and computing `DOCKER_GID` — nor the one-time runner
-> registration (Part B). So `init-forgejo.sh` still runs; Dockge just takes
-> over starting/stopping the stack afterward. `init-forgejo.sh` symlinks the
-> stack into `/opt/stacks` so it appears in the UI.
-
-What each one does:
-
-1. **`init-host.sh` — general host setup.** Installs Docker Engine + the compose
-   plugin from Docker's official apt repo and adds the invoking user to the
-   `docker` group so you can run it without `sudo`. Log out / back in (or
-   `newgrp docker`) afterward for the group to take effect. Safe to re-run.
-
-2. **`init-traefik.sh` — reverse proxy + TLS.** Creates the shared `proxy`
-   Docker network and the ACME data dir, seeds `infra/traefik/.env`, and links
-   the stack into `/opt/stacks`. Filling in the netcup credentials and walking
-   the first certificate issuance is its own guide:
-   [traefik-setup.md](traefik-setup.md).
-
-3. **`init-authentik.sh` — SSO.** Creates the `/opt/authentik` data tree,
-   generates secrets into `infra/authentik/.env`, and links the stack into
-   `/opt/stacks`. Bringing the stack up and wiring providers is its own guide:
-   [authentik-setup.md](authentik-setup.md).
-
-4. **`init-dockge.sh` — management UI (optional).** Copies `infra/dockge/compose.yaml`
-   to `/opt/stacks/dockge/`, records the repo path in its `.env` (the compose
-   bind-mounts the checkout so the stack symlinks resolve inside the
-   container), and starts Dockge at `https://dockge.thefipster.de` — behind
-   Authentik forward-auth. Purely for convenience — skip it if you prefer
-   driving `docker compose` from the CLI.
-
-5. **`init-forgejo.sh` — project-specific setup.** Does the remaining Part 0
-   steps that are specific to this compose stack:
-
-   - Creates the data tree under `/opt/forgejo/{postgres,forgejo,runner}` and
-     `chown`s the Forgejo + runner dirs to `1000:1000`. (Forgejo runs as
-     UID/GID 1000 — see `USER_UID`/`USER_GID` in the compose file — and must own
-     its data dir; Postgres manages its own dir's ownership.)
-
-     > If your login user isn't `1000:1000`, keep the compose `USER_UID`/`USER_GID`
-     > and this ownership in agreement — they must match.
-
-   - Seeds `infra/forgejo/.env` from `.env.example` and generates
-     `FORGEJO_DB_PASSWORD` (the Postgres password) if it is still blank.
-     Postgres keeps the password its data dir was **first initialized** with,
-     so on an existing deployment set the variable to the current password by
-     hand instead (or rotate it via `ALTER USER`).
-
-   - Records the host `docker` group's numeric GID in `.env`. The runner image
-     runs as uid 1000, but `/var/run/docker.sock` is `root:docker`, so the runner
-     joins the host `docker` group by GID; the compose file reads `${DOCKER_GID}`
-     from `.env`.
-
-   No registry configuration happens here: the registry is served by Traefik at
-   `https://git.thefipster.de` with a publicly trusted certificate, so no
-   Docker daemon anywhere needs special settings to use it.
-
----
-
-## Part A — Bring up Forgejo
-
-1. Change into the Forgejo stack directory — **all `docker compose` commands in
-   Parts A–F run from here**, where the compose file and `.env` live (data dirs
-   already created in Part 0):
-
-   ```bash
-   cd ~/home-lab/infra/forgejo
-   docker compose up -d db forgejo
-   ```
-
-   (We start everything EXCEPT the runner first — the runner waits for a
-   registration file that doesn't exist yet.)
-
-2. Open `https://git.thefipster.de` and complete the first-run screen —
-   Traefik picks the container up over the `proxy` network and serves it with
-   the wildcard cert; no ports to open, no tunnels.
-   The database settings are already injected via env, so just:
-   - Create the **admin account** (remember these credentials).
-   - Everything else: accept defaults.
-
-3. Confirm Actions is on: after logging in, go to
-   **Site Administration → Actions → Runners**. You should see the Runners
-   page (empty for now). If the Actions menu is missing, the
-   `FORGEJO__actions__ENABLED` env didn't take — check the container logs.
-
-> **SSO (optional, recommended).** Once [Authentik](authentik-setup.md) is up,
-> add it as an OpenID Connect authentication source (Authentik guide, Part B) so
-> you can sign in with SSO. Keep **local login enabled** — it is the break-glass
-> path if Authentik is ever down.
-
----
-
-## Part B — Register the runner (one-time, manual)
-
-The runner needs a registration token from Forgejo. This is the step that
-can't be scripted because the token is generated in the UI.
-
-1. In Forgejo: **Site Administration → Actions → Runners → Create new runner**.
-   Copy the **registration token**.
-
-2. Register the runner into the mounted data dir:
-
-   ```bash
-   docker compose run --rm \
-     -v "/opt/forgejo/runner:/data" \
-     --entrypoint forgejo-runner \
-     runner register --no-interactive \
-       --instance https://git.thefipster.de \
-       --token <PASTE_TOKEN_HERE> \
-       --name lab-runner \
-       --labels docker
-   ```
-
-   This creates `/opt/forgejo/runner/.runner`.
-
-   > **Why `git.thefipster.de` and not `forgejo:3000`?** The registered
-   > instance address is baked into the clone/registry URLs handed to CI jobs,
-   > and the `docker push` is performed by the host Docker daemon — which
-   > resolves hostnames via the host's DNS, **not** the Compose network, so the
-   > Compose name `forgejo` wouldn't resolve there. `https://git.thefipster.de`
-   > works everywhere — runner, daemon, and job containers all resolve it via
-   > the UDR's exact host record, and because the cert is publicly trusted, no
-   > daemon needs any special configuration. It must match `ROOT_URL` in the
-   > compose file (it does).
-
-3. Copy the runner config into place:
-
-   ```bash
-   sudo cp config.yml /opt/forgejo/runner/config.yml
-   sudo chown 1000:1000 /opt/forgejo/runner/config.yml
-   ```
-
-4. Start the runner daemon:
-
-   ```bash
-   docker compose up -d runner
-   ```
-
-   > This works only if `DOCKER_GID` is set in `.env` (Part 0, `init-forgejo.sh`) — the
-   > runner needs the host `docker` group to open the socket. If the runner
-   > restart-loops with *"Cannot connect to the Docker daemon at
-   > unix:///var/run/docker.sock"*, check: (a) `.env` has `DOCKER_GID`, and
-   > (b) the socket volume actually mounted —
-   > `docker compose run --rm --entrypoint sh runner -c 'ls -l /var/run/docker.sock'`
-   > should show a socket, not "No such file". If it's missing, your running
-   > compose is stale — re-run `docker compose up -d --remove-orphans`.
-
-5. Back in **Admin → Actions → Runners**, the runner should now show as
-   **Idle / online** with the `docker` label. That green status is the
-   milestone — Actions can now execute.
-
----
-
-## Part C — Mirror your Blazor repo from GitHub
-
-1. In Forgejo: **+ (top right) → New Migration → GitHub**.
-2. Enter your GitHub repo URL. For a private repo, supply a GitHub personal
-   access token (read-only on the repo is enough).
-3. **Important:** check **"This repository will be a mirror"**. Set the mirror
-   interval (e.g. 10m).
-4. Create. Forgejo clones the repo and will re-pull on that interval.
-
-> Reminder: a pull mirror updates Git data but does NOT fire `push` events,
-> so the workflow is triggered manually (see below). This is expected.
-
----
-
-## Part D — Add the pipeline to your repo
-
-The workflow and Dockerfile must live in the repo being built. Because the
-Forgejo copy is a *mirror* (read-only, overwritten on each pull), commit these
-to **GitHub**, let them mirror in:
-
-1. In your Blazor repo on GitHub, add:
-   - a `Dockerfile` for the app. The shipped workflow expects it at
-     `src/dotnet/Fip.Verdure.Web/Dockerfile` with build context `./src/dotnet` —
-     adjust the workflow's `context:` / `file:` / `tags:` to your repo layout.
-   - `.forgejo/workflows/build-and-push.yml` (from
-     `infra/forgejo/build-and-push.yml` here).
-2. Push to GitHub.
-3. Wait for the mirror interval (or in Forgejo, open the repo →
-   **Settings → Mirror Settings → Synchronize Now**).
-
-> **Job image note:** the workflow's `container.image` must contain **both**
-> Node (for the checkout/login/build-push actions) **and** the `docker` CLI +
-> buildx (to build/push). A plain `node` image fails with `docker: not found`;
-> this repo's workflow uses `ghcr.io/catthehacker/ubuntu:act-22.04`, which has
-> both. The first run pulls that image (~1.5 GB) onto the host daemon and caches
-> it. For the docker CLI inside the job to reach the daemon, `config.yml` sets
-> `container.docker_host: automount`.
-
----
-
-## Part E — Run it
-
-Builds are **manual-only**: mirrors don't fire `push` events, and the
-workflow's single trigger is `workflow_dispatch`.
-
-- Push to GitHub, wait for the mirror interval (or **Synchronize Now**), then
-  go to the repo's **Actions** tab in Forgejo → select the workflow →
-  **Run workflow**.
-- Every run checks out the mirrored HEAD, logs into the registry, builds and
-  pushes. There is no change detection — a run with no new commits simply
-  rebuilds the same code, so only trigger it when something changed.
-
----
-
-## Part F — Verify the image landed
-
-1. In Forgejo, go to your user/org → **Packages** tab. You should see a
-   container package for the repo with `latest` and a SHA tag.
-2. Or pull it — from any machine on the LAN. The registry is plain HTTPS with
-   a trusted certificate, so any Docker daemon can pull with **zero**
-   configuration:
-
-   ```bash
-   docker login git.thefipster.de    # use your Forgejo admin creds
-   docker pull git.thefipster.de/<owner>/<repo>:latest
-   ```
-
----
-
-## Teardown
-
-```bash
-docker compose down          # stop, keep data
-```
-
-All persistent state lives in the **bind mounts** under `/opt/forgejo` — there
-are no named volumes, so `docker compose down` (even with `-v`) leaves your data
-untouched. For a completely clean slate, also remove the data tree:
-
-```bash
-sudo rm -rf /opt/forgejo/{postgres,forgejo,runner}
-```
-
-## Backups
-
-Because the stateful data is bind-mounted under `/opt/forgejo`, backup is just
-the filesystem plus a consistent DB dump. Stop-the-world snapshot:
+`docker compose down` — even with `-v` — leaves everything, because all state
+is in bind mounts. For a consistent backup:
 
 ```bash
 docker compose down
+```
+
+```bash
 sudo tar czf forgejo-backup-$(date +%F).tar.gz -C /opt forgejo
+```
+
+```bash
 docker compose up -d
 ```
 
-For hot backups, prefer `pg_dump` for Postgres over copying its data dir live.
+For hot backups prefer `pg_dump` over copying the Postgres directory live. For
+a completely clean slate, `sudo rm -rf /opt/forgejo/{postgres,forgejo,runner}`.
+
+## How it works
+
+**The runner uses the host Docker daemon, not Docker-in-Docker.** Job
+containers are started on the host daemon through a mounted
+`/var/run/docker.sock` — simpler than DinD and it reuses the host's layer
+cache. The runner image itself is non-root (uid 1000), so it joins the host
+`docker` group by numeric GID; that is what `DOCKER_GID` in `.env` is for.
+
+The tradeoff: **a job holding that socket has root-equivalent control of the
+VM.** That is acceptable here only because CI builds *your own* mirrored
+repositories. If you ever need to build untrusted or fork code, move to an
+isolated runner (DinD or ephemeral VMs) — do not extend this pattern.
+
+**Why the runner registers against `https://git.thefipster.de` and not
+`forgejo:3000`.** The registered address is baked into the clone and registry
+URLs handed to CI jobs, and the `docker push` is executed by the *host* daemon,
+which resolves names through the host's DNS rather than the Compose network —
+the Compose name `forgejo` would not resolve there. The public hostname works
+everywhere (runner, daemon, job containers), and because the certificate is
+publicly trusted, nothing needs special configuration. It must match `ROOT_URL`
+in the compose file, and it does.
+
+**CI is manual-only, on purpose.** GitHub is primary and Forgejo pull-mirrors
+it. Mirrors update Git data without firing `push` events, so the workflow's
+only trigger is `workflow_dispatch`. There is no change detection — a run with
+no new commits simply rebuilds the same code, so trigger it when something
+changed.
+
+**`/metrics` is open on the LAN.** `FORGEJO__metrics__ENABLED` serves metrics
+on port 3000 — the same port Traefik publishes — so
+`https://git.thefipster.de/metrics` is readable unauthenticated by anyone on
+the LAN. Deliberate: aggregate counters only (repository, user and issue
+totals), no code and no credentials, on a LAN-only lab. To close it, set
+`FORGEJO__metrics__TOKEN` (plus a `bearer_token` on Alloy's scrape) or add a
+higher-priority Traefik router for `PathPrefix(/metrics)` with an `ipAllowList`.
+Alloy scrapes the container directly, so either change is invisible to
+collection.
+
+## Next
+
+**[grafana-setup.md](grafana-setup.md)** — monitoring for everything built so
+far. The full sequence is in the [README build order](../README.md#build-order).

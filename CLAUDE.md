@@ -60,13 +60,27 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
+Not every SSO knob is clickwork: Forgejo's auto-registration and account
+linking are **instance settings** in the compose
+(`FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION`, `...__ACCOUNT_LINKING`),
+not fields on its "Add Authentication Source" form — that form has neither.
+Linking matches on **email**, so the Authentik user and the Forgejo admin must
+share an address or SSO silently creates a second account. `sso-applications.md`
+records which side each value lives on; keep that column honest.
+
 ## Deploy model & ordering
 
 Bring-up order matters and is enforced by the guides — Traefik must exist
 before anything is reachable, and Authentik before anything it gates. On a VM,
 the sequence is:
 
-1. `scripts/init-host.sh` — installs Docker Engine + compose plugin (Ubuntu).
+1. `scripts/init-host.sh` — installs Docker Engine + compose plugin (Ubuntu),
+   and **first** relaxes the time-sync daemon's step policy (chrony
+   `makestep 1 -1`, or a tighter `PollIntervalMaxSec` for systemd-timesyncd).
+   A Proxmox snapshot rollback resumes the guest with a stale clock, and
+   chrony's default `makestep 1 3` would only ever slew it back — every TLS
+   client then fails with "certificate has expired or is not yet valid". It
+   runs before the Docker install because apt and curl need a sane clock too.
 2. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
    `.env` from `.env.example`. The entrypoint-level `tls.domains` makes
    Traefik request the wildcard cert at startup — no router needed.
@@ -75,8 +89,13 @@ the sequence is:
    forward-auth-gated routers (Dockge, Traefik dashboard) can load.
 4. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at
-   an identical path so stack symlinks resolve inside the container), starts
-   Dockge; afterwards it drives the other stacks from a web UI.
+   an identical path so stack symlinks resolve inside the container), and — the
+   **only** init script that does — **starts the stack itself**, so its guide
+   has no `docker compose` step. Sits right after Authentik on purpose:
+   publishing a port for an earlier bootstrap view was considered and rejected
+   (it would leave an un-gated LAN path), so Dockge is unreachable until both
+   Traefik and Authentik run. From here on the remaining stacks can be driven
+   from the web UI.
 5. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
@@ -140,20 +159,37 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 ## Docs layout
 
-`docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
-`traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. Two **registries** centralize the manual
-operations that live outside the repo: `dns-records.md` (every UDR DNS record)
-and `sso-applications.md` (every Authentik application and its exact config
-values). Guides link the registries instead of duplicating the lists — a new
-hostname or SSO app gets its registry row first, and per-service values should
-never be repeated inline in a guide. Monitoring is split in two on purpose:
-`grafana-setup.md` stands up the *platform* (stack, routing, OIDC), while
-`monitoring-setup.md` configures what it *observes* (logs, service + host
-metrics, OTLP/traces, dashboards, alerts). Adding a new observability
-capability means editing the second, not the first. `docs/roadmap/` holds forward-looking
-plans (monitoring, CI hardening) — decisions and phases for work not built
-yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
-implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.
-When the config and a guide disagree, the compose/script files are the source of
-truth — update the guide to match.
+`docs/` holds the reproduction guides, one per build-order step:
+`proxmox-setup.md` → `wildcard-dns-udr.md` → `traefik-setup.md` →
+`authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
+`grafana-setup.md`. The README's "Build order" links them in sequence and each
+guide ends by linking the next. `grafana-setup.md` owns **all** of monitoring —
+the platform *and* what it observes; an earlier split into a second
+`monitoring-setup.md` was merged away because, on a fresh checkout, the second
+guide was pure verification.
+
+Two **registries** centralize the manual operations that live outside the repo:
+`dns-records.md` (every UDR DNS record) and `sso-applications.md` (every
+Authentik application and its exact config values). Guides link the registries
+instead of duplicating the lists — a new hostname or SSO app gets its registry
+row first, and per-service values should never be repeated inline in a guide.
+
+**Every guide follows the same structure**, in this order: headline;
+one-line prerequisite linking the previous guide (never a restatement of it);
+short explanation of the stack; numbered steps with verification, **each
+command in its own fenced block**; jump-off to the next guide;
+troubleshooting; layout on the server; detailed explanation / design notes;
+jump-off repeated. Doing-path first and short, all rationale below the fold.
+
+**Guides describe a from-scratch bring-up of the current checkout — always.**
+No migration paths, no upgrade branches, no phase history (the roadmap and the
+dated specs keep that). A `git pull` anywhere but the initial clone is a red
+flag. `docs/roadmap/` holds forward-looking plans (CI hardening) — decisions
+for work not built yet; a piece graduates from roadmap to guide when it lands.
+`docs/superpowers/{specs,plans}/` holds dated design specs and implementation
+plans (`YYYY-MM-DD-*.md`), and `docs/review/` holds dated findings from
+replaying the guides end to end. Those three are **historical records** — do
+not retro-edit them when the guides change.
+
+When the config and a guide disagree, the compose/script files are the source
+of truth — update the guide to match.

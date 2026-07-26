@@ -1,6 +1,8 @@
 # Forgejo runner configuration.
-# Copy this to /opt/forgejo/runner/config.yml before starting the daemon
-# (the README steps handle this).
+#
+# Bind-mounted read-only into the runner at /data/config.yml by
+# infra/forgejo/compose.yaml — there is nothing to copy. Edit here, `git pull`
+# on the VM, then restart the runner (`docker compose up -d runner`).
 
 log:
   level: info

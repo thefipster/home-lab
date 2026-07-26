@@ -16,10 +16,10 @@ convention):
 
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
-| Dockge | forward-auth | Authentik only | [authentik-setup.md, Part A](authentik-setup.md#part-a--forward-auth-for-dockge-and-the-traefik-dashboard) |
-| Traefik dashboard | forward-auth | Authentik only | [authentik-setup.md, Part A](authentik-setup.md#part-a--forward-auth-for-dockge-and-the-traefik-dashboard) |
-| Forgejo | OIDC | Authentik + Forgejo admin UI | [authentik-setup.md, Part B](authentik-setup.md#part-b--forgejo-via-oidc) |
-| Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, Part 3](grafana-setup.md#part-3--authentik-oidc) |
+| Traefik dashboard | forward-auth | Authentik only | [authentik-setup.md, step 3](authentik-setup.md#3-gate-the-traefik-dashboard-forward-auth) |
+| Dockge | forward-auth | Authentik only | [dockge-setup.md, step 1](dockge-setup.md#1-create-the-dockge-application-in-authentik) |
+| Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
+| Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
 
 ## Forward-auth: Dockge & Traefik dashboard
 
@@ -54,13 +54,28 @@ Authentik side — provider type **OAuth2/OpenID Provider**:
 
 Forgejo side — **Site Administration → Identity & Access → Authentication
 Sources → Add Authentication Source**, type **OAuth2**, provider **OpenID
-Connect**:
+Connect**. Only three fields matter; the Client ID / Secret come from the
+provider above:
 
 | Field | Value |
 |-------|-------|
 | Authentication Name | `authentik` — **must** be exactly this: Forgejo builds the callback as `/user/oauth2/<name>/callback`, which has to match the redirect URI above |
 | Auto Discovery URL | `https://auth.thefipster.de/application/o/forgejo/.well-known/openid-configuration` |
-| Auto Registration | enabled; account linking **automatic** (link by email) |
+| Client ID / Client Secret | from the Authentik provider |
+
+**Auto-registration and account linking are not on this form.** They are
+instance-level settings, already shipped in
+[`infra/forgejo/compose.yaml`](../infra/forgejo/compose.yaml) — nothing to
+click:
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| `FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION` | `true` | create the Forgejo user on first SSO login (the default, `false`, rejects it) |
+| `FORGEJO__oauth2_client__ACCOUNT_LINKING` | `auto` | link to the existing local account with the **same email** instead of creating a duplicate (the default, `login`, stops at a manual prompt) |
+
+Account linking matches on **email**, so the Authentik user must carry the
+same address as the Forgejo admin account created at first run — see
+[authentik-setup.md, step 4](authentik-setup.md#4-add-a-user-and-a-group).
 
 Local login stays **enabled** — it is the break-glass path when Authentik is
 down.
@@ -82,7 +97,7 @@ Grafana side — no admin-UI work: the Client ID / Client Secret go into
 `infra/monitoring/.env` (`GRAFANA_OIDC_CLIENT_ID` /
 `GRAFANA_OIDC_CLIENT_SECRET`) together with `GRAFANA_OIDC_ENABLED=true`, then
 `docker compose up -d grafana` —
-[grafana-setup.md, Part 3](grafana-setup.md#part-3--authentik-oidc).
+[grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik).
 
 Local `admin` login stays **enabled** (break-glass;
 `GRAFANA_ADMIN_PASSWORD` in the same `.env`).
@@ -92,5 +107,5 @@ Local `admin` login stays **enabled** (break-glass;
 An application with **no** bindings admits **any authenticated user**; the
 moment it has at least one, everyone not matched is denied. The lab binds
 each application above to the `lab-users` group —
-[authentik-setup.md, Part C](authentik-setup.md#part-c--add-users-and-control-who-reaches-what)
+[authentik-setup.md, step 5](authentik-setup.md#5-control-who-reaches-what)
 covers creating the group and users, and what "denied" means per pattern.

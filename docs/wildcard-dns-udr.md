@@ -1,5 +1,9 @@
 # Lab DNS on a UniFi Dream Router
 
+**Prerequisite:** [proxmox-setup.md](proxmox-setup.md) complete — both VMs
+exist and have DHCP reservations, so the records below have something stable to
+point at.
+
 Goal: resolve the lab's real-domain names **locally**. A wildcard sends every
 `*.thefipster.de` name to the apps VM (Coolify's proxy routes by HTTP `Host`
 header, so new apps need **zero** router edits), and a handful of exact host
@@ -71,6 +75,9 @@ From your **Windows workstation** (PowerShell):
 
 ```powershell
 Resolve-DnsName foo.thefipster.de
+```
+
+```powershell
 Resolve-DnsName git.thefipster.de
 ```
 
@@ -78,6 +85,9 @@ From the **lab host** itself (Linux — this is who the host Docker daemon uses)
 
 ```bash
 getent hosts foo.thefipster.de
+```
+
+```bash
 getent hosts git.thefipster.de
 ```
 
@@ -108,13 +118,15 @@ If the UI won't take a wildcard on your firmware:
 > controllers and is **not** reliable on UniFi OS consoles like the UDR — prefer
 > the UI record or a dedicated resolver instead.
 
-## TLS (the other half)
+## Next
 
-TLS is real and automated: Traefik on the infra VM holds a genuine Let's
-Encrypt wildcard for `*.thefipster.de`, issued via the DNS-01 challenge against
-the netcup API — no browser warnings, no internal CA, nothing exposed to the
-internet. Setup, first issuance, and troubleshooting:
-[traefik-setup.md](traefik-setup.md).
+**[traefik-setup.md](traefik-setup.md)** — TLS, the other half. Traefik on the
+infra VM holds a genuine Let's Encrypt wildcard for `*.thefipster.de`, issued
+via the DNS-01 challenge against the netcup API: no browser warnings, no
+internal CA, nothing exposed to the internet. DNS answers "which IP"; Traefik
+answers "which container".
+
+The full sequence is the [README build order](../README.md#build-order).
 
 ## Sources
 
