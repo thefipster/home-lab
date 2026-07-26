@@ -53,6 +53,12 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=proxy
+      # A second provider for services that are NOT containers on this VM and
+      # therefore have no labels to read — currently just Home Assistant, on
+      # its own VM at .43. Watched, so editing a file in dynamic/ takes effect
+      # without restarting Traefik.
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       # --- entrypoints -----------------------------------------------------
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
@@ -119,6 +125,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # acme.json (account key + certs) lives here — survives recreation.
       - /opt/traefik/letsencrypt:/letsencrypt
+      # Dynamic (file-provider) routers. Read-only: the repo stays the source
+      # of truth, same arrangement as Forgejo's config.yml.
+      - ./dynamic:/etc/traefik/dynamic:ro
     networks:
       - proxy
 

@@ -205,6 +205,7 @@ Traefik and the service should both be listed.
 |------|-------|
 | Compose project (this repo) | `infra/traefik/` |
 | Credentials | `infra/traefik/.env` — gitignored, VM-only |
+| Dynamic routers (this repo) | `infra/traefik/dynamic/` — mounted read-only; watched, so edits apply without a restart |
 | ACME account + certificates | `/opt/traefik/letsencrypt/acme.json` |
 | Shared network | the external Docker network `proxy` |
 
@@ -231,6 +232,17 @@ on the `websecure` entrypoint, so every `websecure` router is covered
 automatically. When adding a service, copy the label block from
 `infra/forgejo` or `infra/dockge` and change the host and port — **never** add
 a TLS resolver or domain per router.
+
+**Two providers, and the second one is the exception.** Almost everything is
+routed by **labels**: a stack joins the `proxy` network and Traefik reads its
+`traefik.*` labels off the Docker API. That stays the default for anything
+running on this VM. But labels only exist where there is a container to put them
+on, and Home Assistant runs on its **own VM** — so Traefik also runs a **file
+provider** over `infra/traefik/dynamic/`, mounted read-only and watched, where a
+router can be declared by hand. `ha.yaml` is currently its only file. Routers
+declared there are ordinary `websecure` routers: the entrypoint wildcard covers
+them, so the no-per-router-TLS rule applies to them identically. Reach for a
+file only when the backend is not a container on this machine.
 
 **No apex SAN, deliberately.** Apex + wildcard would need two TXT records at
 the same `_acme-challenge` FQDN, and netcup's non-atomic zone updates race on
