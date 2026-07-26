@@ -4,7 +4,7 @@
 
 **Prerequisite:** [wildcard-dns-udr.md](wildcard-dns-udr.md) complete — every
 record from [dns-records.md](dns-records.md) resolving, and the repo plus
-Docker on the infra VM ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm)).
+Docker on the infra VM ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-and-apps-vms)).
 
 Traefik is the only thing on the infra VM that terminates TLS and routes
 traffic. It serves every service on a real hostname under **one wildcard

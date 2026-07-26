@@ -156,7 +156,7 @@ Two mounts guarantee that:
   under `/opt/stacks` are symlinks into the checkout; without this mount they
   would dangle inside the container and Dockge could not read them.
 
-This is also why [proxmox-setup.md](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm)
+This is also why [proxmox-setup.md](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-and-apps-vms)
 insists on cloning to `~/home-lab` and not moving it afterwards.
 
 **The socket is root-equivalent.** Dockge holds `/var/run/docker.sock`, which

@@ -1,23 +1,43 @@
 # apps VM — Coolify
 
-This directory is a placeholder for the **apps VM**, which runs
-[Coolify](https://coolify.io) — a self-hosted PaaS that deploys and runs your own
-applications with domains and HTTPS.
+The apps VM (`192.168.1.42`) runs [Coolify](https://coolify.io), a self-hosted
+PaaS that builds, deploys and runs your own applications with domains and HTTPS.
 
-Unlike the infra stacks, Coolify is **not** a compose file checked in here: it's
-installed by its own script and then manages apps through its web UI, owning the
-VM's Docker itself. So this folder stays mostly empty by design — app definitions
-live in Coolify, not in this repo.
+**Guide: [docs/coolify-setup.md](../docs/coolify-setup.md).**
 
-## Planned
+## Why there is no compose file here
 
-- Install guide: Coolify on the apps VM (Ubuntu 26.04), reachable at
-  `coolify.thefipster.de`.
-- Wildcard HTTPS for `*.thefipster.de` — decided and already working on the
-  infra VM: genuine Let's Encrypt wildcard via the DNS-01 challenge against
-  netcup. Coolify's bundled proxy gets the same `NETCUP_*` credentials and
-  issues its own cert — see [docs/traefik-setup.md](../docs/traefik-setup.md),
-  "Apps VM later". The DNS side (`*.thefipster.de` → this VM) is already in
-  place.
+Every `infra/` stack is a `compose.yaml` in this repo that Dockge merely starts
+and stops — the repo is the source of truth. This directory is deliberately the
+opposite. Coolify owns this VM's Docker, keeps its own configuration store, and
+manages applications through its web UI, so app definitions live **in Coolify**,
+not here. Mirroring them into the repo would create a second source of truth that
+silently drifts from the one actually deploying things.
 
-See the main [README](../README.md) and [docs/wildcard-dns-udr.md](../docs/wildcard-dns-udr.md).
+What that leaves in this directory:
+
+| File | Purpose |
+|------|---------|
+| `.env.example` | the three `NETCUP_*` names Coolify's bundled proxy needs for its own DNS-01 wildcard. Copied to `.env` by the init script. The **values** are entered in Coolify's UI — the file exists so the requirement is visible in the repo instead of only inside Coolify. |
+
+## Scripts that run on this machine
+
+| Script | What it does |
+|--------|--------------|
+| [`init-host.sh`](../scripts/init-host.sh) | Docker Engine + compose plugin, and the time-sync step fix that survives a snapshot rollback. Shared with the infra VM. |
+| [`init-coolify.sh`](../scripts/init-coolify.sh) | Preflight, swapfile, then Coolify's official installer — fetched to disk with its checksum printed, rather than piped into a root shell. |
+| [`init-node-exporter.sh`](../scripts/init-node-exporter.sh) | Host metrics for Alloy on the infra VM to scrape. The infra VM must **not** run this — Alloy collects its own host metrics there. |
+
+## TLS and DNS
+
+Coolify's proxy issues its **own** Let's Encrypt wildcard for `*.thefipster.de`
+via the netcup DNS-01 challenge — the same mechanism as Traefik on the infra VM,
+but a separate certificate and ACME account. Nothing is exposed to the internet
+either way.
+
+`*.thefipster.de` already resolves to this VM, so **a new app needs no new DNS
+record** and `coolify.thefipster.de` needs no exact record of its own. The
+registry, including why that absence is deliberate:
+[docs/dns-records.md](../docs/dns-records.md).
+
+See also the main [README](../README.md).
