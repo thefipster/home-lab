@@ -13,7 +13,7 @@ is verified by reading, not by executing locally.
 
 ## Topology (why things are split the way they are)
 
-One hypervisor and three VMs on one LAN (`192.168.1.0/24`) behind a UniFi Dream
+One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
 Router. **The repo root is the machine map** — one directory per VM — while
 `docs/` and `scripts/` stay flat, because their filenames already carry the
 service name and nesting them would add a `../` to every cross-guide link:
@@ -41,6 +41,24 @@ DNS is split-horizon: real subdomains of `thefipster.de` resolved locally by the
 router; the public zone holds no A records. `git.` / `dockge.` → infra VM,
 `*.thefipster.de` → apps VM. TLS everywhere is a genuine Let's Encrypt **wildcard**
 issued via DNS-01 against the netcup API — nothing is exposed to the internet.
+
+**Never write a host IP address in this repo.** Addresses drift — they already
+have; the running lab does not match the addresses the build plan assumed — and a
+recorded address that has drifted reads as authoritative while being wrong.
+Machines are addressed by **name** everywhere: Traefik's backends, Alloy's scrape
+targets, every command in every guide. `dns-records.md` names hosts and refers to
+them as `infra ip` / `apps ip` / `ha ip` / `pve ip`; the router is the source of
+truth for addresses, that registry for names.
+
+A literal address is therefore a **flag** — something that could not be expressed
+as a name. There is one legitimate case: `trusted_proxies` in
+`home-assistant/configuration.yaml`, which HA validates as an address or CIDR and
+will not accept as a hostname. It ships as the placeholder `<infra-vm-ip>` and is
+filled in on the machine, derived from
+`getent hosts ha.thefipster.de` rather than read off the router. Install-time
+addresses in `proxmox-setup.md` (the Proxmox installer wants a static IP typed in)
+and HA's pre-DNS onboarding URL are the remaining irreducible ones. Anything else
+should be a name.
 
 Three DNS facts are counter-intuitive and all are deliberate:
 

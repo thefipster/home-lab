@@ -1,6 +1,6 @@
 # home-assistant VM — Home Assistant OS
 
-The home-assistant VM (`192.168.1.43`) runs **Home Assistant OS** — the full
+The home-assistant VM runs **Home Assistant OS** — the full
 appliance including the Supervisor, so add-ons like ESPHome and Mosquitto install
 from HA's own store.
 

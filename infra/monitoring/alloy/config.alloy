@@ -167,10 +167,10 @@ prometheus.scrape "apps_host" {
 // HOME ASSISTANT — the only target that needs a credential, and the only one
 // scraped over HTTPS through Traefik rather than reached directly.
 //
-// Going through ha.thefipster.de (rather than 192.168.1.43:8123) is deliberate:
-// it is the same path a browser takes, so a broken route shows up here too
-// instead of being silently bypassed. The wildcard certificate covers the name
-// and the image trusts public CAs, so no tls_config is needed.
+// Going through ha.thefipster.de, rather than dialling the HA VM directly on
+// :8123, is deliberate: it is the same path a browser takes, so a broken route
+// shows up here too instead of being silently bypassed. The wildcard certificate
+// covers the name and the image trusts public CAs, so no tls_config is needed.
 //
 // /api/prometheus requires a long-lived access token, minted in HA's own UI —
 // which is why init-monitoring.sh does not generate this one. It arrives from

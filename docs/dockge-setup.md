@@ -167,7 +167,7 @@ because this is a single-tenant machine, and it is exactly why the UI is gated
 by Authentik rather than merely by Dockge's own login.
 
 **No ports are published.** Dockge is reachable only through Traefik, on
-`proxy`. There is no `http://192.168.1.41:5001` bypassing the gate — which is
+`proxy`. There is no plain-HTTP port on the infra VM bypassing the gate — which is
 why Authentik has to come first in the build order, and why the break-glass
 path above is a label edit rather than a port.
 

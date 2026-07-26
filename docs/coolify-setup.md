@@ -5,10 +5,10 @@
 **Prerequisite:** [uptime-kuma-setup.md](uptime-kuma-setup.md) complete — the
 infra VM is finished, so this machine has TLS, SSO, CI and monitoring to lean on.
 
-[Coolify](https://coolify.io) is a self-hosted PaaS at
-**`http://192.168.1.42:8000`**, later **`https://coolify.thefipster.de`**. You
-point it at a git repository and it builds, deploys and runs the result with a
-domain and HTTPS — the apps VM's entire job.
+[Coolify](https://coolify.io) is a self-hosted PaaS, reached on this VM's own
+address at port **8000** during install and at **`https://coolify.thefipster.de`**
+once its domain is set. You point it at a git repository and it builds, deploys
+and runs the result with a domain and HTTPS — the apps VM's entire job.
 
 It is the one machine in the lab whose workloads are **not** described by this
 repo. Coolify owns this VM's Docker, keeps its own configuration store, and

@@ -153,9 +153,22 @@ reason the lab addresses everything by hostname — Traefik's backends, Alloy's
 scrape targets, every `curl` in every guide.
 
 The useful consequence is that a literal address anywhere in this repo becomes a
-**flag**. It means something could not be expressed as a name, which is worth
-knowing about and usually worth fixing. There is currently one such place:
-`trusted_proxies` in `home-assistant/configuration.yaml`, because Home Assistant
-requires addresses or CIDR ranges there and will not accept a hostname. It is
-called out in [home-assistant-setup.md](home-assistant-setup.md) for that reason,
-rather than left to look like an oversight.
+**flag**: it means something could not be expressed as a name, which is worth
+knowing about and usually worth fixing.
+
+Exactly one thing in the lab genuinely needs an address — `trusted_proxies` in
+`home-assistant/configuration.yaml`, because Home Assistant validates that field
+as an address or CIDR range and will not accept a hostname. So the repo ships a
+**placeholder** there, `<infra-vm-ip>`, filled in on the machine during
+[home-assistant-setup.md, step 6](home-assistant-setup.md#6-make-it-reachable-through-traefik).
+The value is derived from DNS rather than read off the router:
+
+```bash
+getent hosts ha.thefipster.de | awk '{print $1}'
+```
+
+That is the proxy's own name resolving to the proxy's own address — the thing HA
+is being asked to trust — so the lookup stays correct through any renumbering. It
+is also the one value in the lab that does **not** follow DNS automatically, which
+is why leaving the placeholder in fails loudly: HA rejects the `http` config
+outright instead of quietly trusting nothing.

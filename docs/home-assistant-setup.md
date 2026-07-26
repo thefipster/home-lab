@@ -90,17 +90,17 @@ Create your Home Assistant account through the onboarding wizard. Add the DHCP
 reservation for this VM's MAC if you have not already, plus the **two** records
 this machine needs — the registry is [dns-records.md](dns-records.md):
 
-- `ha.thefipster.de` → `192.168.1.41` (the infra VM — the **service**)
-- `homeassistant.thefipster.de` → `192.168.1.43` (this VM — the **machine**,
-  which is what Traefik dials)
+- `ha.thefipster.de` → the **infra VM** (the *service* — Traefik answers here)
+- `homeassistant.thefipster.de` → **this VM** (the *machine* — what Traefik dials)
 
 ```bash
 getent hosts ha.thefipster.de homeassistant.thefipster.de
 ```
 
-Expect `.41` then `.43`. Two names for one service looks redundant until you try
-to collapse them: `ha.` has to point at the proxy for TLS, so it cannot also be
-the proxy's backend.
+The two answers must **differ**: the first is the infra VM, the second this one.
+If they match, one of the records is wrong. Two names for one service looks
+redundant until you try to collapse them — `ha.` has to point at the proxy for TLS,
+so it cannot also be the proxy's backend.
 
 > **No USB passthrough is configured, deliberately.** Every guide for
 > HA-on-Proxmox tells you to pass a Zigbee or Z-Wave stick through to the VM.
@@ -118,6 +118,23 @@ Code Server** add-on (*Settings → Add-ons*) to edit it.
 **Append, do not replace.** A fresh HAOS install ships that file with
 `default_config:`; overwriting it strips the entire default integration set. The
 fragment contains only keys HAOS does not already define, so appending is safe.
+
+**One value must be filled in: `trusted_proxies`.** The fragment ships the
+placeholder `<infra-vm-ip>`, because this is the only place in the lab that needs
+a literal address — Home Assistant accepts addresses or CIDR ranges there, never a
+hostname — and the repo deliberately records no addresses
+([dns-records.md](dns-records.md#why-this-registry-holds-no-addresses)).
+
+The value you need is the address `ha.thefipster.de` resolves to, which is by
+definition the proxy HA is being asked to trust. From any LAN host:
+
+```bash
+getent hosts ha.thefipster.de | awk '{print $1}'
+```
+
+Substitute that for `<infra-vm-ip>`. Derive it this way rather than reading it off
+the router: if the infra VM ever moves and DNS is updated, re-running the command
+gives the new answer with nothing to remember.
 
 Then *Developer Tools → YAML → Restart*, and verify from any LAN machine:
 
@@ -198,11 +215,24 @@ router for that name. Check `ha.thefipster.de` resolves to the **infra VM**
 getent hosts ha.thefipster.de
 ```
 
+**HA will not start, and the log says the `http` config is invalid.** The
+`<infra-vm-ip>` placeholder is still in `trusted_proxies` — HA validates that
+field as an address and rejects the string. This is the intended failure: loud at
+startup rather than a puzzling 400 later. Fill it in per step 6.
+
 **HA returns `400 Bad Request` and its log mentions an untrusted proxy.** The
-`http:` block from step 6 is missing, or `trusted_proxies` holds the wrong
-address. It must be **`192.168.1.41`** — the infra VM's LAN IP. A Docker subnet
-is the intuitive-but-wrong answer: Traefik's container egresses through the
-bridge, SNAT'd to its host's LAN address, so that is what HA sees.
+`http:` block from step 6 is missing, or `trusted_proxies` holds an address that
+is no longer the infra VM's. Re-derive it:
+
+```bash
+getent hosts ha.thefipster.de | awk '{print $1}'
+```
+
+A Docker subnet is the intuitive-but-wrong answer: Traefik's container egresses
+through the bridge, SNAT'd to its host's LAN address, so that is what HA sees. A
+*stale* address is the other cause — this is the one value in the lab that does
+not follow DNS automatically, which is exactly why it is the only literal address
+anywhere in the repo.
 
 **The frontend loads but stays blank after login.** A websocket problem. Traefik
 needs no configuration for this, so suspect a browser extension or a stale cache

@@ -1,6 +1,6 @@
 # apps VM — Coolify
 
-The apps VM (`192.168.1.42`) runs [Coolify](https://coolify.io), a self-hosted
+The apps VM runs [Coolify](https://coolify.io), a self-hosted
 PaaS that builds, deploys and runs your own applications with domains and HTTPS.
 
 **Guide: [docs/coolify-setup.md](../docs/coolify-setup.md).**
