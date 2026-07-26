@@ -1,10 +1,16 @@
-// Alloy — phase 1: prove the metrics path end to end.
+// Alloy — the lab's ONLY collector. One config, three concerns, in order:
 //
-// Alloy is the ONLY collector in this lab. Here it scrapes the monitoring
-// stack's own /metrics endpoints and remote-writes them into Prometheus.
-// Everything else — container logs (discovery.docker + loki.source.docker),
-// the other stacks' Prometheus endpoints, host/cadvisor metrics and OTLP
-// intake — is phases 2-5 of docs/roadmap/monitoring.md and is NOT here.
+//   metrics — scrapes this stack, the infra services and the host, and
+//             remote-writes everything into Prometheus (which has no
+//             scrape_configs of its own);
+//   logs    — discovers every container over the Docker API and tails its
+//             stdout into Loki, labeled by compose project/service;
+//   OTLP    — receives OpenTelemetry from the apps (via Traefik at
+//             otlp.thefipster.de) and fans it into the SAME Prometheus/Loki,
+//             plus traces into Tempo.
+//
+// Built incrementally as phases 1-4 of docs/roadmap/monitoring.md (see the
+// dated specs for the narrative); this file is the finished form.
 //
 // Component health: http://127.0.0.1:12345 on the infra VM (loopback-bound,
 // no route, no cert). Tunnel with:
@@ -25,7 +31,7 @@ prometheus.remote_write "default" {
 prometheus.exporter.self "alloy" {}
 
 // Give Alloy's self-metrics the same `job` label the static targets below
-// carry, so one query covers all four.
+// carry, so one query covers the whole stack.
 discovery.relabel "alloy_self" {
   targets = prometheus.exporter.self.alloy.targets
 
@@ -35,8 +41,9 @@ discovery.relabel "alloy_self" {
   }
 }
 
-// The rest of the stack. Every one of these endpoints is enabled by default —
-// phase 1 changes NO other stack to get them.
+// The rest of the stack, Tempo included — without its target here the
+// ServiceDown alert (up == 0) would be blind to the one storage backend
+// nothing else health-checks. Every endpoint is enabled by default.
 prometheus.scrape "monitoring_stack" {
   targets = concat(
     discovery.relabel.alloy_self.output,
@@ -44,6 +51,7 @@ prometheus.scrape "monitoring_stack" {
       {"__address__" = "prometheus:9090", "job" = "prometheus"},
       {"__address__" = "loki:3100", "job" = "loki"},
       {"__address__" = "grafana:3000", "job" = "grafana"},
+      {"__address__" = "tempo:3200", "job" = "tempo"},
     ],
   )
 

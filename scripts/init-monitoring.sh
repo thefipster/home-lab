@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # init-monitoring.sh — project-specific setup for the monitoring stack
-# (Grafana + Postgres + Prometheus + Loki + Alloy).
+# (Grafana + Postgres + Prometheus + Loki + Tempo + Alloy).
 #
 # Assumes Docker is installed (run scripts/init-host.sh first). Steps:
 #   1. Create the persistent data tree under /opt/monitoring and set the
@@ -98,6 +98,6 @@ echo "     VM (192.168.1.41). The *.thefipster.de wildcard points at the APPS"
 echo "     VM, so without an exact record the name resolves to the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://grafana.thefipster.de as 'admin' using"
-echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check both datasources."
+echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check all three datasources."
 echo "  4. Part 3: create the Authentik provider + application, put the client"
 echo "     id/secret in .env, set GRAFANA_OIDC_ENABLED=true, and restart."

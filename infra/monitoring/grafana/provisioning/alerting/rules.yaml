@@ -22,7 +22,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Root filesystem on {{ $labels.instance }} is over 80% full"
+          summary: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is over 80% full"
         data:
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
@@ -43,6 +43,11 @@ groups:
                 - evaluator: { type: gt, params: [80] }
 
       # ---- a scrape target is down ----------------------------------------
+      # Known blind spot: if ALLOY ITSELF dies, `up` goes stale and the query
+      # returns NoData -> OK, so this never fires for the most total failure.
+      # Accepted while alerts are UI-only (a dead collector is obvious from an
+      # empty Grafana); when a real notification channel lands, flip
+      # noDataState to Alerting for this one rule.
       - uid: service-down
         title: ServiceDown
         condition: C

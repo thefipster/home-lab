@@ -1,19 +1,23 @@
-# Monitoring — Grafana + Prometheus + Loki + Alloy for the INFRA VM.
+# Monitoring — Grafana + Prometheus + Loki + Tempo + Alloy for the INFRA VM.
 #
-# Phase 1 of docs/roadmap/monitoring.md: the stack skeleton. Alloy is the ONLY
-# collector — it scrapes this stack's own /metrics endpoints and remote-writes
-# into Prometheus, which runs as STORAGE + QUERY only (no scrape_configs).
-# Container-log collection, the other stacks' metrics endpoints, OTLP intake
-# and dashboards/alerts are phases 2-5 and are deliberately absent.
+# The lab's complete observability stack (docs/roadmap/monitoring.md, all five
+# phases; the dated specs hold the build narrative). Alloy is the ONLY
+# collector: it scrapes metrics (this stack, the infra services, the host),
+# tails every container's logs into Loki, and receives OTLP from the apps at
+# otlp.thefipster.de — metrics into Prometheus, logs into Loki, traces into
+# Tempo. Prometheus and Loki are STORAGE + QUERY only; Grafana is the single
+# pane, with dashboards, datasources and alerts provisioned from this repo.
 #
-# Routed by Traefik at grafana.thefipster.de under the one wildcard cert (no
-# per-router TLS labels). Grafana authenticates against Authentik by OIDC —
-# NOT forward-auth: it has native SSO, and the repo convention is one pattern
-# or the other, never both. So there is no authentik@docker middleware label
-# here, and infra/authentik/compose.yaml is untouched by this stack.
+# Routed by Traefik under the one wildcard cert (no per-router TLS labels):
+# grafana.thefipster.de (the UI) and otlp.thefipster.de (ingest, on Alloy).
+# Grafana authenticates against Authentik by OIDC — NOT forward-auth: it has
+# native SSO, and the repo convention is one pattern or the other, never both.
+# So there is no authentik@docker middleware label here, and
+# infra/authentik/compose.yaml is untouched by this stack.
 #
 # Deploy (on the infra VM): scripts/init-monitoring.sh, then bring it up and
-# wire Authentik afterwards — see docs/grafana-setup.md.
+# wire Authentik afterwards — see docs/grafana-setup.md, then
+# docs/monitoring-setup.md for what it observes.
 
 name: monitoring
 
@@ -130,8 +134,8 @@ services:
       - monitoring-net
 
   # ---------------------------------------------------------------------------
-  # Loki — log storage. EMPTY until phase 2 adds collection; phase 1 only
-  # proves it is reachable, healthy and wired as a Grafana datasource.
+  # Loki — log storage. Fed by Alloy: every container's stdout plus OTLP logs
+  # from the apps. Not routed; Grafana is the only reader.
   # ---------------------------------------------------------------------------
   loki:
     image: grafana/loki:3            # major pin
@@ -172,6 +176,11 @@ services:
     # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18.
     image: grafana/alloy:v1.18.0
     restart: unless-stopped
+    # The unix exporter's uname collector reads the CONTAINER's UTS hostname
+    # (a hex ID that changes on every recreate), and the node dashboard's
+    # `nodename` dropdown chains off it. Pin it to the VM's name so the
+    # dashboard shows a stable, meaningful host identity.
+    hostname: infra
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
