@@ -20,14 +20,14 @@ are no migration paths and no upgrade branches — if a guide tells you to
 ## Architecture
 
 ```
-UniFi Dream Router · 192.168.1.1 · DHCP + split-horizon DNS
-    exact infra records → .41        ha. → .41        *.thefipster.de → .42
+UniFi Dream Router · DHCP + split-horizon DNS
+    exact infra records → infra VM      ha. → infra VM      *.thefipster.de → apps VM
                                     │
-                          LAN · 192.168.1.0/24
+                            LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · .40 · 32 threads · 64 GB · 2 TB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · 32 threads · 64 GB · 2 TB · hypervisor only, no Docker
     │
-    ├─ infra VM · .41 · 32 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
+    ├─ infra VM · 32 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
     │    Authentik     SSO / identity provider (OIDC + forward-auth)
     │    Forgejo       git · CI · container registry
@@ -35,12 +35,12 @@ Proxmox VE · pve.thefipster.de · .40 · 32 threads · 64 GB · 2 TB · hypervi
     │    Grafana       metrics · logs · traces (Prometheus · Loki · Tempo · Alloy)
     │    Uptime Kuma   black-box status + every notification the lab sends
     │
-    ├─ apps VM · .42 · 32 vCPU · 24 GB · 500 GB · Ubuntu Server 26.04
+    ├─ apps VM · 32 vCPU · 24 GB · 500 GB · Ubuntu Server 26.04
     │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
     │    your apps     *.thefipster.de, routed by Host header — no new DNS record
     │    node_exporter scraped by Alloy over the LAN
     │
-    └─ home-assistant VM · .43 · 32 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
+    └─ home-assistant VM · 32 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
          Supervisor     full HAOS — add-on store, ESPHome firmware builds
          ha. → Traefik  proxied from the infra VM via its file provider
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
@@ -165,7 +165,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate.
-### infra VM (`.41`) — everything the other two lean on
+### infra VM — everything the other two lean on
 
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The certificate is requested at startup; expect
@@ -189,7 +189,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    everything above it, and it is a separate stack precisely so it does not
    share a lifecycle with the monitoring pipeline it also checks.
 
-### apps VM (`.42`) — your own applications
+### apps VM — your own applications
 
 9. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Runs
    `init-host.sh` like the infra VM (Docker plus the clock fix), then
@@ -197,7 +197,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    unauthenticated on a LAN port with nothing in front of it. Ends by installing
    the node exporter that Alloy on the infra VM already expects.
 
-### home-assistant VM (`.43`) — home automation
+### home-assistant VM — home automation
 
 10. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
