@@ -96,12 +96,17 @@ monitor type for each and the reasoning behind every absence. It lives outside
 this guide because it grows with every service you add, most of which this guide
 will never mention.
 
-For each row there: **Add New Monitor**, pick the type, paste the target, save.
+For each row there: **Add New Monitor**, pick the type, paste the target, and use
+the registry's **Name** verbatim. The names are functional (`SSO Web`,
+`Logs Storage`) rather than product names, because the dashboard gets read at the
+worst possible moment and should not need a mental lookup table — the product name
+lives in the target, which is what `docker ps` shows you anyway.
 
 Two things to know before you start, both explained in the registry:
 
 - Docker monitors only see containers on **this** VM — that is the only socket
-  Kuma can read. Services on the apps and home-assistant VMs get HTTP monitors.
+  Kuma can read. Services on the apps and home-assistant VMs get an HTTP monitor
+  plus a **Ping** monitor, so a red service can be told apart from a dead machine.
 - Container names are **derived, not configured** (`<project>-<service>-1`), so
   if a Docker monitor will not come up, check the real name:
 
@@ -140,13 +145,14 @@ Subscribe on your phone with the ntfy app, or in a browser at
 
 ### Checklist
 
-The runtime proof, in order. `monitoring-loki-1` is the deliberate choice here:
-it sits on `monitoring-net` only, so Kuma can reach it by **no network path at
-all** — a working monitor proves the Docker socket is doing the work.
+The runtime proof, in order. **`Logs Storage`** (`monitoring-loki-1`) is the
+deliberate choice here: it sits on `monitoring-net` only, so Kuma can reach it by
+**no network path at all** — a working monitor proves the Docker socket is doing
+the work.
 
 - [ ] Every monitor in [uptime-kuma-monitors.md](uptime-kuma-monitors.md) exists
       and is green (except Coolify and Home Assistant, if those VMs are not built yet)
-- [ ] Stop Loki and watch its monitor go red, with an ntfy push arriving:
+- [ ] Stop Loki and watch **`Logs Storage`** go red, with an ntfy push arriving:
 
 ```bash
 docker stop monitoring-loki-1

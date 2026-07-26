@@ -13,17 +13,38 @@ must exist. How to create them, register the Docker host and wire notifications:
 A service with a DNS record, an SSO entry and no monitor is a service whose
 outages you find out about from someone complaining.
 
-## The two monitor types, and when each applies
+## Naming: function, not product
+
+Monitor names describe **what breaks for a user**, not which piece of software is
+involved. `SSO Web` down means nobody can log in anywhere; `authentik-server-1`
+down means you first have to remember what Authentik is for. The dashboard is read
+at the worst possible moment, so it should not require a mental lookup table.
+
+The pattern is `<Function> <Role>`, with a shared function prefix per stack:
+
+| Role | Means |
+|------|-------|
+| **Web** | the routed HTTPS entry point — what a browser talks to |
+| **Backend** | the main application container behind it |
+| **Database** / **Caching** | that stack's datastore |
+| **Worker** / **Runner** / **Collector** | background processing, no user-facing page |
+| **Storage** | a datastore that *is* the product (metrics, logs, traces) |
+| **Reachable** | ICMP to the machine, below any service on it |
+
+The product name still appears — in the **Target** column, where it belongs, since
+that is what you paste into Kuma and what `docker ps` will show you.
+
+## Monitor types, and when each applies
 
 | Type | Watches | Use it when |
 |------|---------|-------------|
 | **HTTP(s)** | DNS → Traefik → certificate → application, end to end | the service answers **200** on `/` without authentication |
 | **Docker** | container state, read from this VM's `docker.sock` | the route is gated, has no root path, or the container is on this VM and you want to tell "container down" from "route down" |
+| **Ping** | ICMP to the host | the machine can fail *independently of Kuma* — see [Reachability](#reachability-and-why-only-two-machines-get-it) |
 
 Docker monitors need the Docker host registered once
-([uptime-kuma-setup.md, step 5](uptime-kuma-setup.md#5-add-the-monitors)).
-They only work for containers on the **infra VM** — that is the only socket Kuma
-can read.
+([uptime-kuma-setup.md, step 5](uptime-kuma-setup.md#5-add-the-monitors)) and only
+work for containers on the **infra VM** — that is the only socket Kuma can read.
 
 **Container names are derived, not configured.** No compose file in this repo sets
 `container_name`, so every container is `<project>-<service>-1`. When in doubt,
@@ -35,112 +56,158 @@ docker ps --format '{{.Names}}'
 
 ---
 
-## traefik
+## Gateway — traefik
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Traefik | Docker | `traefik-traefik-1` |
+| Gateway | Docker | `traefik-traefik-1` |
 
-**No HTTP monitor,** deliberately. `traefik.thefipster.de` is forward-auth gated
-and answers **302**, not 200. Kuma's accepted-status-codes field would take
-`200-399`, but that reports "up" for an Authentik redirect page — which is a
-statement about Authentik, not about Traefik. The container check is the more
-truthful signal.
+**No `Gateway Web` monitor,** deliberately. `traefik.thefipster.de` is
+forward-auth gated and answers **302**, not 200. Kuma's accepted-status-codes
+field would take `200-399`, but that reports "up" for an Authentik redirect page —
+which is a statement about Authentik, not about Traefik. The container check is the
+more truthful signal.
 
 Traefik is nonetheless covered end-to-end many times over: **every** HTTP monitor
 below traverses it, so a Traefik failure turns most of this registry red at once.
 
-## authentik
+## Identity — authentik
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Authentik | HTTP(s) | `https://auth.thefipster.de` |
-| Authentik server | Docker | `authentik-server-1` |
-| Authentik worker | Docker | `authentik-worker-1` |
-| Authentik DB | Docker | `authentik-db-1` |
-| Authentik Redis | Docker | `authentik-redis-1` |
+| SSO Web | HTTP(s) | `https://auth.thefipster.de` |
+| SSO Backend | Docker | `authentik-server-1` |
+| SSO Worker | Docker | `authentik-worker-1` |
+| SSO Database | Docker | `authentik-db-1` |
+| SSO Caching | Docker | `authentik-redis-1` |
 
 All four containers are listed because Authentik is the one stack whose partial
-failures are silent: the `server` can serve a login page while the `worker` is
-dead and nothing sends email or runs a flow, and Redis dying breaks sessions
-without touching the front page.
+failures are silent: `SSO Backend` can serve a login page while `SSO Worker` is
+dead and nothing sends email or runs a flow, and `SSO Caching` dying breaks
+sessions without touching the front page.
 
-## forgejo
+## Git — forgejo
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Forgejo | HTTP(s) | `https://git.thefipster.de` |
-| Forgejo | Docker | `forgejo-forgejo-1` |
-| Forgejo DB | Docker | `forgejo-db-1` |
-| Forgejo runner | Docker | `forgejo-runner-1` |
+| Git Web | HTTP(s) | `https://git.thefipster.de` |
+| Git Backend | Docker | `forgejo-forgejo-1` |
+| Git Runner | Docker | `forgejo-runner-1` |
+| Git Database | Docker | `forgejo-db-1` |
 
-Both an HTTP and a container monitor on the same service, on purpose — that pair
-is what distinguishes "Forgejo is down" from "the route to Forgejo is down".
+`Git Web` and `Git Backend` are the same service checked two ways, on purpose —
+that pair is what distinguishes "Forgejo is down" from "the route to Forgejo is
+down".
 
-The **runner** is the one container here whose failure is otherwise invisible:
+`Git Runner` is the one container here whose failure is otherwise invisible:
 nothing serves a page, nothing 500s, CI just silently stops picking up jobs.
 
-## dockge
+Note that `Git Web` also covers the **container registry** — same hostname, same
+Forgejo process — so a red `Git Web` means image pulls are failing too, not only
+the web UI.
 
-| Monitor | Type | Target |
+## Stack management — dockge
+
+| Name | Type | Target |
 |---|---|---|
-| Dockge | Docker | `dockge-dockge-1` |
+| Stack Manager | Docker | `dockge-dockge-1` |
 
-**No HTTP monitor** — forward-auth gated, same 302 reasoning as Traefik.
+**No Web monitor** — forward-auth gated, same 302 reasoning as the Gateway.
 
 `dockge-dockge-1` is the one container name you cannot derive from the repo:
 `infra/dockge/compose.yaml` is the only stack with no `name:` key, so its project
 name comes from the directory `init-dockge.sh` copies it into.
 
-## monitoring
+## Observability — monitoring
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Grafana | HTTP(s) | `https://grafana.thefipster.de` |
-| Grafana | Docker | `monitoring-grafana-1` |
-| Grafana DB | Docker | `monitoring-db-1` |
-| Prometheus | Docker | `monitoring-prometheus-1` |
-| Loki | Docker | `monitoring-loki-1` |
-| Tempo | Docker | `monitoring-tempo-1` |
-| Alloy | Docker | `monitoring-alloy-1` |
+| Dashboards Web | HTTP(s) | `https://grafana.thefipster.de` |
+| Dashboards Backend | Docker | `monitoring-grafana-1` |
+| Dashboards Database | Docker | `monitoring-db-1` |
+| Metrics Storage | Docker | `monitoring-prometheus-1` |
+| Logs Storage | Docker | `monitoring-loki-1` |
+| Traces Storage | Docker | `monitoring-tempo-1` |
+| Telemetry Collector | Docker | `monitoring-alloy-1` |
 
-Six containers, and this is the stack where Kuma earns its keep: it is the only
-watcher that does not depend on the thing being watched. Grafana's own
-`ServiceDown` alert cannot fire when **Alloy** is the component that died — `up`
-goes stale, the rule evaluates NoData → OK, and nothing happens. `monitoring-alloy-1`
-is that blind spot's only cover.
+The one stack that does not take a single function prefix, because it genuinely
+performs four: dashboards, metrics, logs and traces. Naming them by signal is more
+useful than `Monitoring 1..7` would be — when `Logs Storage` goes red you know
+immediately that metrics and traces are unaffected.
 
-**No HTTP monitor for `otlp.thefipster.de`.** It has no root route: its routers
+This is also where Kuma earns its keep, being the only watcher that does not depend
+on the thing it watches. Grafana's own `ServiceDown` alert cannot fire when
+**`Telemetry Collector`** is what died — `up` goes stale, the rule evaluates
+NoData → OK, and nothing happens. That monitor is the blind spot's only cover.
+
+**No Web monitor for `otlp.thefipster.de`.** It has no root route: its routers
 match `PathPrefix(/v1/)` and the gRPC proto prefix only, so a bare `GET /` gets a
-Traefik 404. `monitoring-alloy-1` covers the same process.
+Traefik 404. `Telemetry Collector` covers the same process.
 
-## apps VM — Coolify
+## App platform — apps VM (Coolify)
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Coolify | HTTP(s) | `https://coolify.thefipster.de` |
+| App Platform | HTTP(s) | `https://coolify.thefipster.de` |
+| Apps Host Reachable | Ping | `apps.thefipster.de` |
 
-HTTP-only, necessarily: Coolify runs on **another VM**, so there is no container
-here for a Docker check to read. Add a row per deployed app as you deploy them —
-each gets its own hostname under the wildcard, and none of them needs a DNS
-record.
+No Docker monitors: Coolify runs on **another VM**, so there is no container here
+for a Docker check to read. Add a row per deployed app as you deploy them — each
+gets its own hostname under the wildcard, and none of them needs a DNS record.
 
-"Down" is genuinely ambiguous for this monitor in a way it is not for the infra
-stacks: it could be the app, Coolify's proxy, or that VM being off.
+The ping monitor is what makes a red `App Platform` interpretable. On its own it
+could mean the app, Coolify's proxy, or the VM being off; with
+`Apps Host Reachable` beside it the answer is immediate.
 
-## home-assistant VM
+## Home automation — home-assistant VM
 
-| Monitor | Type | Target |
+| Name | Type | Target |
 |---|---|---|
-| Home Assistant | HTTP(s) | `https://ha.thefipster.de` |
+| Home Automation | HTTP(s) | `https://ha.thefipster.de` |
+| HA Host Reachable | Ping | `homeassistant.thefipster.de` |
 
-HTTP-only for the same reason — another VM, no local container. This one has a
-third failure mode on top of Coolify's, because it is proxied by Traefik *on the
-infra VM* to the HA VM: see
+Same shape, one extra failure mode: `Home Automation` traverses Traefik **on the
+infra VM**, which proxies to the HA VM. So a red HTTP monitor with a green ping
+narrows it to Traefik's route or Home Assistant itself — see
 [home-assistant-setup.md](home-assistant-setup.md#troubleshooting) for telling a
 502 (backend unreachable) from a 404 (route missing).
 
+Note the two different names deliberately: the HTTP monitor uses `ha.` (the
+service, which resolves to the infra VM) and the ping uses `homeassistant.` (the
+machine). Pinging `ha.` would pointlessly ping the infra VM —
+[dns-records.md](dns-records.md#home-assistant-has-two-names-on-purpose).
+
 ---
+
+## Reachability, and why only two machines get it
+
+A ping monitor is worth having exactly when **the target can fail independently of
+Kuma**. That single rule decides all four machines:
+
+| Machine | Ping monitor | Why |
+|---|---|---|
+| apps VM | **yes** | separate machine; can die while Kuma keeps running and reporting |
+| home-assistant VM | **yes** | same |
+| infra VM | **no** | Kuma *runs on it*. If it is down, so is Kuma. |
+| Proxmox host | **no** | Kuma is a **guest** of it. Same failure domain, one level down. |
+
+Ping is not a deeper check than HTTP — it is a **shallower** one, and that is the
+point. HTTP tests DNS, TCP, TLS, routing and the application at once, so it fails
+for many reasons; ICMP fails for exactly one. Running both against the same host
+turns "something is wrong" into "the machine is fine, the service is not".
+
+Addressed by **name**, not by address, like everything else in the lab — Kuma's
+ping monitor accepts hostnames, so there is no reason to hardcode anything here
+([dns-records.md](dns-records.md#why-this-registry-holds-no-addresses)).
+
+> **If a ping monitor never turns green, it is capabilities, not the network.**
+> ICMP needs `NET_RAW`, which is in Docker's default capability set — so this
+> works out of the box only because `infra/uptime-kuma/compose.yaml` drops no
+> capabilities. Verify from the container rather than the host:
+>
+> ```bash
+> docker compose exec uptime-kuma ping -c1 apps.thefipster.de
+> ```
 
 ## Deliberately not monitored
 
@@ -148,18 +215,17 @@ Three absences that are decisions, not gaps. Listed so this registry stays an
 honest account of coverage.
 
 **Uptime Kuma itself.** A monitor for `uptime-kuma-uptime-kuma-1` would be
-pointless: a dead Kuma cannot report that it is dead, and a live one telling you
-it is alive carries no information. This is the lab's one genuine monitoring blind
+pointless: a dead Kuma cannot report that it is dead, and a live one telling you it
+is alive carries no information. This is the lab's one genuine monitoring blind
 spot and it is structural — closing it needs something *outside* the lab, either a
 push/heartbeat monitor to an external service or a second watcher on another
 machine. Neither exists yet.
 
-**The Proxmox host.** Tempting, and useless from here: Kuma runs on the infra VM,
-which is a **guest of the hypervisor**. Any failure severe enough to take the
-Proxmox host down takes Kuma with it, so the monitor could never fire for the case
-you would want it for. The hypervisor is instead watched from the metrics side —
-Alloy scrapes its node exporter as `instance="pve"`, and Grafana's `DiskAlmostFull`
-and `ServiceDown` rules cover it
+**The Proxmox host.** Tempting, and useless from here, for the reason in the table
+above: Kuma is a guest of the hypervisor, so any failure severe enough to take
+Proxmox down takes Kuma with it. The hypervisor is watched from the metrics side
+instead — Alloy scrapes its node exporter as `instance="pve"`, and Grafana's
+`DiskAlmostFull` and `ServiceDown` rules cover it
 ([grafana-setup.md](grafana-setup.md#6-add-the-proxmox-host)).
 
 **A DNS monitor for the wildcard-versus-exact-record trap.** The repo's
@@ -170,6 +236,18 @@ with a 404 and every HTTP monitor here expects 200. A dedicated DNS monitor woul
 also have to assert an expected address, which is exactly what
 [dns-records.md](dns-records.md#why-this-registry-holds-no-addresses) refuses to
 write down.
+
+## Optional: group them on the dashboard
+
+Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
+that nests the monitors under it. Creating one group per section heading above
+(`Gateway`, `Identity`, `Git`, `Stack management`, `Observability`,
+`App platform`, `Home automation`) makes the status page collapse to seven rows
+that expand on demand, instead of twenty-two flat entries.
+
+Worth doing once the list is long; skip it while it still fits on a screen. Groups
+are cosmetic — they do not affect checks or notifications — so this registry
+records the grouping as *optional* rather than as rows to create.
 
 ## What every HTTP monitor also gets, for free
 
