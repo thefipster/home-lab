@@ -81,8 +81,8 @@ the sequence is:
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
 6. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
-   dir to the UID its image runs as (grafana 472, prometheus 65534, loki
-   10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
+   dir to the UID its image runs as (grafana 472, prometheus 65534, loki and
+   tempo 10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
    `GRAFANA_ADMIN_PASSWORD`, symlinks the stack. Comes after Authentik because
    Grafana's OIDC needs a provider — but the stack starts fine before SSO is
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
@@ -144,9 +144,9 @@ the single source of truth; Dockge only drives start/stop/logs.
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
 "Build order" links them in sequence. Monitoring is split in two on purpose:
 `grafana-setup.md` stands up the *platform* (stack, routing, OIDC), while
-`monitoring-setup.md` configures what it *observes* (logs now, metrics and
-dashboards as later phases land). Adding a new observability capability means
-editing the second, not the first. `docs/roadmap/` holds forward-looking
+`monitoring-setup.md` configures what it *observes* (logs, service + host
+metrics, OTLP/traces, dashboards, alerts). Adding a new observability
+capability means editing the second, not the first. `docs/roadmap/` holds forward-looking
 plans (monitoring, CI hardening) — decisions and phases for work not built
 yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
 implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.
