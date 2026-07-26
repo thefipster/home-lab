@@ -166,7 +166,7 @@ sum by (compose_service) (rate({job="docker"}[5m]))
 Everything from one stack:
 
 ```logql
-{compose_project="forgejo-lab"}
+{compose_project="forgejo"}
 ```
 
 ## Part 4 — Service and host metrics
