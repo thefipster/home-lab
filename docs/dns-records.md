@@ -21,6 +21,7 @@ Devices → (select host) → Settings → **Fixed IP Address***.
 | Proxmox host | `192.168.1.40` |
 | infra VM | `192.168.1.41` |
 | apps VM | `192.168.1.42` |
+| home-assistant VM | `192.168.1.43` |
 
 ## Records
 
@@ -36,11 +37,20 @@ All entries are type **Host (A)**:
 | `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
 | `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `192.168.1.41` | Uptime Kuma status monitoring (via Traefik) |
+| `ha.thefipster.de` | `192.168.1.41` | Home Assistant UI (Traefik proxies to the HA VM at `.43:8123`) |
 | `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI, and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
 escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
 `thefipster.de`; add an exact apex record only if you ever need one.
+
+**Two rows that look missing and are not.** `coolify.thefipster.de` has no exact
+record on purpose — the `*.thefipster.de` wildcard already sends it to the apps
+VM, and Coolify's own proxy routes it by `Host` header like any app it hosts.
+And `ha.thefipster.de` points at the **infra VM**, not at the HA VM: Traefik
+terminates TLS there with the lab's one wildcard certificate and proxies to
+`192.168.1.43:8123`. Pointing it at `.43` directly would reach Home Assistant
+over plain HTTP with no certificate at all.
 
 **When a new infra service arrives, add its row here first.** A missing exact
 record silently resolves to the apps VM via the wildcard, and you get
