@@ -24,13 +24,13 @@ prometheus.remote_write "default" {
 // is alive and the write path works even if every other target is down.
 prometheus.exporter.self "alloy" {}
 
-// Give Alloy's self-metrics the same `service` label the static targets below
+// Give Alloy's self-metrics the same `job` label the static targets below
 // carry, so one query covers all four.
 discovery.relabel "alloy_self" {
   targets = prometheus.exporter.self.alloy.targets
 
   rule {
-    target_label = "service"
+    target_label = "job"
     replacement  = "alloy"
   }
 }
@@ -41,9 +41,9 @@ prometheus.scrape "monitoring_stack" {
   targets = concat(
     discovery.relabel.alloy_self.output,
     [
-      {"__address__" = "prometheus:9090", "service" = "prometheus"},
-      {"__address__" = "loki:3100", "service" = "loki"},
-      {"__address__" = "grafana:3000", "service" = "grafana"},
+      {"__address__" = "prometheus:9090", "job" = "prometheus"},
+      {"__address__" = "loki:3100", "job" = "loki"},
+      {"__address__" = "grafana:3000", "job" = "grafana"},
     ],
   )
 
@@ -60,9 +60,9 @@ prometheus.scrape "monitoring_stack" {
 // never don't justify a discovery convention every stack has to opt into.
 prometheus.scrape "infra_services" {
   targets = [
-    {"__address__" = "traefik:8082", "service" = "traefik"},
-    {"__address__" = "authentik-server:9300", "service" = "authentik"},
-    {"__address__" = "forgejo:3000", "service" = "forgejo"},
+    {"__address__" = "traefik:8082", "job" = "traefik"},
+    {"__address__" = "authentik-server:9300", "job" = "authentik"},
+    {"__address__" = "forgejo:3000", "job" = "forgejo"},
   ]
 
   scrape_interval = "15s"
@@ -82,13 +82,18 @@ prometheus.exporter.unix "host" {
   rootfs_path = "/host/root"
 }
 
-// Same `service` label convention as every other target in this file.
+// node-exporter convention: dashboards expect job="node" (not the app-service
+// naming the other targets use) plus an `instance` identifying the host.
 discovery.relabel "host" {
   targets = prometheus.exporter.unix.host.targets
 
   rule {
-    target_label = "service"
-    replacement  = "host"
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "infra"
   }
 }
 

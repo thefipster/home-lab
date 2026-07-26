@@ -140,7 +140,7 @@ with `GRAFANA_ADMIN_PASSWORD` from `.env`, then:
    ```
    up
    ```
-   Expect one series each for `service="alloy"`, `"prometheus"`, `"loki"` and
+   Expect one series each for `job="alloy"`, `"prometheus"`, `"loki"` and
    `"grafana"`. **This is the end-to-end proof**: Alloy scraped it, remote-wrote
    it, Prometheus stored it, Grafana read it back.
 3. **State really is in Postgres** — restart the stack and log in again:

@@ -198,9 +198,9 @@ In **Explore → Prometheus**:
 up
 ```
 
-Expect `service` values `traefik`, `authentik`, `forgejo` and `host` **on top
-of** phase 1's `alloy`, `prometheus`, `loki` and `grafana`. Any target sitting
-at 0 is unreachable — see Troubleshooting.
+Expect `job` values `traefik`, `authentik`, `forgejo` and `node` (the host
+exporter) **on top of** phase 1's `alloy`, `prometheus`, `loki` and `grafana`.
+Any target sitting at 0 is unreachable — see Troubleshooting.
 
 ```promql
 traefik_service_requests_total
@@ -401,7 +401,7 @@ reached Alloy but didn't speak cleartext HTTP/2. Confirm
 - [ ] `{compose_service="traefik"} | json | __error__="" | DownstreamStatus >= 400` — access logs on and structured
 - [ ] Restarting Alloy causes no duplicate flood (read positions persisted)
 - [ ] The phase 1 `up` metrics query still works — logs did not disturb metrics
-- [ ] `up` returns `traefik`, `authentik`, `forgejo` and `host` alongside the phase 1 four
+- [ ] `up` returns `traefik`, `authentik`, `forgejo` and `node` (job label) alongside the phase 1 four
 - [ ] `traefik_service_requests_total` is non-zero after loading a lab URL
 - [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM (not the container's view)
 - [ ] An Authentik metric returns — proves cross-network scraping over `proxy`
