@@ -160,3 +160,55 @@ loki.write "default" {
     url = "http://loki:3100/loki/api/v1/push"
   }
 }
+
+// --- OTLP intake ------------------------------------------------------------
+//
+// Phase 4: the lab's OpenTelemetry ingest endpoint. Apps on the apps VM send
+// OTLP here (through Traefik at otlp.thefipster.de — see compose.yaml). The
+// three signals fan out: metrics and logs REUSE the existing write paths built
+// in phases 1-2, so an app's metrics land in the same Prometheus as Traefik's
+// and its logs in the same Loki as the containers'. Traces go to Tempo.
+
+otelcol.receiver.otlp "default" {
+  // Bare blocks listen on the OTLP defaults: gRPC 0.0.0.0:4317, HTTP
+  // 0.0.0.0:4318. Traefik routes to these two ports (compose.yaml labels).
+  grpc {}
+  http {}
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Standard collector practice: bound per-export overhead. Also the natural
+// place to attach sampling or attribute processing later.
+otelcol.processor.batch "default" {
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    logs    = [otelcol.exporter.loki.default.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// OTLP metrics -> the SAME Prometheus as every scrape (phase 1).
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// OTLP logs -> the SAME Loki as the container logs (phase 2).
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// OTLP traces -> Tempo. In-network plaintext, same trust domain as every other
+// monitoring-net hop.
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
