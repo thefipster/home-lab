@@ -225,6 +225,93 @@ the mounts or the path arguments are wrong, the exporter reports the
 *container's* filesystem: a plausible-looking number that simply isn't the
 VM's. An empty result would be obvious; a wrong one is not.
 
+## Part 5 — OTLP ingest and traces
+
+Phase 4 gives the lab an OpenTelemetry endpoint at `otlp.thefipster.de`. Apps
+point their OTel SDK at it, and the three signals fan out: **metrics** into the
+same Prometheus as the scrapes, **logs** into the same Loki as the container
+logs, **traces** into a new Tempo. Two things to be clear about up front:
+
+- **No app emits telemetry yet.** This builds and verifies the *receiving*
+  end — the checks below use `curl`, not an app.
+- **The endpoint takes no authentication.** Anything on the LAN can write to
+  the lab's storage. That is acceptable on a LAN-only lab with no untrusted
+  users, and the same reasoning as Forgejo's open `/metrics` — but it is a
+  larger surface (it *writes*), so it is called out here. To close it later,
+  add a Traefik basic-auth middleware to the two OTLP routers plus an
+  `Authorization` header in each app's exporter config.
+
+### Prerequisite: DNS
+
+An exact host record `otlp.thefipster.de` → `192.168.1.41`, like `grafana.`
+(the wildcard otherwise sends it to the apps VM). Verify:
+
+```bash
+nslookup otlp.thefipster.de
+```
+
+Expect `192.168.1.41`.
+
+### Apply
+
+```bash
+cd ~/home-lab && git pull
+```
+
+```bash
+scripts/init-monitoring.sh
+```
+
+```bash
+cd ~/home-lab/infra/monitoring && docker compose up -d
+```
+
+`docker compose up -d` with no service argument starts the new `tempo` service
+and recreates `alloy` with the OTLP config and the Traefik labels.
+
+### Verify — synthetic payloads over HTTPS
+
+The point of routing through Traefik is that the whole path is testable before
+any app exists. Each `curl` exercises receiver → batch → exporter → storage.
+
+**Logs:**
+
+```bash
+curl -si -X POST https://otlp.thefipster.de/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeLogs":[{"logRecords":[{"body":{"stringValue":"phase4 hello"},"severityText":"INFO"}]}]}]}' | head -1
+```
+
+Expect `HTTP/2 200`. Then in Grafana → Loki, query `{service_name="otlp-smoketest"}`
+(the exact label key derived from `service.name` may be `service_name` — list
+labels in Explore rather than assuming).
+
+**Traces:**
+
+```bash
+curl -si -X POST https://otlp.thefipster.de/v1/traces -H 'Content-Type: application/json' -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"phase4-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000100000000"}]}]}]}' | head -1
+```
+
+Expect `HTTP/2 200`. Then Grafana → Tempo → search by trace ID
+`5b8efff798038103d269b633813fc60c`. This is the only check that exercises the
+genuinely new storage.
+
+**Metrics:**
+
+```bash
+curl -si -X POST https://otlp.thefipster.de/v1/metrics -H 'Content-Type: application/json' -d '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"otlp-smoketest"}}]},"scopeMetrics":[{"metrics":[{"name":"phase4_smoketest_total","sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[{"asInt":"1","timeUnixNano":"1700000000000000000"}]}}]}]}]}' | head -1
+```
+
+Expect `HTTP/2 200`. Then in Prometheus, query `phase4_smoketest_total`.
+
+**gRPC routing** (no gRPC client needed):
+
+```bash
+curl -si https://otlp.thefipster.de/opentelemetry.proto.collector.trace.v1.TraceService/Export | head -3
+```
+
+Expect a gRPC/HTTP2-shaped response (a `grpc-status` header, or 415/200) —
+**not a 404**. That proves the gRPC router and the h2c scheme resolve to Alloy
+even without a real gRPC client.
+
 ## Troubleshooting
 
 **A target shows `up == 0`.** Only that target is affected; everything else
@@ -286,6 +373,18 @@ the blast radius is disk, not cardinality. Find the loudest service with the
 **Traefik won't start after Part 2.** The two flags are additive and
 independently revertible — comment them out and `docker compose up -d`.
 
+**OTLP `curl` returns 404.** The DNS record is missing (so the request never
+reached Traefik) or the router rule didn't match. HTTP payloads must POST to a
+`/v1/...` path; a request to `/` won't match either router.
+
+**OTLP `curl` returns 200 but nothing lands.** The receiver accepted it but an
+exporter failed downstream. Check Alloy's UI on `127.0.0.1:12345` for an
+unhealthy `otelcol.exporter.*`, and `docker compose logs alloy tempo`.
+
+**gRPC path returns 502 while HTTP works.** The classic h2c symptom — Traefik
+reached Alloy but didn't speak cleartext HTTP/2. Confirm
+`traefik.http.services.alloy-grpc.loadbalancer.server.scheme: h2c` is present.
+
 ## Verification checklist
 
 - [ ] `{job="docker"}` returns lines within seconds
@@ -300,9 +399,14 @@ independently revertible — comment them out and `docker compose up -d`.
 - [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM (not the container's view)
 - [ ] An Authentik metric returns — proves cross-network scraping over `proxy`
 - [ ] Phase 2 logs still flow (`{job="docker"}`) after the metrics change
+- [ ] `POST /v1/logs` returns 200 and the line appears in Loki
+- [ ] `POST /v1/traces` returns 200 and the trace opens in Tempo
+- [ ] `POST /v1/metrics` returns 200 and the metric queries in Prometheus
+- [ ] The gRPC path returns a gRPC-shaped response, not 404 (h2c routing works)
+- [ ] Phases 1–3 series (`up`, `{job="docker"}`, host metrics) still return
 
 ## What's next
 
-Phases 3–5 in [roadmap/monitoring.md](roadmap/monitoring.md): the other stacks'
-Prometheus endpoints and host metrics, OTLP intake for the apps VM, then
-dashboards and the two or three alerts worth having.
+Phase 5 in [roadmap/monitoring.md](roadmap/monitoring.md): dashboards (a VM
+dashboard, a Traefik dashboard) and the two or three alerts worth having —
+disk >80 %, a service down, a cert not renewed.

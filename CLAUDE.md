@@ -100,13 +100,13 @@ the single source of truth; Dockge only drives start/stop/logs.
 ## Conventions & gotchas that aren't obvious from a single file
 
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
-  `forgejo:11`) — a deliberate policy; keep it when bumping. Three exceptions,
+  `forgejo:11`) — a deliberate policy; keep it when bumping. Four exceptions,
   each for a different reason: Authentik is pinned **major.minor** (`2025.6`)
   because its minor releases ship breaking DB migrations; `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
-  `grafana/alloy` is pinned to a **full patch** (`v1.18.0`) because it
-  publishes only `vX.Y.Z` tags. Verify against the registry before assuming a
-  coarser tag exists.
+  `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`2.9.4`) are pinned to a
+  **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify
+  against the registry before assuming a coarser tag exists.
 - **`.env` is gitignored**; every stack ships a `.env.example`. Secrets
   (netcup creds, `DOCKER_GID`) live only in the VM's `.env`. Compose uses
   `${VAR:?message}` to fail fast when one is missing — preserve those guards.

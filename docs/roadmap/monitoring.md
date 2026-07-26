@@ -76,8 +76,14 @@ this Loki/Prometheus over the LAN.
    the default). The enabling change the roadmap didn't foresee: Alloy had to
    join the `proxy` network, since it sat on `monitoring-net` alone and could
    not reach a single one of the three targets.
-4. **OTLP intake** — Alloy listens on 4317/4318 for the future apps; add
+4. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+   **OTLP intake** — Alloy listens on 4317/4318 for the future apps; add
    Tempo when the first app actually emits traces, not before.
+   Shipped **with Tempo now** (7-day trace retention) rather than deferring it —
+   a synthetic OTLP payload verifies the whole path end to end, so "no app emits
+   traces yet" didn't mean untestable. Routed through Traefik at
+   `otlp.thefipster.de` with TLS (not plain ports), which is why Alloy gained
+   the traefik labels phase 3 said it lacked.
 5. **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik
    dashboard (status codes, cert expiry), and 2–3 alerts that matter
    (disk >80 %, service down, cert not renewed). More than that is noise in
