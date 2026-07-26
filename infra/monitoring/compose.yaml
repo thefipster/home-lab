@@ -166,9 +166,16 @@ services:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       # WAL / component state. Image runs as root, so no chown is needed.
       - /opt/monitoring/alloy:/var/lib/alloy/data
-      # NOTE: deliberately NO /var/run/docker.sock here. Container-log
-      # discovery (phase 2) is what needs it, and a root-equivalent grant
-      # should follow an actual capability, not an anticipated one.
+      # Docker API — container discovery + log tailing (phase 2). Phase 1
+      # deliberately left this out; the capability that needs it now exists.
+      # `:ro` matches how Traefik declares it but is NOT a security boundary
+      # for a socket: the MOUNT is read-only, the API behind it is not, so
+      # this is root-equivalent control of this VM's Docker. Same trade as
+      # Dockge, Traefik and the Forgejo runner — acceptable only because this
+      # is a single-tenant box running its owner's own code.
+      # Alloy runs as root in-container, so no group_add is needed (unlike the
+      # Forgejo runner, which is non-root and joins the docker group by GID).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - monitoring-net
 

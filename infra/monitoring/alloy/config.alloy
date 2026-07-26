@@ -50,3 +50,66 @@ prometheus.scrape "monitoring_stack" {
   scrape_interval = "15s"
   forward_to      = [prometheus.remote_write.default.receiver]
 }
+
+// --- logs -------------------------------------------------------------------
+//
+// Phase 2: every container on this VM, discovered over the Docker API and
+// labeled by its compose project/service. The metrics section above is
+// untouched.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  // Default is 1m; 15s means a newly started stack shows up almost at once.
+  refresh_interval = "15s"
+}
+
+// Docker metadata -> the four Loki labels we keep. Docker SANITIZES label
+// names, so `com.docker.compose.project` arrives as
+// `com_docker_compose_project`.
+//
+// `targets = []` is deliberate: only the `rules` export is consumed (below),
+// so evaluating a target list here as well would be pure waste. This mirrors
+// the upstream example.
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  // Docker prepends a slash to container names — strip it.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+  }
+}
+
+// NOTE the wiring: `targets` gets the RAW discovery output and the rules are
+// passed SEPARATELY as `relabel_rules`. These are not interchangeable. The
+// component keys its tailers on `__meta_docker_container_id` — which is also
+// how it avoids double-tailing a container attached to two networks (grafana,
+// traefik, authentik's server and forgejo all are) — and handing it
+// `discovery.relabel.containers.output` would strip that ID along with every
+// other `__meta_*` label.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  labels        = {"job" = "docker"}
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.write.default.receiver]
+}
+
+// Read positions live under --storage.path (/opt/monitoring/alloy), so an
+// Alloy restart resumes instead of re-ingesting every container's history.
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
