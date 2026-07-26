@@ -166,6 +166,17 @@ the single source of truth; Dockge only drives start/stop/logs.
   it can *see* but does not move the trust boundary the socket already crossed.
   Acceptable only because this is a single-tenant box building the owner's own
   code — never extend this to untrusted/fork code.
+- **The Proxmox host is a scrape target — the only one that isn't a
+  container.** It runs Debian's `prometheus-node-exporter` as a systemd unit
+  (`apt install`, documented in `grafana-setup.md` step 6; **no init script**,
+  because the hypervisor has no checkout of this repo), and Alloy scrapes it at
+  `pve.thefipster.de:9100`. Both hosts carry `job="node"` and are told apart by
+  `instance` (`infra`, `pve`) — that shared job label is what puts them both on
+  the vendored Node Exporter Full dashboard with no edit to its JSON. It is
+  also why `dns-records.md` no longer marks that record optional: without the
+  exact record the `*.thefipster.de` wildcard answers with the apps VM and
+  Alloy silently scrapes the wrong box, which looks exactly like a dead
+  exporter.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
   `workflow_dispatch`, and every manual run builds and pushes (see
