@@ -1,0 +1,107 @@
+# Grafana unified alerting, provisioned. Three rules that matter for a
+# one-person lab (roadmap phase 5). UI-ONLY: no contact point or notification
+# policy is provisioned, so these use Grafana's default policy — they show in
+# Alerting and on panels but send nothing outward. Wiring a real channel later
+# is a one-file add (a contact point + a route).
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: lab
+    folder: Monitoring
+    interval: 1m
+    rules:
+      # ---- disk almost full (>80% used on a real filesystem) --------------
+      - uid: disk-almost-full
+        title: DiskAlmostFull
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is over 80% full"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * (1 - node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs"}
+                / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+
+      # ---- a scrape target is down ----------------------------------------
+      # Known blind spot: if ALLOY ITSELF dies, `up` goes stale and the query
+      # returns NoData -> OK, so this never fires for the most total failure.
+      # Accepted while alerts are UI-only (a dead collector is obvious from an
+      # empty Grafana); when a real notification channel lands, flip
+      # noDataState to Alerting for this one rule.
+      - uid: service-down
+        title: ServiceDown
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.job }} ({{ $labels.instance }}) is down"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: up
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      # ---- wildcard cert failing to renew ---------------------------------
+      # Traefik renews the 90-day cert at 30 days remaining, so a healthy cert
+      # never drops below ~30d. Under 21d = renewal has been failing over a
+      # week, 3 weeks left to fix.
+      - uid: cert-expiring
+        title: CertExpiringSoon
+        condition: C
+        for: 1h
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: "A TLS certificate expires in under 21 days"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: (traefik_tls_certs_not_after - time()) / 86400
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [21] }

@@ -10,6 +10,10 @@
 
 **Spec:** [`docs/superpowers/specs/2026-07-26-monitoring-phase1-design.md`](../specs/2026-07-26-monitoring-phase1-design.md)
 
+> **Note (phase 2):** `docs/monitoring-setup.md` as created by this plan was
+> later renamed to `docs/grafana-setup.md`. References below are left as
+> written at the time.
+
 ## Testing model (read first — this repo has no unit-test harness)
 
 Infra-as-notes: correctness is verified by **config validation + review**, not a test runner (see `CLAUDE.md`). The objective local gate for compose work is:

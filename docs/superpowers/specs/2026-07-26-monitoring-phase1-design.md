@@ -5,6 +5,11 @@
 **Roadmap:** [docs/roadmap/monitoring.md](../../roadmap/monitoring.md) — this
 spec covers **phase 1 only**; phases 2–5 stay on the roadmap.
 
+> **Note (phase 2):** the guide this spec calls `docs/monitoring-setup.md` was
+> later renamed to [`docs/grafana-setup.md`](../../grafana-setup.md); the name
+> `monitoring-setup.md` now belongs to the guide for configuring what the
+> platform observes. References below are left as written at the time.
+
 ## Goal
 
 Stand up the monitoring stack skeleton on the infra VM: **Grafana + Postgres +

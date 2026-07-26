@@ -1,19 +1,23 @@
-# Monitoring — Grafana + Prometheus + Loki + Alloy for the INFRA VM.
+# Monitoring — Grafana + Prometheus + Loki + Tempo + Alloy for the INFRA VM.
 #
-# Phase 1 of docs/roadmap/monitoring.md: the stack skeleton. Alloy is the ONLY
-# collector — it scrapes this stack's own /metrics endpoints and remote-writes
-# into Prometheus, which runs as STORAGE + QUERY only (no scrape_configs).
-# Container-log collection, the other stacks' metrics endpoints, OTLP intake
-# and dashboards/alerts are phases 2-5 and are deliberately absent.
+# The lab's complete observability stack (docs/roadmap/monitoring.md, all five
+# phases; the dated specs hold the build narrative). Alloy is the ONLY
+# collector: it scrapes metrics (this stack, the infra services, the host),
+# tails every container's logs into Loki, and receives OTLP from the apps at
+# otlp.thefipster.de — metrics into Prometheus, logs into Loki, traces into
+# Tempo. Prometheus and Loki are STORAGE + QUERY only; Grafana is the single
+# pane, with dashboards, datasources and alerts provisioned from this repo.
 #
-# Routed by Traefik at grafana.thefipster.de under the one wildcard cert (no
-# per-router TLS labels). Grafana authenticates against Authentik by OIDC —
-# NOT forward-auth: it has native SSO, and the repo convention is one pattern
-# or the other, never both. So there is no authentik@docker middleware label
-# here, and infra/authentik/compose.yaml is untouched by this stack.
+# Routed by Traefik under the one wildcard cert (no per-router TLS labels):
+# grafana.thefipster.de (the UI) and otlp.thefipster.de (ingest, on Alloy).
+# Grafana authenticates against Authentik by OIDC — NOT forward-auth: it has
+# native SSO, and the repo convention is one pattern or the other, never both.
+# So there is no authentik@docker middleware label here, and
+# infra/authentik/compose.yaml is untouched by this stack.
 #
 # Deploy (on the infra VM): scripts/init-monitoring.sh, then bring it up and
-# wire Authentik afterwards — see docs/monitoring-setup.md.
+# wire Authentik afterwards — see docs/grafana-setup.md, then
+# docs/monitoring-setup.md for what it observes.
 
 name: monitoring
 
@@ -76,7 +80,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env — run scripts/init-monitoring.sh}
       # --- Authentik OIDC ---------------------------------------------------
       # Starts DISABLED so the stack can come up and be verified BEFORE
-      # Authentik is wired (docs/monitoring-setup.md Part 3) — that separates
+      # Authentik is wired (docs/grafana-setup.md Part 3) — that separates
       # "does the stack work" from "does SSO work" when debugging. Flip
       # GRAFANA_OIDC_ENABLED to true in .env once the client id/secret are in.
       GF_AUTH_GENERIC_OAUTH_ENABLED: ${GRAFANA_OIDC_ENABLED:-false}
@@ -130,8 +134,8 @@ services:
       - monitoring-net
 
   # ---------------------------------------------------------------------------
-  # Loki — log storage. EMPTY until phase 2 adds collection; phase 1 only
-  # proves it is reachable, healthy and wired as a Grafana datasource.
+  # Loki — log storage. Fed by Alloy: every container's stdout plus OTLP logs
+  # from the apps. Not routed; Grafana is the only reader.
   # ---------------------------------------------------------------------------
   loki:
     image: grafana/loki:3            # major pin
@@ -145,6 +149,26 @@ services:
       - monitoring-net
 
   # ---------------------------------------------------------------------------
+  # Tempo — trace storage (phase 4). Alloy writes OTLP traces here; Grafana
+  # reads them. Not routed and not published: monitoring-net only.
+  # ---------------------------------------------------------------------------
+  tempo:
+    # FULL PATCH pin, like grafana/alloy: Tempo publishes only vX.Y.Z tags —
+    # there is no `2` and no `2.9`.
+    image: grafana/tempo:2.9.4
+    restart: unless-stopped
+    command: -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      # Data at /var/tempo, NOT /tempo: the image's ENTRYPOINT binary IS
+      # /tempo, so mounting a dir there collides with the executable ("not a
+      # directory"). Image runs as UID 10001 — init-monitoring.sh chowns the
+      # host dir.
+      - /opt/monitoring/tempo:/var/tempo
+    networks:
+      - monitoring-net
+
+  # ---------------------------------------------------------------------------
   # Alloy — the single collector for the whole lab.
   # ---------------------------------------------------------------------------
   alloy:
@@ -152,6 +176,11 @@ services:
     # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18.
     image: grafana/alloy:v1.18.0
     restart: unless-stopped
+    # The unix exporter's uname collector reads the CONTAINER's UTS hostname
+    # (a hex ID that changes on every recreate), and the node dashboard's
+    # `nodename` dropdown chains off it. Pin it to the VM's name so the
+    # dashboard shows a stable, meaningful host identity.
+    hostname: infra
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -166,11 +195,58 @@ services:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       # WAL / component state. Image runs as root, so no chown is needed.
       - /opt/monitoring/alloy:/var/lib/alloy/data
-      # NOTE: deliberately NO /var/run/docker.sock here. Container-log
-      # discovery (phase 2) is what needs it, and a root-equivalent grant
-      # should follow an actual capability, not an anticipated one.
+      # Docker API — container discovery + log tailing (phase 2). Phase 1
+      # deliberately left this out; the capability that needs it now exists.
+      # `:ro` matches how Traefik declares it but is NOT a security boundary
+      # for a socket: the MOUNT is read-only, the API behind it is not, so
+      # this is root-equivalent control of this VM's Docker. Same trade as
+      # Dockge, Traefik and the Forgejo runner — acceptable only because this
+      # is a single-tenant box running its owner's own code.
+      # Alloy runs as root in-container, so no group_add is needed (unlike the
+      # Forgejo runner, which is non-root and joins the docker group by GID).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host metrics (phase 3). The unix exporter reads the HOST's procfs,
+      # sysfs and root filesystem; without these it silently reports the
+      # CONTAINER's view, which looks plausible and is wrong. All read-only.
+      # `rslave` keeps mounts made on the host after Alloy starts visible, so a
+      # newly attached disk still reports usage.
+      # Scope, stated plainly: this exposes the whole host filesystem read-only
+      # to Alloy. It does NOT widen the trust boundary — Alloy already holds
+      # docker.sock above, which is root-equivalent and strictly more powerful
+      # — but both being true at once is worth knowing.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    labels:
+      # Phase 4: Alloy is now the lab's OTLP ingest endpoint, reached through
+      # Traefik at otlp.thefipster.de. This is a DELIBERATE reversal of phase
+      # 3, where Alloy carried no traefik labels — that was why joining `proxy`
+      # then exposed nothing. It IS exposed now, on purpose.
+      # One hostname, two protocols told apart by path. No per-router TLS
+      # labels: the one wildcard cert covers every websecure router.
+      traefik.enable: "true"
+      # OTLP/HTTP -> Alloy :4318. Covers /v1/traces, /v1/metrics, /v1/logs.
+      traefik.http.routers.otlp-http.rule: Host(`otlp.thefipster.de`) && PathPrefix(`/v1/`)
+      traefik.http.routers.otlp-http.entrypoints: websecure
+      traefik.http.routers.otlp-http.service: alloy-http
+      traefik.http.services.alloy-http.loadbalancer.server.port: "4318"
+      # OTLP/gRPC -> Alloy :4317. All gRPC methods live under this proto
+      # package prefix. h2c: Traefik must speak cleartext HTTP/2 to Alloy's
+      # gRPC listener.
+      traefik.http.routers.otlp-grpc.rule: Host(`otlp.thefipster.de`) && PathPrefix(`/opentelemetry.proto.collector.`)
+      traefik.http.routers.otlp-grpc.entrypoints: websecure
+      traefik.http.routers.otlp-grpc.service: alloy-grpc
+      traefik.http.services.alloy-grpc.loadbalancer.server.port: "4317"
+      traefik.http.services.alloy-grpc.loadbalancer.server.scheme: h2c
+      # No auth (LAN-only lab). To require it later, add ONE middleware label
+      # (a basic-auth middleware) to each router above — see the phase 4 spec.
     networks:
       - monitoring-net
+      # Traefik, Authentik's server and Forgejo all live on `proxy` — joining
+      # it is how Alloy reaches their metrics endpoints (phase 3), and (phase
+      # 4) how Traefik reaches Alloy's OTLP listeners without any published
+      # port. See the traefik.* labels above.
+      - proxy
 
 networks:
   monitoring-net:

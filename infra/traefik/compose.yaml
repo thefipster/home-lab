@@ -24,6 +24,31 @@ services:
       # operation — INFO makes startup and ACME issuance visible in the logs,
       # which the setup guide relies on.
       - --log.level=INFO
+      # --- access log ------------------------------------------------------
+      # One JSON object per request, on stdout — where Alloy already collects
+      # this container's logs like any other (see docs/monitoring-setup.md).
+      # JSON so Grafana can parse fields at query time.
+      # The APPLICATION log above stays human-readable on purpose: it's what
+      # you actually read during ACME trouble. So this container's stream
+      # carries TWO shapes, and a bare `| json` in LogQL will tag the plain
+      # lines with __error__ — filter with `| json | __error__=""`.
+      - --accesslog=true
+      - --accesslog.format=json
+      # --- metrics ---------------------------------------------------------
+      # Prometheus metrics on a DEDICATED entrypoint. Traefik's default metrics
+      # entryPoint is `traefik` (its internal one), which this compose never
+      # defines — naming our own keeps the port explicit and unable to collide
+      # with the dashboard. :8082 is reachable only on Docker networks: it is
+      # not published to the host and has no router, so it is not routed
+      # publicly. Alloy scrapes it over the `proxy` network.
+      # The three label options are what make per-router and per-service
+      # dashboards possible in phase 5.
+      - --entrypoints.metrics.address=:8082
+      - --metrics.prometheus=true
+      - --metrics.prometheus.entryPoint=metrics
+      - --metrics.prometheus.addEntryPointsLabels=true
+      - --metrics.prometheus.addRoutersLabels=true
+      - --metrics.prometheus.addServicesLabels=true
       # --- providers -------------------------------------------------------
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false

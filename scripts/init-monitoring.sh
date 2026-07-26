@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # init-monitoring.sh — project-specific setup for the monitoring stack
-# (Grafana + Postgres + Prometheus + Loki + Alloy).
+# (Grafana + Postgres + Prometheus + Loki + Tempo + Alloy).
 #
 # Assumes Docker is installed (run scripts/init-host.sh first). Steps:
 #   1. Create the persistent data tree under /opt/monitoring and set the
@@ -12,7 +12,7 @@
 #   4. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # The two Authentik OIDC values stay BLANK on purpose — they are copied by hand
-# from Authentik (docs/monitoring-setup.md Part 3), which is also when
+# from Authentik (docs/grafana-setup.md Part 3), which is also when
 # GRAFANA_OIDC_ENABLED flips to true. The stack comes up fine without them.
 #
 # Re-runnable: it never rotates a secret that is already set. Run from anywhere.
@@ -41,18 +41,21 @@ fi
 
 echo "==> Creating persistent data tree under /opt/monitoring"
 run_root mkdir -p /opt/monitoring/postgres /opt/monitoring/grafana \
-  /opt/monitoring/prometheus /opt/monitoring/loki /opt/monitoring/alloy
+  /opt/monitoring/prometheus /opt/monitoring/loki /opt/monitoring/alloy \
+  /opt/monitoring/tempo
 # Each image drops to a different user and must own its data dir, or it
 # crash-loops on first boot. These UIDs were read from the PINNED images'
 # own configs, not guessed:
 #   grafana/grafana:13.1  -> 472
 #   prom/prometheus:v3    -> nobody (65534)
 #   grafana/loki:3        -> 10001
+#   grafana/tempo:2.9.4   -> 10001
 #   grafana/alloy:v1.18.0 -> root, so its dir needs no chown
 # Postgres manages its own dir's ownership.
 run_root chown -R 472:472 /opt/monitoring/grafana
 run_root chown -R 65534:65534 /opt/monitoring/prometheus
 run_root chown -R 10001:10001 /opt/monitoring/loki
+run_root chown -R 10001:10001 /opt/monitoring/tempo
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "==> Seeding ${ENV_FILE} from .env.example"
@@ -89,12 +92,12 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/monitoring"
 
 echo
-echo "Done. Next (see docs/monitoring-setup.md):"
+echo "Done. Next (see docs/grafana-setup.md):"
 echo "  1. Add a DNS host record on the UDR: grafana.thefipster.de -> the infra"
 echo "     VM (192.168.1.41). The *.thefipster.de wildcard points at the APPS"
 echo "     VM, so without an exact record the name resolves to the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://grafana.thefipster.de as 'admin' using"
-echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check both datasources."
+echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check all three datasources."
 echo "  4. Part 3: create the Authentik provider + application, put the client"
 echo "     id/secret in .env, set GRAFANA_OIDC_ENABLED=true, and restart."

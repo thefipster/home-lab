@@ -51,6 +51,18 @@ services:
       # :3000 over the shared `proxy` network (see infra/traefik).
       FORGEJO__server__ROOT_URL: "https://git.thefipster.de/"
       FORGEJO__server__DOMAIN: "git.thefipster.de"
+      # Prometheus metrics at /metrics, on the SAME port as the web UI (3000).
+      # NOTE: that port is what Traefik publishes at git.thefipster.de, so this
+      # also makes https://git.thefipster.de/metrics readable by anyone on the
+      # LAN, unauthenticated. That is DELIBERATE: the endpoint serves aggregate
+      # counters (repository/user/issue totals), not code or credentials, and
+      # the lab is LAN-only with no untrusted users.
+      # To close it later, either set FORGEJO__metrics__TOKEN (and add a
+      # bearer_token to Alloy's scrape), or add a higher-priority Traefik
+      # router for PathPrefix(`/metrics`) with an ipAllowList of 127.0.0.1/32.
+      # Alloy scrapes forgejo:3000 DIRECTLY over the proxy network, never
+      # through Traefik, so neither change affects collection.
+      FORGEJO__metrics__ENABLED: "true"
     volumes:
       # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
       # this dir must be chown'd to 1000:1000 — see the README setup step.

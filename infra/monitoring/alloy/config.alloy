@@ -1,10 +1,16 @@
-// Alloy — phase 1: prove the metrics path end to end.
+// Alloy — the lab's ONLY collector. One config, three concerns, in order:
 //
-// Alloy is the ONLY collector in this lab. Here it scrapes the monitoring
-// stack's own /metrics endpoints and remote-writes them into Prometheus.
-// Everything else — container logs (discovery.docker + loki.source.docker),
-// the other stacks' Prometheus endpoints, host/cadvisor metrics and OTLP
-// intake — is phases 2-5 of docs/roadmap/monitoring.md and is NOT here.
+//   metrics — scrapes this stack, the infra services and the host, and
+//             remote-writes everything into Prometheus (which has no
+//             scrape_configs of its own);
+//   logs    — discovers every container over the Docker API and tails its
+//             stdout into Loki, labeled by compose project/service;
+//   OTLP    — receives OpenTelemetry from the apps (via Traefik at
+//             otlp.thefipster.de) and fans it into the SAME Prometheus/Loki,
+//             plus traces into Tempo.
+//
+// Built incrementally as phases 1-4 of docs/roadmap/monitoring.md (see the
+// dated specs for the narrative); this file is the finished form.
 //
 // Component health: http://127.0.0.1:12345 on the infra VM (loopback-bound,
 // no route, no cert). Tunnel with:
@@ -24,29 +30,198 @@ prometheus.remote_write "default" {
 // is alive and the write path works even if every other target is down.
 prometheus.exporter.self "alloy" {}
 
-// Give Alloy's self-metrics the same `service` label the static targets below
-// carry, so one query covers all four.
+// Give Alloy's self-metrics the same `job` label the static targets below
+// carry, so one query covers the whole stack.
 discovery.relabel "alloy_self" {
   targets = prometheus.exporter.self.alloy.targets
 
   rule {
-    target_label = "service"
+    target_label = "job"
     replacement  = "alloy"
   }
 }
 
-// The rest of the stack. Every one of these endpoints is enabled by default —
-// phase 1 changes NO other stack to get them.
+// The rest of the stack, Tempo included — without its target here the
+// ServiceDown alert (up == 0) would be blind to the one storage backend
+// nothing else health-checks. Every endpoint is enabled by default.
 prometheus.scrape "monitoring_stack" {
   targets = concat(
     discovery.relabel.alloy_self.output,
     [
-      {"__address__" = "prometheus:9090", "service" = "prometheus"},
-      {"__address__" = "loki:3100", "service" = "loki"},
-      {"__address__" = "grafana:3000", "service" = "grafana"},
+      {"__address__" = "prometheus:9090", "job" = "prometheus"},
+      {"__address__" = "loki:3100", "job" = "loki"},
+      {"__address__" = "grafana:3000", "job" = "grafana"},
+      {"__address__" = "tempo:3200", "job" = "tempo"},
     ],
   )
 
   scrape_interval = "15s"
   forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// The lab's own services. All three endpoints ship with the products: Traefik
+// and Forgejo each needed one flag flipped (see their compose files), and
+// Authentik's has been live all along — AUTHENTIK_LISTEN__METRICS defaults to
+// :9300 on every component, so that stack needed no change at all.
+// These are reachable only because Alloy joined the `proxy` network; see
+// compose.yaml. Static targets on purpose: three entries that change roughly
+// never don't justify a discovery convention every stack has to opt into.
+prometheus.scrape "infra_services" {
+  targets = [
+    {"__address__" = "traefik:8082", "job" = "traefik"},
+    {"__address__" = "authentik-server:9300", "job" = "authentik"},
+    {"__address__" = "forgejo:3000", "job" = "forgejo"},
+  ]
+
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// Host CPU / memory / disk / filesystem — Alloy's embedded node_exporter.
+// The paths point at the read-only host mounts declared in compose.yaml. Get
+// these wrong and the exporter reports the CONTAINER's view: plausible-looking
+// numbers that are simply not the VM's, which is why the guide verifies disk
+// figures against `df -h` rather than just checking the series exist.
+// No privileged mode and no host PID namespace are needed for this collector
+// set; Alloy already runs as root in-container.
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host/root"
+}
+
+// node-exporter convention: dashboards expect job="node" (not the app-service
+// naming the other targets use) plus an `instance` identifying the host.
+discovery.relabel "host" {
+  targets = prometheus.exporter.unix.host.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "node"
+  }
+  rule {
+    target_label = "instance"
+    replacement  = "infra"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = discovery.relabel.host.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// --- logs -------------------------------------------------------------------
+//
+// Phase 2: every container on this VM, discovered over the Docker API and
+// labeled by its compose project/service. The metrics section above is
+// untouched.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  // Default is 1m; 15s means a newly started stack shows up almost at once.
+  refresh_interval = "15s"
+}
+
+// Docker metadata -> the four Loki labels we keep. Docker SANITIZES label
+// names, so `com.docker.compose.project` arrives as
+// `com_docker_compose_project`.
+//
+// `targets = []` is deliberate: only the `rules` export is consumed (below),
+// so evaluating a target list here as well would be pure waste. This mirrors
+// the upstream example.
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  // Docker prepends a slash to container names — strip it.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/?(.*)"
+    target_label  = "container"
+  }
+}
+
+// NOTE the wiring: `targets` gets the RAW discovery output and the rules are
+// passed SEPARATELY as `relabel_rules`. These are not interchangeable. The
+// component keys its tailers on `__meta_docker_container_id` — which is also
+// how it avoids double-tailing a container attached to two networks (grafana,
+// traefik, authentik's server and forgejo all are) — and handing it
+// `discovery.relabel.containers.output` would strip that ID along with every
+// other `__meta_*` label.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  labels        = {"job" = "docker"}
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.write.default.receiver]
+}
+
+// Read positions live under --storage.path (/opt/monitoring/alloy), so an
+// Alloy restart resumes instead of re-ingesting every container's history.
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// --- OTLP intake ------------------------------------------------------------
+//
+// Phase 4: the lab's OpenTelemetry ingest endpoint. Apps on the apps VM send
+// OTLP here (through Traefik at otlp.thefipster.de — see compose.yaml). The
+// three signals fan out: metrics and logs REUSE the existing write paths built
+// in phases 1-2, so an app's metrics land in the same Prometheus as Traefik's
+// and its logs in the same Loki as the containers'. Traces go to Tempo.
+
+otelcol.receiver.otlp "default" {
+  // Bare blocks listen on the OTLP defaults: gRPC 0.0.0.0:4317, HTTP
+  // 0.0.0.0:4318. Traefik routes to these two ports (compose.yaml labels).
+  grpc {}
+  http {}
+
+  output {
+    metrics = [otelcol.processor.batch.default.input]
+    logs    = [otelcol.processor.batch.default.input]
+    traces  = [otelcol.processor.batch.default.input]
+  }
+}
+
+// Standard collector practice: bound per-export overhead. Also the natural
+// place to attach sampling or attribute processing later.
+otelcol.processor.batch "default" {
+  output {
+    metrics = [otelcol.exporter.prometheus.default.input]
+    logs    = [otelcol.exporter.loki.default.input]
+    traces  = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// OTLP metrics -> the SAME Prometheus as every scrape (phase 1).
+otelcol.exporter.prometheus "default" {
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+// OTLP logs -> the SAME Loki as the container logs (phase 2).
+otelcol.exporter.loki "default" {
+  forward_to = [loki.write.default.receiver]
+}
+
+// OTLP traces -> Tempo. In-network plaintext, same trust domain as every other
+// monitoring-net hop.
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
 }

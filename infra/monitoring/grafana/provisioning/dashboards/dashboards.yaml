@@ -1,0 +1,20 @@
+# Loads every dashboard JSON in this folder. Provisioned dashboards are
+# READ-ONLY in the UI — edit the JSON in the repo and restart, not the browser.
+#
+# The JSONs are VENDORED from grafana.com at pinned revisions and their
+# datasource references rewired to our uid `prometheus`:
+#   node-exporter-full.json  = dashboard 1860, revision 45
+#   traefik.json             = dashboard 17346 (Traefik Official Standalone), revision 9
+
+apiVersion: 1
+
+providers:
+  - name: monitoring
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

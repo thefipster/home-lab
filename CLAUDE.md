@@ -81,8 +81,8 @@ the sequence is:
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
 6. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
-   dir to the UID its image runs as (grafana 472, prometheus 65534, loki
-   10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
+   dir to the UID its image runs as (grafana 472, prometheus 65534, loki and
+   tempo 10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
    `GRAFANA_ADMIN_PASSWORD`, symlinks the stack. Comes after Authentik because
    Grafana's OIDC needs a provider — but the stack starts fine before SSO is
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
@@ -100,13 +100,13 @@ the single source of truth; Dockge only drives start/stop/logs.
 ## Conventions & gotchas that aren't obvious from a single file
 
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
-  `forgejo:11`) — a deliberate policy; keep it when bumping. Three exceptions,
+  `forgejo:11`) — a deliberate policy; keep it when bumping. Four exceptions,
   each for a different reason: Authentik is pinned **major.minor** (`2025.6`)
   because its minor releases ship breaking DB migrations; `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
-  `grafana/alloy` is pinned to a **full patch** (`v1.18.0`) because it
-  publishes only `vX.Y.Z` tags. Verify against the registry before assuming a
-  coarser tag exists.
+  `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`2.9.4`) are pinned to a
+  **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify
+  against the registry before assuming a coarser tag exists.
 - **`.env` is gitignored**; every stack ships a `.env.example`. Secrets
   (netcup creds, `DOCKER_GID`) live only in the VM's `.env`. Compose uses
   `${VAR:?message}` to fail fast when one is missing — preserve those guards.
@@ -122,9 +122,13 @@ the single source of truth; Dockge only drives start/stop/logs.
   loose rate limits; switching CAs either way means deleting `acme.json` and
   force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
-  the Forgejo runner, and Traefik (read-only there). Acceptable only because
-  this is a single-tenant box building the owner's own code — never extend this
-  to untrusted/fork code.
+  the Forgejo runner, Traefik (read-only there) and Alloy (container discovery
+  + log tailing). `:ro` is **not** a security boundary for a socket — the mount
+  is read-only, the API behind it is not. Alloy additionally bind-mounts the
+  host's `/proc`, `/sys` and `/` read-only for host metrics; that widens what
+  it can *see* but does not move the trust boundary the socket already crossed.
+  Acceptable only because this is a single-tenant box building the owner's own
+  code — never extend this to untrusted/fork code.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
   `workflow_dispatch`, and every manual run builds and pushes (see
@@ -138,7 +142,11 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides (`proxmox-setup.md`, `wildcard-dns-udr.md`,
 `traefik-setup.md`, `authentik-setup.md`, `forgejo-setup.md`) — the README's
-"Build order" links them in sequence. `docs/roadmap/` holds forward-looking
+"Build order" links them in sequence. Monitoring is split in two on purpose:
+`grafana-setup.md` stands up the *platform* (stack, routing, OIDC), while
+`monitoring-setup.md` configures what it *observes* (logs, service + host
+metrics, OTLP/traces, dashboards, alerts). Adding a new observability
+capability means editing the second, not the first. `docs/roadmap/` holds forward-looking
 plans (monitoring, CI hardening) — decisions and phases for work not built
 yet; a piece graduates from roadmap to guide when it lands. `docs/superpowers/{specs,plans}/` holds dated design specs and
 implementation plans (`YYYY-MM-DD-*.md`) produced by the superpowers workflow.

@@ -67,6 +67,7 @@ escape the apps-VM catch-all. Add these the same way (Create Entry → Host (A))
 | `auth.thefipster.de` | `192.168.1.41` | Authentik SSO portal (via Traefik) |
 | `traefik.thefipster.de` | `192.168.1.41` | Traefik dashboard (gated by Authentik) |
 | `grafana.thefipster.de` | `192.168.1.41` | Grafana monitoring UI (via Traefik) |
+| `otlp.thefipster.de` | `192.168.1.41` | OpenTelemetry ingest (Alloy via Traefik) |
 | `pve.thefipster.de` | `192.168.1.40` | Proxmox web UI (optional) |
 
 ## Verify at all three layers

@@ -31,7 +31,7 @@ UniFi Dream Router  —  DHCP + DNS  (infra host records → infra VM, *.thefips
 | Layer | Runs | Purpose |
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics now, logs next). SSO (Authentik) fronts the infra UIs. |
+| **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts). SSO (Authentik) fronts the infra UIs. |
 | **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker. |
 
 Why two VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Coolify
@@ -68,8 +68,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-│   ├── monitoring-setup.md       Grafana + Prometheus + Loki + Alloy
-│   └── roadmap/                  What's next (monitoring phases 2-5, CI hardening)
+│   ├── grafana-setup.md          Grafana platform: stack, routing, OIDC
+│   ├── monitoring-setup.md       Configuring what's monitored (logs, metrics)
+│   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
@@ -92,12 +93,13 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── dockge/
 │   │   └── compose.yaml          Dockge (compose management UI)
 │   └── monitoring/
-│       ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Alloy
+│       ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Tempo + Alloy
 │       ├── .env.example          Grafana DB / admin / OIDC template
-│       ├── alloy/config.alloy    The collector (phase 1: stack self-metrics)
+│       ├── alloy/config.alloy    The collector: metrics, logs, OTLP intake
 │       ├── loki/loki.yaml        Log storage, 14d retention
+│       ├── tempo/tempo.yaml      Trace storage, 7d retention
 │       ├── prometheus/           Metrics storage, 15d retention
-│       └── grafana/provisioning/ Datasources as code
+│       └── grafana/provisioning/ Datasources, dashboards + alerts as code
 └── apps/                        Apps VM (Coolify) — see apps/README.md
 ```
 
@@ -116,10 +118,13 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 5. **[Forgejo](docs/forgejo-setup.md)** — Dockge for stack management, then
    CI/registry on the infra VM; wire Forgejo into Authentik via OIDC
    (Authentik guide, Part B).
-6. **[Monitoring](docs/monitoring-setup.md)** — Grafana + Prometheus + Loki +
+6. **[Grafana platform](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Alloy on the infra VM; Grafana joins Authentik by OIDC. Needs a new
    `grafana.thefipster.de` host record — the wildcard points at the apps VM.
-7. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
+7. **[Monitoring configuration](docs/monitoring-setup.md)** — point the platform
+   at something: container logs, service + host metrics, OTLP ingest with
+   traces, and the dashboards and alerts on top.
+8. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
 
 ## Status
 
@@ -131,7 +136,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed |
 | Dockge management UI | ✅ deployed |
 | Forgejo CI + registry | ✅ deployed |
-| Monitoring: Grafana + Prometheus + Loki + Alloy | ✅ phase 1 deployed — [guide](docs/monitoring-setup.md); logs/dashboards next — [roadmap](docs/roadmap/monitoring.md) |
+| Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete (phases 1–5) — [platform](docs/grafana-setup.md), [configuration](docs/monitoring-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
