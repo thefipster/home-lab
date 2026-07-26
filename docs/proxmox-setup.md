@@ -4,7 +4,7 @@ Turns the bare server into a hypervisor running two VMs:
 
 ```
 Proxmox VE  (pve.thefipster.de · .40)   ← this guide
- ├─ VM: infra  (.41)  → Traefik + Authentik + Forgejo + Dockge
+ ├─ VM: infra  (.41)  → Traefik + Authentik + Forgejo + Dockge + monitoring
  └─ VM: apps   (.42)  → Coolify + your apps
 ```
 
@@ -94,9 +94,14 @@ Click **Create VM** (top right) for each. Suggested specs:
 |---|---|---|
 | Name | `infra` | `apps` |
 | Cores | 2 | 4 |
-| Memory | 4096 MB | 8192 MB |
+| Memory | 10240 MB | 8192 MB |
 | Disk | 40 GB | 80 GB |
 | Network | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO |
+
+The infra VM's 10 GB is not padding: the six monitoring containers run beside
+Authentik, Forgejo, Traefik and Dockge, and at 4 GB an OOM kill would most
+likely take Authentik down with it (see the prerequisites in
+[grafana-setup.md](grafana-setup.md)).
 
 In the Create VM wizard:
 - **OS:** the uploaded Ubuntu ISO.
@@ -121,18 +126,15 @@ sudo apt update && sudo apt -y install qemu-guest-agent
 sudo systemctl enable --now qemu-guest-agent
 ```
 
-Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs are
-stable — `infra → 192.168.1.41`, `apps → 192.168.1.42` (see
-[wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
+Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
+are stable — the reservation targets are listed in
+[dns-records.md](dns-records.md) (see [wildcard-dns-udr.md](wildcard-dns-udr.md)
+for where reservations live).
 
-DNS records to add on the UDR once the VMs are up (details in
-[wildcard-dns-udr.md](wildcard-dns-udr.md)):
-- `git.thefipster.de` → `192.168.1.41` (infra VM — Forgejo behind Traefik)
-- `dockge.thefipster.de` → `192.168.1.41` (infra VM — Dockge behind Traefik)
-- `auth.thefipster.de` → `192.168.1.41` (infra VM — Authentik SSO portal)
-- `traefik.thefipster.de` → `192.168.1.41` (infra VM — Traefik dashboard, gated)
-- `*.thefipster.de` → `192.168.1.42` (apps VM — Coolify routes by Host header)
-- `pve.thefipster.de` → `192.168.1.40` (optional — the Proxmox web UI)
+Once the VMs are up, add **every** DNS record from the registry
+([dns-records.md](dns-records.md)) — the wildcard to the apps VM and the exact
+infra host records; [wildcard-dns-udr.md](wildcard-dns-udr.md) is the how-to.
+Add the complete set now: later guides assume the records exist.
 
 ---
 
@@ -178,8 +180,9 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next steps
 
-1. **DNS** — the reservations and records from Part 6, in full detail:
-   [wildcard-dns-udr.md](wildcard-dns-udr.md).
+1. **DNS** — the reservations and records from Part 6:
+   [dns-records.md](dns-records.md) is the registry of what to add,
+   [wildcard-dns-udr.md](wildcard-dns-udr.md) the how-to.
 2. **infra VM** (repo + Docker already on it from Part 7) — **Traefik**
    ([traefik-setup.md](traefik-setup.md)) for TLS + routing, then **Authentik**
    ([authentik-setup.md](authentik-setup.md)) for SSO, then

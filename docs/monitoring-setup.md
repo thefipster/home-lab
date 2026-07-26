@@ -16,9 +16,10 @@ verify part by part. Nothing needs to be applied incrementally.
 - [grafana-setup.md](grafana-setup.md) complete and verified — Grafana
   reachable at `https://grafana.thefipster.de` with all three datasources
   (Prometheus, Loki, Tempo) passing **Test**.
-- A second DNS host record, exactly like `grafana.`'s:
-  `otlp.thefipster.de` → `192.168.1.41` (the wildcard otherwise sends it to
-  the apps VM). Verify with `nslookup otlp.thefipster.de`.
+- The `otlp.thefipster.de` host record from the registry
+  ([dns-records.md](dns-records.md)) resolving to the infra VM — the wildcard
+  otherwise sends it to the apps VM. Verify with
+  `nslookup otlp.thefipster.de` → `192.168.1.41`.
 
 ## Deploy
 

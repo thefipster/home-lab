@@ -51,19 +51,18 @@ are bind-mounted read-only, so the repo stays the source of truth: edit,
 - [Authentik](authentik-setup.md) up — needed for Part 3, not for Parts 0–2.
 - Docker installed ([`scripts/init-host.sh`](../scripts/init-host.sh)).
 - **Infra VM RAM ≥ 8 GB.** This adds six containers to a box already running
-  Authentik and Forgejo. The lab VM was raised to 10 GB before phase 1; at the
-  original 4 GB an OOM kill would most likely take Authentik with it.
+  Authentik and Forgejo. [proxmox-setup.md](proxmox-setup.md) provisions 10 GB
+  for exactly this reason; at 4 GB an OOM kill would most likely take
+  Authentik with it.
 
 ## Part 0 — DNS
 
-`grafana.thefipster.de` needs an **exact Host (A) record** pointing at the infra
-VM, added exactly like the rows in [wildcard-dns-udr.md](wildcard-dns-udr.md):
+`grafana.thefipster.de` needs an **exact Host (A) record** pointing at the
+infra VM. It is part of the registry ([dns-records.md](dns-records.md)) and
+already exists if you added the full set during the DNS step of the build
+order — if not, add it now per [wildcard-dns-udr.md](wildcard-dns-udr.md).
 
-| Name | Address |
-|------|---------|
-| `grafana.thefipster.de` | `192.168.1.41` |
-
-> **Don't skip this.** `*.thefipster.de` resolves to the **apps VM** (`.42`).
+> **Don't skip verifying it.** `*.thefipster.de` resolves to the **apps VM** (`.42`).
 > Without the exact record the name silently points at the wrong box, and you
 > get Coolify's 404 instead of Grafana — with a perfectly valid certificate,
 > which makes it look like a Traefik problem when it isn't.
@@ -166,22 +165,16 @@ there is no `authentik@docker` middleware label on its router, and nothing in
 
 ### 1. Create the provider
 
-**Admin → Applications → Providers → Create → OAuth2/OpenID Provider**
-
-| Field | Value |
-|-------|-------|
-| Name | `grafana` |
-| Authorization flow | the default explicit- or implicit-consent flow |
-| Client type | **Confidential** |
-| Redirect URI — **Strict** | `https://grafana.thefipster.de/login/generic_oauth` |
-| Signing key | the default self-signed certificate is fine |
+**Admin → Applications → Providers → Create → OAuth2/OpenID Provider** — every
+field value is in the registry:
+[sso-applications.md](sso-applications.md#grafana-oidc).
 
 Save, then copy the **Client ID** and **Client Secret**.
 
 ### 2. Create the application
 
-**Admin → Applications → Applications → Create** — name `Grafana`, slug
-`grafana`, provider `grafana`. Save.
+**Admin → Applications → Applications → Create** — name/slug from the same
+registry section, provider `grafana`. Save.
 
 ### 3. Bind who may use it
 
