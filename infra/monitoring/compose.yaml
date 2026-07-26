@@ -176,6 +176,18 @@ services:
       # Alloy runs as root in-container, so no group_add is needed (unlike the
       # Forgejo runner, which is non-root and joins the docker group by GID).
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Host metrics (phase 3). The unix exporter reads the HOST's procfs,
+      # sysfs and root filesystem; without these it silently reports the
+      # CONTAINER's view, which looks plausible and is wrong. All read-only.
+      # `rslave` keeps mounts made on the host after Alloy starts visible, so a
+      # newly attached disk still reports usage.
+      # Scope, stated plainly: this exposes the whole host filesystem read-only
+      # to Alloy. It does NOT widen the trust boundary — Alloy already holds
+      # docker.sock above, which is root-equivalent and strictly more powerful
+      # — but both being true at once is worth knowing.
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
     networks:
       - monitoring-net
       # Traefik, Authentik's server and Forgejo all live on `proxy` — joining

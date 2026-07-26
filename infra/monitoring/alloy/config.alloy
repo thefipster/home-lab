@@ -69,6 +69,35 @@ prometheus.scrape "infra_services" {
   forward_to      = [prometheus.remote_write.default.receiver]
 }
 
+// Host CPU / memory / disk / filesystem — Alloy's embedded node_exporter.
+// The paths point at the read-only host mounts declared in compose.yaml. Get
+// these wrong and the exporter reports the CONTAINER's view: plausible-looking
+// numbers that are simply not the VM's, which is why the guide verifies disk
+// figures against `df -h` rather than just checking the series exist.
+// No privileged mode and no host PID namespace are needed for this collector
+// set; Alloy already runs as root in-container.
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host/root"
+}
+
+// Same `service` label convention as every other target in this file.
+discovery.relabel "host" {
+  targets = prometheus.exporter.unix.host.targets
+
+  rule {
+    target_label = "service"
+    replacement  = "host"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = discovery.relabel.host.output
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
 // --- logs -------------------------------------------------------------------
 //
 // Phase 2: every container on this VM, discovered over the Docker API and
