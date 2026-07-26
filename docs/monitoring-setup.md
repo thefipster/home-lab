@@ -140,7 +140,113 @@ Everything from one stack:
 {compose_project="forgejo-lab"}
 ```
 
+## Part 4 — Service and host metrics
+
+Phase 3 turns on the Prometheus endpoints the services already ship, and adds
+host-level metrics. Authentik needed **no change at all** — its metrics
+listener defaults to `:9300` on every component and was simply unreachable
+until now.
+
+| Stack | Change |
+|-------|--------|
+| Traefik | a `metrics` entrypoint on `:8082` + Prometheus flags |
+| Forgejo | `FORGEJO__metrics__ENABLED=true` |
+| Authentik | nothing — already listening on `:9300` |
+| Monitoring | Alloy joins `proxy`, gains three read-only host mounts |
+
+> **Alloy joins the `proxy` network.** It sat on `monitoring-net` alone, which
+> is why it could not reach any of these endpoints — phase 1's targets all
+> happened to live inside its own stack. Nothing becomes exposed by this:
+> Traefik routes only containers carrying `traefik.enable` labels, and Alloy
+> has none.
+
+> **Forgejo's `/metrics` is open on the LAN.** It is served on port 3000 — the
+> same port Traefik publishes at `git.thefipster.de` — so
+> `https://git.thefipster.de/metrics` is now readable by anyone on the LAN,
+> unauthenticated. That is a deliberate choice: aggregate counters (repository,
+> user and issue totals), no code and no credentials, on a LAN-only lab. To
+> close it, set `FORGEJO__metrics__TOKEN` (plus `bearer_token` on Alloy's
+> scrape), or add a higher-priority Traefik router for `PathPrefix(/metrics)`
+> with an `ipAllowList` of `127.0.0.1/32`. Alloy scrapes the container
+> directly, so either change is invisible to collection.
+
+### Apply
+
+The Traefik restart blips every routed service, so use one window.
+
+```bash
+cd ~/home-lab && git pull
+```
+
+```bash
+cd ~/home-lab/infra/traefik && docker compose up -d
+```
+
+```bash
+cd ~/home-lab/infra/forgejo && docker compose up -d forgejo
+```
+
+```bash
+cd ~/home-lab/infra/monitoring && docker compose up -d alloy
+```
+
+### Verify
+
+In **Explore → Prometheus**:
+
+```promql
+up
+```
+
+Expect `service` values `traefik`, `authentik`, `forgejo` and `host` **on top
+of** phase 1's `alloy`, `prometheus`, `loki` and `grafana`. Any target sitting
+at 0 is unreachable — see Troubleshooting.
+
+```promql
+traefik_service_requests_total
+```
+
+Non-zero after loading any lab URL.
+
+```promql
+node_memory_MemAvailable_bytes
+```
+
+Plausible for a 10 GB VM.
+
+Then the check that actually matters:
+
+```promql
+node_filesystem_avail_bytes
+```
+
+**Compare this against `df -h` on the VM — don't just confirm it returns.** If
+the mounts or the path arguments are wrong, the exporter reports the
+*container's* filesystem: a plausible-looking number that simply isn't the
+VM's. An empty result would be obvious; a wrong one is not.
+
 ## Troubleshooting
+
+**A target shows `up == 0`.** Only that target is affected; everything else
+keeps flowing. Isolate it from inside Alloy:
+
+```bash
+docker compose exec alloy wget -qO- http://traefik:8082/metrics | head -3
+```
+
+Swap in `authentik-server:9300` or `forgejo:3000` as needed. A connection
+failure means Alloy isn't on `proxy` or the service isn't either; a 404 means
+the endpoint wasn't enabled in that stack.
+
+**Host metrics show container values.** The mounts and the `procfs_path` /
+`sysfs_path` / `rootfs_path` arguments disagree. Compare
+`node_filesystem_avail_bytes` with `df -h`.
+
+**Forgejo `/metrics` returns 404.** The variable didn't reach the container:
+
+```bash
+docker compose exec forgejo printenv | grep -i metrics
+```
 
 **No logs at all.** Check Alloy's component health — its UI is bound to the VM's
 loopback, so tunnel in as described in [grafana-setup.md](grafana-setup.md):
@@ -189,6 +295,11 @@ independently revertible — comment them out and `docker compose up -d`.
 - [ ] `{compose_service="traefik"} | json | __error__="" | DownstreamStatus >= 400` — access logs on and structured
 - [ ] Restarting Alloy causes no duplicate flood (read positions persisted)
 - [ ] The phase 1 `up` metrics query still works — logs did not disturb metrics
+- [ ] `up` returns `traefik`, `authentik`, `forgejo` and `host` alongside the phase 1 four
+- [ ] `traefik_service_requests_total` is non-zero after loading a lab URL
+- [ ] `node_filesystem_avail_bytes` matches `df -h` on the VM (not the container's view)
+- [ ] An Authentik metric returns — proves cross-network scraping over `proxy`
+- [ ] Phase 2 logs still flow (`{job="docker"}`) after the metrics change
 
 ## What's next
 

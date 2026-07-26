@@ -65,10 +65,17 @@ this Loki/Prometheus over the LAN.
    `container`) and **no ingest-time parsing** — JSON is parsed at query time
    with `| json`. Alloy took the `docker.sock` mount here, as phase 1 said it
    would.
-3. **Metrics** — enable the endpoints that already exist: Traefik
+3. **✅ Landed** — see [docs/monitoring-setup.md](../monitoring-setup.md).
+   **Metrics** — enable the endpoints that already exist: Traefik
    (`--metrics.prometheus`), Authentik (`AUTHENTIK_LISTEN__METRICS`, :9300),
    Forgejo (`FORGEJO__metrics__ENABLED`); host + per-container via Alloy's
    embedded unix/cadvisor exporters.
+   Shipped with the unix exporter only — **cadvisor was descoped**: continuous
+   CPU cost and several more host mounts to answer a question `docker stats`
+   already answers on demand. Authentik needed **no change at all** (`:9300` is
+   the default). The enabling change the roadmap didn't foresee: Alloy had to
+   join the `proxy` network, since it sat on `monitoring-net` alone and could
+   not reach a single one of the three targets.
 4. **OTLP intake** — Alloy listens on 4317/4318 for the future apps; add
    Tempo when the first app actually emits traces, not before.
 5. **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik

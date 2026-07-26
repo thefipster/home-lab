@@ -124,9 +124,11 @@ the single source of truth; Dockge only drives start/stop/logs.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
   the Forgejo runner, Traefik (read-only there) and Alloy (container discovery
   + log tailing). `:ro` is **not** a security boundary for a socket — the mount
-  is read-only, the API behind it is not. Acceptable only because this is a
-  single-tenant box building the owner's own code — never extend this to
-  untrusted/fork code.
+  is read-only, the API behind it is not. Alloy additionally bind-mounts the
+  host's `/proc`, `/sys` and `/` read-only for host metrics; that widens what
+  it can *see* but does not move the trust boundary the socket already crossed.
+  Acceptable only because this is a single-tenant box building the owner's own
+  code — never extend this to untrusted/fork code.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
   `workflow_dispatch`, and every manual run builds and pushes (see

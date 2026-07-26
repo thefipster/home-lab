@@ -134,7 +134,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed |
 | Dockge management UI | ✅ deployed |
 | Forgejo CI + registry | ✅ deployed |
-| Monitoring: Grafana + Prometheus + Loki + Alloy | ✅ phases 1–2 deployed — [platform](docs/grafana-setup.md), [configuration](docs/monitoring-setup.md); dashboards next — [roadmap](docs/roadmap/monitoring.md) |
+| Monitoring: Grafana + Prometheus + Loki + Alloy | ✅ phases 1–3 deployed — [platform](docs/grafana-setup.md), [configuration](docs/monitoring-setup.md); dashboards + alerts next — [roadmap](docs/roadmap/monitoring.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
