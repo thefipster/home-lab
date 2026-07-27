@@ -84,7 +84,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
-│   ├── init-host.sh                  Host basics: time-sync policy (both VMs)
+│   ├── init-host.sh                  Host basics: clock + guest agent (both VMs)
 │   ├── init-docker.sh                Install Docker Engine + compose plugin
 │   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-traefik.sh               Traefik prep: proxy network, ACME dir, .env
@@ -124,8 +124,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor, create the `infra` and `apps` VMs, then run the host
-   scripts in each guest: clock policy and automatic security updates on both,
-   Docker on the infra VM only.
+   scripts in each guest: clock + guest agent and automatic security updates on
+   both, Docker on the infra VM only.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step

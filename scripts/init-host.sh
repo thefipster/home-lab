@@ -6,12 +6,17 @@
 # init-unattended-upgrades.sh: everything after it talks TLS (apt, curl, the
 # ACME client), and TLS is exactly what a skewed clock breaks.
 #
-# What it does today: lets the guest's time-sync daemon STEP a badly skewed
-# clock. A Proxmox snapshot rollback resumes the VM with the clock frozen at
-# snapshot time, and chrony's default policy would never correct the resulting
-# offset — every TLS handshake then fails with "certificate has expired or is
-# not yet valid", which looks like a certificate problem and isn't.
-# See docs/proxmox-setup.md, Part 8.
+# What it does today, in this order:
+#   1. Lets the guest's time-sync daemon STEP a badly skewed clock. A Proxmox
+#      snapshot rollback resumes the VM with the clock frozen at snapshot time,
+#      and chrony's default policy would never correct the resulting offset —
+#      every TLS handshake then fails with "certificate has expired or is not
+#      yet valid", which looks like a certificate problem and isn't.
+#      See docs/proxmox-setup.md, Part 8. First, because step 2 uses apt.
+#   2. Installs qemu-guest-agent, so the hypervisor can read the VM's IP and
+#      shut it down cleanly instead of pulling the virtual plug. Pairs with the
+#      "Qemu Agent" tick in the Create VM wizard — that adds the virtual device,
+#      this is the daemon inside the guest that answers on it.
 #
 # This is the home for host setup that is not tied to a stack or to Docker;
 # the two neighbours are scripts/init-docker.sh (Docker Engine + compose, infra
@@ -19,7 +24,8 @@
 # scripts/init-unattended-upgrades.sh (automatic security updates, both VMs).
 #
 # Target platform: Ubuntu Server 26.04 LTS.
-# Re-runnable: it rewrites its drop-in and restarts the daemon.
+# Re-runnable: it rewrites its drop-in, restarts the time daemon, and apt
+# install is a no-op when the agent is already current.
 # Usage (from the repo root):
 #   scripts/init-host.sh
 #   sudo scripts/init-host.sh   # also fine
@@ -58,9 +64,20 @@ else
   run_root systemctl restart systemd-timesyncd
 fi
 
+echo "==> Installing the QEMU guest agent"
+# Runs AFTER the clock fix: apt does TLS, and a guest resumed from a snapshot
+# can be days behind. Proxmox shows the VM's IP and can request a clean
+# shutdown only once this daemon is answering on the virtio-serial device the
+# "Qemu Agent" tick in the Create VM wizard added.
+run_root apt-get update
+run_root apt-get install -y qemu-guest-agent
+run_root systemctl enable --now qemu-guest-agent
+
 echo
 echo "Done. Verify (see docs/proxmox-setup.md, Part 7):"
-echo "  timedatectl status   — 'System clock synchronized: yes'"
+echo "  timedatectl status                       — 'System clock synchronized: yes'"
+echo "  systemctl is-active qemu-guest-agent     — 'active'"
+echo "  (and the Proxmox VM summary now shows this VM's IP)"
 echo
 echo "Next on the infra VM: scripts/init-docker.sh, then"
 echo "scripts/init-unattended-upgrades.sh. On the apps VM: only the latter."

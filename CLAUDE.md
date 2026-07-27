@@ -88,12 +88,16 @@ them is deliberate: only the middle one is about Docker, so only it is
 infra-VM-only. The apps VM runs the other two (it gets its Docker from
 Coolify's installer).
 
-1. `scripts/init-host.sh` — machine-level basics with no Docker in them; today
-   that is relaxing the time-sync daemon's step policy (chrony `makestep 1 -1`,
-   or a tighter `PollIntervalMaxSec` for systemd-timesyncd). A Proxmox snapshot
-   rollback resumes the guest with a stale clock, and chrony's default
-   `makestep 1 3` would only ever slew it back — every TLS client then fails
-   with "certificate has expired or is not yet valid". **First on both VMs**,
+1. `scripts/init-host.sh` — machine-level basics with no Docker in them: the
+   time-sync daemon's step policy (chrony `makestep 1 -1`, or a tighter
+   `PollIntervalMaxSec` for systemd-timesyncd), then `qemu-guest-agent`. A
+   Proxmox snapshot rollback resumes the guest with a stale clock, and chrony's
+   default `makestep 1 3` would only ever slew it back — every TLS client then
+   fails with "certificate has expired or is not yet valid"; the clock comes
+   first inside the script too, because installing the agent already means apt.
+   The guest agent is the guest half of the wizard's "Qemu Agent" tick (IP on
+   the summary page, clean shutdown) and lives here rather than as a manual
+   step in the guide, which is where it used to be. **First on both VMs**,
    because everything after it (apt, curl, ACME) does TLS. New host setup that
    isn't tied to a stack or to Docker belongs here.
 2. `scripts/init-docker.sh` — installs Docker Engine + compose plugin from
@@ -140,9 +144,9 @@ Coolify's installer).
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
    verified first.
 9. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
-   stack. The **shortest** init script in the repo and the only stack with **no
-   `.env` and no `.env.example`**: Kuma has no database and creates its admin
-   through its own first-run web form, so there is nothing to seed. No `chown`
+   stack. The only stack with **no `.env` and no `.env.example`**: Kuma has no
+   database and creates its admin through its own first-run web form, so there
+   is nothing to seed. No `chown`
    either — the default image runs as root, like Alloy. Last on purpose; it
    watches everything above it.
 

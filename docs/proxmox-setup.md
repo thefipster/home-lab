@@ -121,7 +121,9 @@ likely take Authentik down with it (see the prerequisites in
 In the Create VM wizard:
 - **OS:** the uploaded Ubuntu ISO.
 - **System:** tick **Qemu Agent**; leave BIOS on SeaBIOS + machine `q35` (fine for
-  Linux). Graphic card: Default.
+  Linux). Graphic card: Default. The tick adds the virtual device — the daemon
+  that answers on it is installed inside the guest in
+  [Part 7](#part-7--repo-and-host-setup-in-the-vms).
 - **Disk:** bus **VirtIO SCSI single** (default), tick **Discard** if the host is
   on an SSD.
 - **CPU:** type **`host`** (best performance on a single-node lab).
@@ -133,20 +135,9 @@ prompted).
 
 ---
 
-## Part 6 — In-guest setup (run in each VM)
+## Part 6 — Give the VMs their addresses (on the router)
 
-Install the guest agent so Proxmox can see the VM's IP and shut it down
-cleanly:
-
-```bash
-sudo apt update && sudo apt -y install qemu-guest-agent
-```
-
-```bash
-sudo systemctl enable --now qemu-guest-agent
-```
-
-Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
+On the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
 are stable — the reservation targets are listed in
 [dns-records.md](dns-records.md) (see [wildcard-dns-udr.md](wildcard-dns-udr.md)
 for where reservations live).
@@ -171,8 +162,9 @@ Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
 path, and Dockge later bind-mounts this checkout at the same absolute path —
 don't move it afterwards.
 
-Three scripts, in this order. First the host basics — it fixes the time-sync
-policy, and everything after it talks TLS:
+Three scripts, in this order. First the host basics — the time-sync policy and
+the QEMU guest agent, which is what puts the VM's IP on its Proxmox summary
+page and lets the hypervisor shut it down cleanly:
 
 ```bash
 cd ~/home-lab && scripts/init-host.sh
@@ -202,9 +194,10 @@ sudo unattended-upgrade --dry-run --debug
 ```
 
 The **apps VM** skips only `init-docker.sh` — Coolify installs its own Docker
-via its install script. The other two apply there just as much (it gets
-snapshotted too, and Coolify's installer sets up no automatic updates), so
-clone the repo there and run both:
+via its install script. The other two apply there just as much — it gets
+snapshotted too, it should report its IP to the hypervisor like the infra VM,
+and Coolify's installer sets up no automatic updates — so clone the repo there
+and run both:
 
 ```bash
 cd ~ && git clone <this-repo> home-lab && cd home-lab
@@ -215,8 +208,8 @@ scripts/init-host.sh && scripts/init-unattended-upgrades.sh
 ```
 
 Why the split: `init-docker.sh` installs Docker and nothing else, so it stays
-on the one VM that needs it, while the host-level pieces — the clock and the
-updates — are their own scripts and run on both guests.
+on the one VM that needs it, while the host-level pieces — the clock, the guest
+agent, the updates — are their own scripts and run on both guests.
 
 Two things about the updates are deliberate, on both VMs:
 

@@ -8,8 +8,8 @@
 #   3. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # There is NO .env and nothing to generate — Kuma has no database and creates
-# its admin account through its own first-run web form. That makes this the
-# shortest init script in the repo, and the only stack without a .env.example.
+# its admin account through its own first-run web form. It is the only stack
+# without a .env.example.
 #
 # No chown either: the default image runs as root (like Alloy, unlike the rest
 # of the monitoring tree, where each image drops to a different UID).
