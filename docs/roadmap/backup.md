@@ -1,0 +1,226 @@
+# Roadmap: Backup & restore (infra VM)
+
+Goal: make every piece of **irreplaceable state on the infra VM** survive a
+lost disk, a lost VM, and a bad `rm -rf` — with a restore procedure that has
+actually been run, not just written down.
+
+Half the problem is already solved and worth naming: **the configuration is
+not at risk.** Compose files, init scripts, provisioning, guides and the two
+registries ([dns-records.md](../dns-records.md),
+[sso-applications.md](../sso-applications.md)) live in git, on GitHub, mirrored
+into Forgejo. What is *not* in git is exactly what this roadmap is about: the
+bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
+
+## What needs a backup
+
+Every stack keeps its state in bind mounts under `/opt/<stack>` (the repo
+convention), so the inventory is a walk of that tree plus the `.env` files
+that make it openable.
+
+### Tier 1 — irreplaceable; this is the backup set
+
+| What | Path | Why it can't be rebuilt |
+|---|---|---|
+| Forgejo data | `/opt/forgejo/forgejo` | Git repos, LFS, attachments, **container-registry blobs**, `app.ini`, SSH host keys, the instance's internal/JWT secrets. The repos are pull-mirrors of GitHub, so those come back — the **registry does not**, and it is what the apps VM pulls from. |
+| Forgejo DB | `/opt/forgejo/postgres` | Users, the Authentik OIDC source, issues/PRs, Actions history, and **package metadata** — registry blobs without it are unaddressable garbage. |
+| Authentik DB | `/opt/authentik/postgres` | Every application, provider, flow, policy, group and user. This is the entire body of clickwork that `sso-applications.md` describes; the registry records the *values*, not the objects. |
+| Authentik media/templates/certs | `/opt/authentik/media`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
+| Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The guide's monitor inventory makes it *re-creatable*, by hand, one form at a time. |
+| Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
+| All `.env` files | `infra/{traefik,authentik,forgejo,monitoring}/.env`, `/opt/stacks/dockge/.env` | netcup API credentials, three Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
+
+Two couplings in that table decide the shape of the whole thing:
+
+- **`AUTHENTIK_SECRET_KEY` encrypts secrets stored in the Authentik DB.** A
+  restored `/opt/authentik/postgres` without the matching key is a database
+  full of undecryptable values. The DB and the `.env` must be captured
+  together, or the backup is decorative.
+- **Postgres keeps the password its data dir was first initialized with** —
+  the `.env.example` files already say so. Restore a `postgres` directory
+  next to a regenerated `.env` and the stack cannot log into its own database.
+
+### Tier 2 — cheap to include, mildly annoying to lose
+
+| What | Path | Note |
+|---|---|---|
+| Grafana DB | `/opt/monitoring/postgres` | Datasources, dashboards and alert rules are **provisioned from the repo**, so only hand-made UI objects, users and API keys are unique here. Include it — it's small — but it is not why this project exists. |
+| Forgejo runner registration | `/opt/forgejo/runner/.runner` | One small file. Re-registering needs a fresh token from the Forgejo UI; backing it up skips a manual step. |
+| Dockge data | `/opt/stacks/dockge/data` | Dockge's own accounts. Kilobytes. |
+
+### Tier 3 — deliberately **not** backed up
+
+Stating these is half the design; a backup that hauls the TSDB around nightly
+is a backup nobody keeps running.
+
+- **Prometheus (15 d), Loki (14 d), Tempo (7 d)** — `/opt/monitoring/{prometheus,loki,tempo}`.
+  Observability data with short retention *by design*
+  ([roadmap/monitoring.md](monitoring.md) already calls snapshots + short
+  retention the durability story). Restoring three-week-old metrics has no
+  value that justifies the bytes.
+- **Alloy** `/opt/monitoring/alloy` — WAL and log positions. Self-healing; a
+  restore would only replay stale offsets.
+- **Authentik redis** `/opt/authentik/redis` — cache and sessions. Losing it
+  logs everyone out. That is the whole consequence.
+- **Docker images and layers** — pullable, and CI rebuilds what it built.
+- **The repo checkout at `~/home-lab`** — it's a clone; `git clone` restores
+  it. Only its untracked `.env` files matter, and those are Tier 1 above.
+
+### Not on the infra VM, but part of the same story
+
+- **UDR DNS records** — router-side, no export worth automating.
+  [dns-records.md](../dns-records.md) *is* the backup.
+- **The netcup public zone + API credentials** — netcup's problem, plus the
+  `.env` above.
+- **The Proxmox host** — `/etc/pve`, and the `prometheus-node-exporter` unit
+  that `grafana-setup.md` installs by hand. Out of scope here; folded into
+  phase 1 because the host's backup job is where whole-VM backups live anyway.
+- **The apps VM (Coolify)** — its own state, its own story. Not this roadmap.
+
+## Decision: two layers, not one
+
+Neither available mechanism covers both failure modes, and they fail in
+opposite directions — so run both, at different frequencies.
+
+**Layer 1 — Proxmox `vzdump`, whole-VM, for disaster recovery.**
+Answers "the SSD died" / "I broke the VM beyond repair" with a single restore
+that brings back the OS, Docker, the checkout and every `/opt` tree at once.
+Requires no code in this repo. `proxmox-setup.md` Part 8 already points at
+*Datacenter → Backup*; what's missing is a **schedule**, the **qemu-guest-agent**
+(so snapshot mode can fs-freeze instead of taking a torn image), and a
+**target that is not the boot SSD**.
+
+**Layer 2 — `restic`, file-level, encrypted, offsite, for data recovery.**
+Answers "Authentik ate its database", "which version of that repo was it
+yesterday", and "the house burned down". Granular, deduplicated, and small
+enough to send off-premises daily.
+
+Why not just one:
+
+- vzdump alone is coarse (no "restore this one directory"), lives on the same
+  premises unless a second box exists, and every restore is an all-or-nothing
+  rollback of the entire VM — including the thing you *didn't* want to lose.
+- restic alone doesn't rebuild a VM. After a disk failure you'd be
+  re-running the whole build order from `proxmox-setup.md` before there was
+  anywhere to restore *into*.
+
+### Why restic for layer 2
+
+| Candidate | Verdict |
+|---|---|
+| **restic** ✅ | Single static binary, no daemon, nothing to install on the remote. **Client-side encryption**, so a cheap untrusted target (B2, netcup Storage Space, a NAS share) is fine for `acme.json` and `.env` files. Content-addressed dedup — nightly Forgejo registry blobs cost almost nothing after the first run. Backends: local, SFTP, S3/B2, rclone. `forget --prune` for retention, `check --read-data-subset` to prove the repo is readable. |
+| Borg | Better compression/dedup ratios, but wants `borg` installed on the remote for efficient SSH transport, which rules out plain object storage without an extra layer. |
+| duplicity | Full+incremental chains make a restore only as good as the whole chain. A corrupt increment poisons everything after it. |
+| rsnapshot / rsync+hardlinks | No encryption at all — disqualifying for `.env` and ACME private keys on an off-site target. |
+| `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a fifth root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
+| Proxmox Backup Server | The right answer *if a second machine exists* — dedup, incremental, verify jobs, and it makes layer 1 genuinely offsite. Running PBS as a VM on the host it protects is the classic anti-pattern. Revisit when there is a NAS or a mini-PC to put it on. |
+
+### Why dumps, not raw directory copies, for the databases
+
+Three Postgres instances (`authentik`, `forgejo`, `grafana` — all
+`postgres:16-alpine`) and one SQLite (Kuma). Copying a live `PGDATA` yields a
+torn snapshot; stopping three stacks nightly is downtime this lab has no
+reason to take. `pg_dump` runs against a **live** database — the same argument
+[monitoring's phase-1 spec](../superpowers/specs/2026-07-26-monitoring-phase1-design.md)
+used to pick Postgres over SQLite for Grafana in the first place. Running it as
+`docker compose exec -T db pg_dump` uses the container's own client, so the
+dump tool always matches the server version.
+
+Kuma is the exception and needs deciding at implementation time: its SQLite is
+open with WAL, so a live file copy is torn too. Preferred fix is
+`sqlite3 ... ".backup"` — pending a check that the binary exists in
+`louislam/uptime-kuma:2`; fallback is a tiny `alpine` sidecar holding the same
+bind mount. Stopping Kuma for the copy is the option to *avoid*: it is the
+watcher, and a blind spot in the watcher is exactly what its own compose file
+argues against.
+
+## Architecture
+
+```
+        ┌─ Layer 1: Proxmox vzdump (weekly, snapshot mode + guest agent)
+        │     infra VM ──► NAS / PBS datastore ──► "the VM is gone" restore
+Proxmox │
+ host   └─ (same job also covers the apps VM)
+
+infra VM
+  pg_dump ×3 ─┐
+  sqlite .backup ─┼─► /opt/backup/dumps ─┐
+  /opt/{forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ──► offsite repo
+  infra/*/.env ──────────────────────────┘                          │   (encrypted)
+                                                                    └─► Kuma push URL (deadman)
+```
+
+Layer 2 is a **systemd timer**, not a compose stack — deliberately. A backup
+that runs inside Docker is a backup that stops when Docker does, and the
+alternative (a container that can stop other containers) means a fifth socket
+mount. Precedent exists: the Proxmox node exporter is a systemd unit too. The
+repo still owns the files, same as every other stack:
+
+```
+infra/backup/
+  backup.sh          dump → restic backup → forget --prune → ping Kuma
+  restic-backup.service / .timer
+  .env.example       RESTIC_REPOSITORY, RESTIC_PASSWORD, target creds, KUMA_PUSH_URL
+scripts/init-backup.sh   installs the unit, creates /opt/backup, seeds .env, restic init
+docs/backup-setup.md     the guide, once phase 2 lands
+```
+
+**The one secret that cannot be in the backup: `RESTIC_PASSWORD`.** Lose it and
+the repository is cryptographically gone. It belongs in a password manager and
+on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
+
+## Phases
+
+1. **Layer 1 — whole-VM backups, no repo code.** Install `qemu-guest-agent`
+   in both VMs and enable the agent in each VM's Proxmox options (snapshot
+   mode fs-freezes instead of taking a torn image). Create a
+   *Datacenter → Backup* job on a target that is **not** the boot SSD, with a
+   retention policy. Extend `proxmox-setup.md` Part 8 from "for whole-VM
+   backups, use *Datacenter → Backup*" to an actual procedure. Biggest
+   coverage-per-effort in the whole roadmap; do it first.
+2. **Layer 2 — the dump + restic job, local target.** `infra/backup/` as
+   above, `scripts/init-backup.sh`, `docs/backup-setup.md`. Repository on a
+   NAS or second disk first, so the mechanism gets debugged without also
+   debugging cloud credentials. Retention `--keep-daily 7 --keep-weekly 4
+   --keep-monthly 6`; a weekly `restic check`.
+3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
+   Space / rclone. Client-side encryption means the target is untrusted by
+   construction — no additional design needed, only credentials and a
+   bandwidth check against the first full upload. This is what makes 3-2-1
+   true rather than aspirational.
+4. **Notice when it stops.** A silent backup failure is indistinguishable
+   from a backup. `backup.sh` curls an **Uptime Kuma push monitor** on
+   success; Kuma alerts through ntfy when the heartbeat doesn't arrive — a
+   deadman switch built from infrastructure that already exists, and it lands
+   on the side of the split ([Kuma notifies, Grafana
+   explains](../uptime-kuma-setup.md)) that this belongs on. Optionally also
+   write a `backup_last_success_timestamp` metric for Alloy's textfile
+   collector, for the "why" half.
+5. **Prove it.** Restore drill: roll the infra VM back to a snapshot, restore
+   from restic, verify each stack comes up — Authentik with its providers
+   intact, Forgejo serving a `docker pull`, Kuma with its monitors. Record it
+   in `docs/review/` as a dated finding, the same way the guide replay was.
+   **Until this phase runs, treat phases 1–4 as untested.** Re-run yearly.
+
+## Constraints & notes
+
+- **Order matters within a run.** Dump databases *first*, then let restic
+  walk `/opt` — so the dumps in `/opt/backup/dumps` belong to the same run as
+  the file trees around them.
+- **Sizing.** Forgejo's registry blobs dominate and grow monotonically; the
+  registry-hygiene item in [ci-supply-chain.md](ci-supply-chain.md) phase 3
+  (keep last N tags / max age) is also a backup-size lever. restic's dedup
+  handles repeated image layers well, but it cannot delete what the registry
+  never expires.
+- **Restore is a documented procedure or it doesn't exist.** `docs/backup-setup.md`
+  must carry the restore path — including the ordering trap that Traefik has
+  to be up before anything is reachable and Authentik before anything it
+  gates, exactly as in the build order.
+- **Clock skew after a rollback** is the one failure mode a restore drill will
+  hit first: a restored/rolled-back guest resumes with a stale clock and every
+  TLS client fails with "certificate has expired or is not yet valid".
+  `init-host.sh` already handles it on the infra VM
+  ([proxmox-setup.md Part 8](../proxmox-setup.md#part-8--snapshot-before-you-build));
+  expect to see it during the drill and don't misdiagnose it as a bad restore.
+- **Non-goals:** continuous replication, PITR/WAL archiving, HA. This is a
+  one-person lab — a daily RPO is the right answer, and anything tighter buys
+  complexity nobody is on call for.
