@@ -7,9 +7,10 @@
 # it on BOTH guests — the infra VM and the apps VM (Coolify's installer does
 # not set this up either).
 #
-# Nothing here touches Docker, so the order relative to init-docker.sh is free.
-# Prefer running it AFTER: init-docker.sh fixes the guest clock as its first
-# step, and apt does TLS like everything else.
+# Run scripts/init-host.sh first — apt does TLS like everything else, and that
+# script is what keeps a snapshot-rolled-back guest from sitting on a stale
+# clock. The order relative to init-docker.sh is free (nothing here touches
+# Docker), but after it is the documented sequence.
 #
 # What it deliberately does NOT upgrade:
 #   * Anything from Docker's apt repo (origin=Docker). That repo is outside the

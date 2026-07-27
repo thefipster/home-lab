@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 #
-# init-docker.sh — Docker (and the clock it needs) on a lab guest.
+# init-docker.sh — Docker Engine on the infra VM. Nothing else.
 #
 # Installs Docker Engine + the compose plugin from Docker's official apt repo
 # and adds the invoking user to the `docker` group so they can run docker
 # without sudo. Safe to re-run (idempotent-ish: apt install is a no-op when
 # already current, and usermod -aG is harmless if the user is already a member).
 #
-# Also lets the guest's time-sync daemon STEP a badly skewed clock: a Proxmox
-# snapshot rollback resumes the VM with the clock frozen at snapshot time, and
-# chrony's default policy would never correct the resulting offset — every TLS
-# handshake then fails with "certificate has expired or is not yet valid".
-# See docs/proxmox-setup.md, Part 8.
+# Run scripts/init-host.sh FIRST. It relaxes the time-sync daemon's step policy,
+# and this script needs a sane clock: apt and curl both do TLS, and a guest
+# resumed from a snapshot can be days behind. See docs/proxmox-setup.md, Part 8.
 #
-# Host hygiene that is NOT Docker's business lives next door: automatic
-# security updates are scripts/init-unattended-upgrades.sh, which runs on both
-# guests (this one only runs on the infra VM — the apps VM gets its Docker from
-# Coolify's installer).
+# The infra VM only — the apps VM gets its Docker from Coolify's installer. The
+# host setup both guests share is scripts/init-host.sh (clock) and
+# scripts/init-unattended-upgrades.sh (automatic security updates).
 #
 # Target platform: Ubuntu Server 26.04 LTS.
 # Usage:
@@ -46,30 +43,6 @@ run_root() {
     sudo "$@"
   fi
 }
-
-echo "==> Allowing the time-sync daemon to step a badly skewed clock"
-# A Proxmox snapshot rollback resumes the VM with the clock frozen at snapshot
-# time — potentially days behind. chrony's default step policy (makestep 1 3)
-# steps the clock only during its first three updates after service start; a
-# rollback happens long after those, so a large offset would only ever be
-# slewed — effectively never corrected. `makestep 1 -1` allows stepping at ANY
-# time; it still acts only on offsets over 1s, so normal operation is
-# unaffected. This runs FIRST because the rest of this script needs a sane
-# clock too: apt and curl both do TLS.
-if dpkg -s chrony >/dev/null 2>&1; then
-  run_root mkdir -p /etc/chrony/conf.d
-  printf 'makestep 1 -1\n' \
-    | run_root tee /etc/chrony/conf.d/90-step-any-offset.conf > /dev/null
-  run_root systemctl restart chrony
-else
-  # systemd-timesyncd steps at any offset, but only when its poll timer fires
-  # — by default up to ~34 min (PollIntervalMaxSec) after a rollback. Tighten
-  # the interval so the stale-clock window is minutes, not half an hour.
-  run_root mkdir -p /etc/systemd/timesyncd.conf.d
-  printf '[Time]\nPollIntervalMaxSec=512\n' \
-    | run_root tee /etc/systemd/timesyncd.conf.d/90-snapshot-rollback.conf > /dev/null
-  run_root systemctl restart systemd-timesyncd
-fi
 
 echo "==> Removing any distro-packaged Docker that would conflict with docker-ce"
 # These are the packages Docker's docs tell you to remove first. Ignore errors:

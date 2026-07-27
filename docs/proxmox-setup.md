@@ -158,28 +158,37 @@ Add the complete set now: later guides assume the records exist.
 
 ---
 
-## Part 7 — Repo, Docker and automatic updates on the infra VM
+## Part 7 — Repo and host setup in the VMs
 
-Everything the infra VM runs is driven from this repo, so get it and Docker
-onto that VM now:
+Everything the infra VM runs is driven from this repo, so get the checkout onto
+the VM first:
 
 ```bash
 cd ~ && git clone <this-repo> home-lab
 ```
 
+Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
+path, and Dockge later bind-mounts this checkout at the same absolute path —
+don't move it afterwards.
+
+Three scripts, in this order. First the host basics — it fixes the time-sync
+policy, and everything after it talks TLS:
+
 ```bash
-cd ~/home-lab && scripts/init-docker.sh
+cd ~/home-lab && scripts/init-host.sh
+```
+
+Then Docker Engine + the compose plugin:
+
+```bash
+scripts/init-docker.sh
 ```
 
 Then **log out and back in** (or run `newgrp docker`) so your user picks up
 the `docker` group — until you do, every `docker ...` command fails with
 "permission denied".
 
-Besides Docker, the script also reconfigures the VM's time-sync daemon so a
-snapshot rollback can't leave the clock permanently skewed — see the note in
-[Part 8](#part-8--snapshot-before-you-build) for why that matters.
-
-Then let the VM patch itself:
+Finally, let the VM patch itself:
 
 ```bash
 scripts/init-unattended-upgrades.sh
@@ -192,20 +201,24 @@ never anything from Docker's repo:
 sudo unattended-upgrade --dry-run --debug
 ```
 
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
-
-The **apps VM** does not need `init-docker.sh` — Coolify installs its own
-Docker via its install script. It *does* want the updates, and Coolify's
-installer doesn't set them up, so clone the repo there too and run the one
-script:
+The **apps VM** skips only `init-docker.sh` — Coolify installs its own Docker
+via its install script. The other two apply there just as much (it gets
+snapshotted too, and Coolify's installer sets up no automatic updates), so
+clone the repo there and run both:
 
 ```bash
-cd ~ && git clone <this-repo> home-lab && home-lab/scripts/init-unattended-upgrades.sh
+cd ~ && git clone <this-repo> home-lab && cd home-lab
 ```
 
-Two things about that script are deliberate, on both VMs:
+```bash
+scripts/init-host.sh && scripts/init-unattended-upgrades.sh
+```
+
+Why the split: `init-docker.sh` installs Docker and nothing else, so it stays
+on the one VM that needs it, while the host-level pieces — the clock and the
+updates — are their own scripts and run on both guests.
+
+Two things about the updates are deliberate, on both VMs:
 
 - **Security pocket only.** Regular `-updates` and every third-party repo stay
   manual. Docker's repo is one of those third parties: an unattended
@@ -240,9 +253,9 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > chrony's default policy (`makestep 1 3`) steps the clock only during its
 > first three updates after the service starts — a rollback happens long after
 > those, so a large offset would only ever be slewed, i.e. effectively never
-> corrected. On the **infra VM**, `scripts/init-docker.sh` (Part 7) fixes the
-> policy (`makestep 1 -1` — step at any time), so the clock corrects itself
-> within moments of the next sync. To force it right away:
+> corrected. `scripts/init-host.sh` (Part 7) fixes the policy
+> (`makestep 1 -1` — step at any time), so the clock corrects itself within
+> moments of the next sync. To force it right away:
 >
 > ```bash
 > sudo chronyc makestep
@@ -251,16 +264,10 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > (On a VM running systemd-timesyncd instead of chrony:
 > `sudo systemctl restart systemd-timesyncd`.)
 >
-> The **apps VM** never runs `init-docker.sh`, so if you snapshot it — you should
-> — apply the same drop-in there once:
->
-> ```bash
-> printf 'makestep 1 -1\n' | sudo tee /etc/chrony/conf.d/90-step-any-offset.conf
-> ```
->
-> ```bash
-> sudo systemctl restart chrony
-> ```
+> This is why `init-host.sh` is its own script rather than part of the Docker
+> setup: the **apps VM** snapshots too, and it never runs `init-docker.sh`. Run
+> `scripts/init-host.sh` on both guests (Part 7) and the rollback case is
+> covered on both.
 
 ---
 
