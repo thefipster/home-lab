@@ -84,13 +84,14 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
-│   ├── init-host.sh              Install Docker Engine + compose plugin
-│   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
-│   ├── init-authentik.sh         Authentik: data tree, generate secrets
-│   ├── init-dockge.sh            Bring up the Dockge management UI
-│   ├── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
-│   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
-│   └── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
+│   ├── init-docker.sh                Install Docker Engine + compose plugin
+│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
+│   ├── init-traefik.sh               Traefik prep: proxy network, ACME dir, .env
+│   ├── init-authentik.sh             Authentik: data tree, generate secrets
+│   ├── init-dockge.sh                Bring up the Dockge management UI
+│   ├── init-forgejo.sh               Forgejo Part 0: data tree, .env secrets
+│   ├── init-monitoring.sh            Monitoring: data tree, .env secrets
+│   └── init-uptime-kuma.sh           Uptime Kuma: data dir, stack symlink
 ├── infra/                       Stacks for the infra VM
 │   ├── traefik/
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
@@ -121,7 +122,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 ## Build order
 
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
-   the hypervisor, create the `infra` and `apps` VMs.
+   the hypervisor, create the `infra` and `apps` VMs, then give the guests
+   Docker (infra only) and automatic security updates (both).
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step

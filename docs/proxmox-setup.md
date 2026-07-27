@@ -158,7 +158,7 @@ Add the complete set now: later guides assume the records exist.
 
 ---
 
-## Part 7 — Repo and Docker on the infra VM
+## Part 7 — Repo, Docker and automatic updates on the infra VM
 
 Everything the infra VM runs is driven from this repo, so get it and Docker
 onto that VM now:
@@ -168,7 +168,7 @@ cd ~ && git clone <this-repo> home-lab
 ```
 
 ```bash
-cd ~/home-lab && scripts/init-host.sh
+cd ~/home-lab && scripts/init-docker.sh
 ```
 
 Then **log out and back in** (or run `newgrp docker`) so your user picks up
@@ -179,12 +179,50 @@ Besides Docker, the script also reconfigures the VM's time-sync daemon so a
 snapshot rollback can't leave the clock permanently skewed — see the note in
 [Part 8](#part-8--snapshot-before-you-build) for why that matters.
 
+Then let the VM patch itself:
+
+```bash
+scripts/init-unattended-upgrades.sh
+```
+
+Check what the next run would do — it should list security updates only, and
+never anything from Docker's repo:
+
+```bash
+sudo unattended-upgrade --dry-run --debug
+```
+
 Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
 path, and Dockge later bind-mounts this checkout at the same absolute path —
 don't move it afterwards.
 
-The **apps VM** needs none of this — Coolify installs its own Docker via its
-install script.
+The **apps VM** does not need `init-docker.sh` — Coolify installs its own
+Docker via its install script. It *does* want the updates, and Coolify's
+installer doesn't set them up, so clone the repo there too and run the one
+script:
+
+```bash
+cd ~ && git clone <this-repo> home-lab && home-lab/scripts/init-unattended-upgrades.sh
+```
+
+Two things about that script are deliberate, on both VMs:
+
+- **Security pocket only.** Regular `-updates` and every third-party repo stay
+  manual. Docker's repo is one of those third parties: an unattended
+  `docker-ce` upgrade restarts the daemon and bounces every container on the
+  box, so you bump Docker by hand, while you're watching.
+- **It reboots at 04:30** when an update needs it — even with an SSH session
+  open. That is the intended trade for a box nobody logs into: every stack in
+  this repo is `restart: unless-stopped`, so Docker brings the lab back without
+  you, and Uptime Kuma will tell you about the gap. To keep reboots manual
+  instead, run it as `AUTO_REBOOT=false scripts/init-unattended-upgrades.sh` —
+  then watch for `/var/run/reboot-required` yourself, because a kernel patch
+  that is installed but never booted into is not applied.
+
+The **Proxmox host** is out of scope here: it has no checkout of this repo (the
+same reason its node exporter is installed by hand in
+[grafana-setup.md](grafana-setup.md)), and its updates ride along with the
+`apt dist-upgrade` in [Part 3](#part-3--post-install-housekeeping).
 
 ## Part 8 — Snapshot before you build
 
@@ -202,7 +240,7 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > chrony's default policy (`makestep 1 3`) steps the clock only during its
 > first three updates after the service starts — a rollback happens long after
 > those, so a large offset would only ever be slewed, i.e. effectively never
-> corrected. On the **infra VM**, `scripts/init-host.sh` (Part 7) fixes the
+> corrected. On the **infra VM**, `scripts/init-docker.sh` (Part 7) fixes the
 > policy (`makestep 1 -1` — step at any time), so the clock corrects itself
 > within moments of the next sync. To force it right away:
 >
@@ -213,7 +251,7 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > (On a VM running systemd-timesyncd instead of chrony:
 > `sudo systemctl restart systemd-timesyncd`.)
 >
-> The **apps VM** never runs `init-host.sh`, so if you snapshot it — you should
+> The **apps VM** never runs `init-docker.sh`, so if you snapshot it — you should
 > — apply the same drop-in there once:
 >
 > ```bash

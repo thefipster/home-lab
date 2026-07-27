@@ -2,7 +2,7 @@
 #
 # init-uptime-kuma.sh — project-specific setup for the Uptime Kuma stack.
 #
-# Assumes Docker is installed (run scripts/init-host.sh first). Steps:
+# Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the persistent data dir at /opt/uptime-kuma.
 #   2. Ensure the shared `proxy` network exists.
 #   3. Symlink the stack into /opt/stacks so Dockge can manage it.
@@ -33,7 +33,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 

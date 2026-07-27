@@ -218,7 +218,7 @@ docker ps --format '{{.Names}}'
 
 **An HTTP monitor is red with a TLS error.** Almost always the guest clock after
 a snapshot rollback — the same failure mode as every other TLS client in the
-lab, which is why `scripts/init-host.sh` relaxes the time-sync step policy
+lab, which is why `scripts/init-docker.sh` relaxes the time-sync step policy
 before it installs anything:
 
 ```bash

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# init-host.sh — general host setup (machine-level, not Forgejo-specific).
+# init-docker.sh — Docker (and the clock it needs) on a lab guest.
 #
 # Installs Docker Engine + the compose plugin from Docker's official apt repo
 # and adds the invoking user to the `docker` group so they can run docker
@@ -13,10 +13,15 @@
 # handshake then fails with "certificate has expired or is not yet valid".
 # See docs/proxmox-setup.md, Part 8.
 #
+# Host hygiene that is NOT Docker's business lives next door: automatic
+# security updates are scripts/init-unattended-upgrades.sh, which runs on both
+# guests (this one only runs on the infra VM — the apps VM gets its Docker from
+# Coolify's installer).
+#
 # Target platform: Ubuntu Server 26.04 LTS.
 # Usage:
-#   ./init-host.sh          # run as your normal user; sudo is invoked as needed
-#   sudo ./init-host.sh     # also fine — the real user is read from $SUDO_USER
+#   ./init-docker.sh          # run as your normal user; sudo is invoked as needed
+#   sudo ./init-docker.sh     # also fine — the real user is read from $SUDO_USER
 #
 # After it finishes you must LOG OUT / BACK IN (or run `newgrp docker`) for the
 # new group membership to take effect in your shell.

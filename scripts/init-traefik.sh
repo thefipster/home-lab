@@ -2,7 +2,7 @@
 #
 # init-traefik.sh — set up the Traefik reverse-proxy stack on the infra VM.
 #
-# Assumes Docker is installed (run scripts/init-host.sh first). Steps:
+# Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the shared `proxy` Docker network (all proxied stacks join it).
 #   2. Create the persistent ACME dir under /opt/traefik.
 #   3. Seed infra/traefik/.env from .env.example if missing (you fill it in).
@@ -26,7 +26,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 

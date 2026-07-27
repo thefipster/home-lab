@@ -3,7 +3,7 @@
 # init-monitoring.sh — project-specific setup for the monitoring stack
 # (Grafana + Postgres + Prometheus + Loki + Tempo + Alloy).
 #
-# Assumes Docker is installed (run scripts/init-host.sh first). Steps:
+# Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the persistent data tree under /opt/monitoring and set the
 #      per-image ownership each container needs.
 #   2. Seed infra/monitoring/.env from .env.example; auto-generate
@@ -35,7 +35,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 
