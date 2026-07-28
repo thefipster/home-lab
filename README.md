@@ -82,7 +82,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
 │   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (CI hardening; monitoring is done)
+│   └── roadmap/                  What's next (backup, CI hardening; monitoring is done)
 ├── scripts/                     Setup automation (run on a VM, in this order)
 │   ├── init-host.sh              Install Docker Engine + compose plugin
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
@@ -162,6 +162,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
+| Backup & restore (infra VM) | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
