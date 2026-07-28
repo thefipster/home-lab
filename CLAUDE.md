@@ -222,27 +222,33 @@ Coolify's installer).
 That sequence is the **infra VM**. The other two machines follow it, and the
 build order in the README is grouped by machine for exactly this reason:
 
-8. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
-   Docker Engine ≥ 24, 30 GB free), a swapfile if none is active, then Coolify's
+10. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
+   30 GB free, and Docker Engine ≥ 24 **only if an Engine is already there**),
+   a swapfile if none is active, then Coolify's
    official installer **fetched to a temp file with its source URL and sha256
    printed** before running as root — deliberately not `curl | sudo bash`, which
    is the documented upstream method. Seeds `apps/.env`. The only init script that
    installs a whole platform instead of preparing a compose stack, and the only
-   one whose result this repo does not describe.
-9. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
+   one whose result this repo does not describe. Its Docker check is a
+   **soft** one on purpose, unlike every other script's hard `command -v docker`
+   gate: the apps VM skips `init-docker.sh`, so on a first run there is no
+   Engine yet and the installer is what provides it. Making that gate hard
+   deadlocks the only machine that needs the script.
+11. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
    only caller**. Explicitly **not** folded into `init-host.sh`: that runs on the
    infra VM too, where Alloy's embedded `prometheus.exporter.unix` already
    collects host metrics, so a second exporter there would be a duplicate target.
    The Proxmox host wants one as well but has no checkout, so it stays a
    documented `apt install`.
-10. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+12. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
     per `docs/home-assistant-setup.md`.
 
-`scripts/init-host.sh` now runs on **both** Ubuntu VMs, not just infra. That is
-what removed the manual chrony drop-in `proxmox-setup.md` used to hand you for
-the apps VM — Coolify accepts a pre-existing Docker Engine, so there is no reason
-to skip it there.
+`scripts/init-host.sh` and `scripts/init-unattended-upgrades.sh` run on **both**
+Ubuntu VMs, not just infra — neither one touches Docker, which is the whole
+point of the split. That is what removed the manual chrony drop-in
+`proxmox-setup.md` used to hand you for the apps VM. `init-docker.sh` is the
+only one of the three that stays infra-only.
 
 All init scripts are **idempotent-ish and re-runnable**, use `set -euo pipefail`,
 resolve paths from `$BASH_SOURCE` (run from anywhere), and share a `run_root()`

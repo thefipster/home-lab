@@ -2,9 +2,11 @@
 #
 # init-coolify.sh — install Coolify (self-hosted PaaS) on the APPS VM.
 #
-# Assumes Docker is installed (run scripts/init-host.sh first — see
-# docs/proxmox-setup.md Part 7). Steps:
-#   1. Preflight: OS family, Docker Engine version, free disk, RAM.
+# Assumes scripts/init-host.sh and scripts/init-unattended-upgrades.sh have run
+# on this machine (docs/proxmox-setup.md, Part 7). It does NOT assume Docker:
+# the apps VM skips init-docker.sh on purpose, because the Coolify installer
+# below brings its own Engine. Steps:
+#   1. Preflight: OS family, Docker Engine version IF one is present, disk, RAM.
 #   2. Create a swapfile if none is active.
 #   3. Fetch Coolify's official installer to a temp file, show where it came
 #      from and its sha256, then run it.
@@ -71,21 +73,25 @@ case "${VERSION_ID:-}" in
     echo "             Debian 11/12. Continuing anyway." ;;
 esac
 
+# Docker is OPTIONAL here — the one preflight in this repo that does not demand
+# it. The apps VM deliberately skips scripts/init-docker.sh (docs/proxmox-setup.md,
+# Part 7): Coolify's installer brings its own Engine, so a missing docker binary
+# is the NORMAL state on a first run and must not abort. When one IS already
+# present — a re-run, or an Engine that arrived some other way — Coolify needs
+# major version 24 or newer, so check that instead of assuming.
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
-  exit 1
-fi
-
-# Coolify requires Engine >= 24. init-host.sh installs current docker-ce, so
-# this only trips if Docker came from somewhere unexpected.
-DOCKER_MAJOR="$(docker version --format '{{.Server.Version}}' 2>/dev/null | cut -d. -f1 || true)"
-if [ -z "$DOCKER_MAJOR" ]; then
-  echo "    WARNING: could not read the Docker Engine version (daemon down?)."
-elif [ "$DOCKER_MAJOR" -lt 24 ]; then
-  echo "Docker Engine ${DOCKER_MAJOR} is too old — Coolify needs 24 or newer." >&2
-  exit 1
+  echo "    Docker: not installed — Coolify's installer will provide it"
 else
-  echo "    Docker Engine major: ${DOCKER_MAJOR}"
+  DOCKER_MAJOR="$(docker version --format '{{.Server.Version}}' 2>/dev/null | cut -d. -f1 || true)"
+  if [ -z "$DOCKER_MAJOR" ]; then
+    echo "    WARNING: Docker is installed but its version could not be read"
+    echo "             (daemon down, or this user is not in the docker group)."
+  elif [ "$DOCKER_MAJOR" -lt 24 ]; then
+    echo "Docker Engine ${DOCKER_MAJOR} is too old — Coolify needs 24 or newer." >&2
+    exit 1
+  else
+    echo "    Docker Engine major: ${DOCKER_MAJOR}"
+  fi
 fi
 
 # Coolify's own installer checks for 30 GB free and fails below it. Check here

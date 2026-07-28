@@ -18,13 +18,18 @@ is the opposite: the repo is the source of truth and Dockge only drives it.
 
 ## Steps
 
-### 1. Repo and Docker
+### 1. Repo and host setup
 
-Coolify's installer would install Docker itself, but run
-[`init-host.sh`](../scripts/init-host.sh) first anyway: Coolify accepts a
-pre-existing Engine, and the script also relaxes the time-sync step policy so a
-snapshot rollback cannot leave this VM's clock permanently skewed. Full reasoning
-in [proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-and-apps-vms).
+This machine runs the two **host** scripts the infra VM runs, and neither of
+them is about Docker. `init-host.sh` relaxes the time-sync step policy so a
+snapshot rollback cannot leave this VM's clock permanently skewed, and installs
+the guest agent; `init-unattended-upgrades.sh` gives it security patches, which
+Coolify's installer does not set up. Full reasoning in
+[proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-host-setup-in-the-vms).
+
+```bash
+sudo apt install -y git
+```
 
 ```bash
 cd ~ && git clone <this-repo> home-lab
@@ -34,8 +39,15 @@ cd ~ && git clone <this-repo> home-lab
 cd ~/home-lab && scripts/init-host.sh
 ```
 
-Then **log out and back in** (or run `newgrp docker`) so your user picks up the
-`docker` group.
+```bash
+scripts/init-unattended-upgrades.sh
+```
+
+> **`init-docker.sh` is deliberately not in that list.** It is the one script
+> the apps VM skips: Coolify's installer brings its own Docker Engine in step 2,
+> so this VM has no Docker — and no `docker` group to join — until then. The
+> preflight there treats a missing Engine as normal and only version-checks one
+> that already exists.
 
 ### 2. Run the init script
 

@@ -435,10 +435,12 @@ minute, then revert.
 **Metrics**
 
 - [ ] `up` returns one series per job — `alloy`, `prometheus`, `loki`,
-      `grafana`, `tempo`, `traefik`, `authentik`, `forgejo` — plus **two** for
-      `node` (`infra` and `pve`), none at 0
+      `grafana`, `tempo`, `traefik`, `authentik`, `forgejo` — plus **three** for
+      `node` (`infra`, `pve`, `apps`). All at 1 except `node{instance="apps"}`
+      and `homeassistant`, whose machines are built after this guide
 - [ ] `traefik_service_requests_total` non-zero after loading a lab URL
 - [ ] `node_uname_info{job="node"}` returns two series with distinct `nodename`
+      (`infra` and `pve`; `apps` joins them once its exporter is installed)
 - [ ] `node_filesystem_avail_bytes{instance="infra"}` matches `df -h` on the
       infra VM
 - [ ] `node_filesystem_avail_bytes{instance="pve"}` matches `df -h` on the

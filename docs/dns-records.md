@@ -51,6 +51,13 @@ An exact host record **beats the wildcard** — that is how the infra names
 escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
 `thefipster.de`; add an exact apex record only if you ever need one.
 
+**All of these go in at the DNS step except one.**
+`homeassistant.thefipster.de` is the only row whose target machine does not
+exist yet at that point — the HA VM is the last thing built — so it is added in
+[home-assistant-setup.md, step 5](home-assistant-setup.md#5-start-it-then-name-it)
+alongside that VM's reservation. `ha.thefipster.de` is not deferred with it:
+that name points at the **infra** VM, which exists from the start.
+
 ## Names the wildcard covers on purpose
 
 These resolve correctly with **no exact record**, because the wildcard's answer —
