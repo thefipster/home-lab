@@ -29,7 +29,7 @@ The pattern is `<Function> <Role>`, with a shared function prefix per stack:
 | **Database** / **Caching** | that stack's datastore |
 | **Worker** / **Runner** / **Collector** | background processing, no user-facing page |
 | **Storage** | a datastore that *is* the product (metrics, logs, traces) |
-| **Reachable** | ICMP to the machine, below any service on it |
+| **Host** | ICMP to the machine, below any service on it |
 
 The product name still appears — in the **Target** column, where it belongs, since
 that is what you paste into Kuma and what `docker ps` will show you.
@@ -155,9 +155,9 @@ No Docker monitors: Coolify runs on **another VM**, so there is no container her
 for a Docker check to read. Add a row per deployed app as you deploy them — each
 gets its own hostname under the wildcard, and none of them needs a DNS record.
 
-The ping monitor is what makes a red `App Platform` interpretable. On its own it
-could mean the app, Coolify's proxy, or the VM being off; with
-`Apps Host Reachable` beside it the answer is immediate.
+The ping monitor is what makes a red `Apps Platform` interpretable. On its own it
+could mean the app, Coolify's proxy, or the VM being off; with `Apps Host`
+beside it the answer is immediate.
 
 ## Home automation — home-assistant VM
 

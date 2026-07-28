@@ -3,7 +3,7 @@
 # init-forgejo.sh — project-specific setup for this compose stack.
 #
 # Assumes Docker is already installed (run scripts/init-docker.sh first). It
-# performs the remaining, Forgejo-specific Part 0 steps (see the setup guide):
+# performs the Forgejo-specific preparation, step 1 of the setup guide:
 #   1. Create the persistent data tree under /opt/forgejo and set ownership.
 #   2. Seed infra/forgejo/.env from .env.example; generate FORGEJO_DB_PASSWORD
 #      if still blank, and record the host docker group's numeric GID.
@@ -97,6 +97,6 @@ echo
 echo "Done. Next steps (see docs/forgejo-setup.md):"
 echo "  - Make sure the Traefik stack is up first (scripts/init-traefik.sh +"
 echo "    docs/traefik-setup.md) — Forgejo is served at https://git.thefipster.de"
-echo "  - Part A: start the stack — via Dockge (stack 'forgejo'), or from"
+echo "  - Step 2: start the stack — via Dockge (stack 'forgejo'), or from"
 echo "            ${REPO_ROOT}/infra/forgejo run: docker compose up -d db forgejo"
-echo "  - Part B: register the runner (one-time, needs a token from the UI)"
+echo "  - Step 4: register the runner (one-time, needs a token from the UI)"

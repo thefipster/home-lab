@@ -1,9 +1,10 @@
 # Traefik — reverse proxy + TLS termination for the INFRA VM.
 #
-# One wildcard certificate (thefipster.de + *.thefipster.de) from Let's
-# Encrypt via the DNS-01 challenge against the netcup DNS API. Nothing is
-# exposed to the internet: DNS-01 needs no inbound connectivity, and the
-# public zone never holds A records for the lab (see docs/traefik-setup.md).
+# One wildcard certificate (*.thefipster.de — no apex SAN, deliberately; see
+# the entrypoint block below) from Let's Encrypt via the DNS-01 challenge
+# against the netcup DNS API. Nothing is exposed to the internet: DNS-01 needs
+# no inbound connectivity, and the public zone never holds A records for the
+# lab (see docs/traefik-setup.md).
 #
 # Routing is label-based: stacks join the external `proxy` network and add
 # traefik.* labels (see infra/forgejo & infra/dockge). Port 80 only redirects
@@ -55,8 +56,8 @@ services:
       - --providers.docker.network=proxy
       # A second provider for services that are NOT containers on this VM and
       # therefore have no labels to read — currently just Home Assistant, on
-      # its own VM at .43. Watched, so editing a file in dynamic/ takes effect
-      # without restarting Traefik.
+      # its own VM (dialled by NAME, see dynamic/ha.yaml). Watched, so editing
+      # a file in dynamic/ takes effect without restarting Traefik.
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       # --- entrypoints -----------------------------------------------------

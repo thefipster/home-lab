@@ -12,7 +12,7 @@
 #   4. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # The two Authentik OIDC values stay BLANK on purpose — they are copied by hand
-# from Authentik (docs/grafana-setup.md Part 3), which is also when
+# from Authentik (docs/grafana-setup.md, step 5), which is also when
 # GRAFANA_OIDC_ENABLED flips to true. The stack comes up fine without them.
 #
 # Re-runnable: it never rotates a secret that is already set. Run from anywhere.
@@ -100,5 +100,5 @@ echo "     APPS VM, so without an exact record the name hits the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://grafana.thefipster.de as 'admin' using"
 echo "     GRAFANA_ADMIN_PASSWORD from ${ENV_FILE}; check all three datasources."
-echo "  4. Part 3: create the Authentik provider + application, put the client"
+echo "  4. Step 5: create the Authentik provider + application, put the client"
 echo "     id/secret in .env, set GRAFANA_OIDC_ENABLED=true, and restart."
