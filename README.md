@@ -95,7 +95,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (CI hardening; monitoring is done)
+│   └── roadmap/                  What's next (backup, CI hardening; monitoring is done)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
 │   ├── init-host.sh              Docker Engine + compose plugin (both Ubuntu VMs)
 │   ├── init-docker.sh                Install Docker Engine + compose plugin
@@ -225,6 +225,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
+| Backup & restore (infra VM) | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
