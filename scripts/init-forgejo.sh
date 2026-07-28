@@ -2,7 +2,7 @@
 #
 # init-forgejo.sh — project-specific setup for this compose stack.
 #
-# Assumes Docker is already installed (run scripts/init-host.sh first). It
+# Assumes Docker is already installed (run scripts/init-docker.sh first). It
 # performs the remaining, Forgejo-specific Part 0 steps (see the setup guide):
 #   1. Create the persistent data tree under /opt/forgejo and set ownership.
 #   2. Seed infra/forgejo/.env from .env.example; generate FORGEJO_DB_PASSWORD
@@ -36,7 +36,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run ./init-host.sh first." >&2
+  echo "docker not found — run ./init-docker.sh first." >&2
   exit 1
 fi
 
@@ -73,7 +73,7 @@ ensure_secret FORGEJO_DB_PASSWORD "$(openssl rand -base64 36 | tr -d '\n')"
 echo "==> Recording DOCKER_GID in ${ENV_FILE}"
 DOCKER_GID="$(getent group docker | cut -d: -f3)"
 if [ -z "$DOCKER_GID" ]; then
-  echo "Could not read the docker group GID. Is Docker installed (./init-host.sh)?" >&2
+  echo "Could not read the docker group GID. Is Docker installed (./init-docker.sh)?" >&2
   exit 1
 fi
 # Rewrite any existing DOCKER_GID line so re-runs don't accumulate duplicates.

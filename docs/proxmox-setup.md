@@ -148,7 +148,9 @@ host budget is visible in one place.
 Click **Create VM** (top right) for the infra and apps VMs. In the wizard:
 - **OS:** the uploaded Ubuntu ISO.
 - **System:** tick **Qemu Agent**; leave BIOS on SeaBIOS + machine `q35` (fine for
-  Linux). Graphic card: Default.
+  Linux). Graphic card: Default. The tick adds the virtual device — the daemon
+  that answers on it is installed inside the guest in
+  [Part 7](#part-7--repo-and-host-setup-in-the-vms).
 - **Disk:** bus **VirtIO SCSI single** (default), tick **Discard** if the host is
   on an SSD.
 - **CPU:** type **`host`** (best performance on a single-node lab), **1 socket**
@@ -164,21 +166,9 @@ prompted).
 
 ---
 
-## Part 6 — In-guest setup (both Ubuntu VMs)
+## Part 6 — Give the VMs their addresses (on the router)
 
-Install the guest agent so Proxmox can see the VM's IP and shut it down
-cleanly. HAOS ships the guest agent already, so this applies to the infra and
-apps VMs only:
-
-```bash
-sudo apt update && sudo apt -y install qemu-guest-agent
-```
-
-```bash
-sudo systemctl enable --now qemu-guest-agent
-```
-
-Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
+On the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
 are stable — the reservation targets are listed in
 [dns-records.md](dns-records.md) (see [wildcard-dns-udr.md](wildcard-dns-udr.md)
 for where reservations live).
@@ -190,39 +180,86 @@ Add the complete set now: later guides assume the records exist.
 
 ---
 
-## Part 7 — Repo and Docker on the infra and apps VMs
+## Part 7 — Repo and host setup in the VMs
 
-Everything the infra VM runs is driven from this repo, so get it and Docker
-onto that VM now:
+Everything the infra VM runs is driven from this repo, so get the checkout onto
+the VM first:
 
 ```bash
 cd ~ && git clone <this-repo> home-lab
 ```
 
+Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
+path, and Dockge later bind-mounts this checkout at the same absolute path —
+don't move it afterwards.
+
+Three scripts, in this order. First the host basics — the time-sync policy and
+the QEMU guest agent, which is what puts the VM's IP on its Proxmox summary
+page and lets the hypervisor shut it down cleanly:
+
 ```bash
 cd ~/home-lab && scripts/init-host.sh
+```
+
+Then Docker Engine + the compose plugin:
+
+```bash
+scripts/init-docker.sh
 ```
 
 Then **log out and back in** (or run `newgrp docker`) so your user picks up
 the `docker` group — until you do, every `docker ...` command fails with
 "permission denied".
 
-Besides Docker, the script also reconfigures the VM's time-sync daemon so a
-snapshot rollback can't leave the clock permanently skewed — see the note in
-[Part 8](#part-8--snapshot-before-you-build) for why that matters.
+Finally, let the VM patch itself:
 
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
+```bash
+scripts/init-unattended-upgrades.sh
+```
 
-Do the same on the **apps VM**. Coolify's installer would install Docker itself,
-but running `init-host.sh` there first is still the right move: Coolify accepts a
-pre-existing Docker Engine (it only installs one when absent), and the script
-carries the time-sync fix from [Part 8](#part-8--snapshot-before-you-build) that
-a snapshot rollback otherwise leaves you to apply by hand.
+Check what the next run would do — it should list security updates only, and
+never anything from Docker's repo:
 
-The **home-assistant VM** needs neither — HAOS is an appliance with no shell of
-ours in it. Its clock is managed by the OS image.
+```bash
+sudo unattended-upgrade --dry-run --debug
+```
+
+The **apps VM** skips only `init-docker.sh` — Coolify installs its own Docker
+via its install script. The other two apply there just as much — it gets
+snapshotted too, it should report its IP to the hypervisor like the infra VM,
+and Coolify's installer sets up no automatic updates — so clone the repo there
+and run both:
+
+```bash
+cd ~ && git clone <this-repo> home-lab && cd home-lab
+```
+
+```bash
+scripts/init-host.sh && scripts/init-unattended-upgrades.sh
+```
+
+Why the split: `init-docker.sh` installs Docker and nothing else, so it stays
+on the one VM that needs it, while the host-level pieces — the clock, the guest
+agent, the updates — are their own scripts and run on both guests.
+
+Two things about the updates are deliberate, on both VMs:
+
+- **Security pocket only.** Regular `-updates` and every third-party repo stay
+  manual. Docker's repo is one of those third parties: an unattended
+  `docker-ce` upgrade restarts the daemon and bounces every container on the
+  box, so you bump Docker by hand, while you're watching.
+- **It reboots at 04:30** when an update needs it — even with an SSH session
+  open. That is the intended trade for a box nobody logs into: every stack in
+  this repo is `restart: unless-stopped`, so Docker brings the lab back without
+  you, and Uptime Kuma will tell you about the gap. To keep reboots manual
+  instead, run it as `AUTO_REBOOT=false scripts/init-unattended-upgrades.sh` —
+  then watch for `/var/run/reboot-required` yourself, because a kernel patch
+  that is installed but never booted into is not applied.
+
+The **Proxmox host** is out of scope here: it has no checkout of this repo (the
+same reason its node exporter is installed by hand in
+[grafana-setup.md](grafana-setup.md)), and its updates ride along with the
+`apt dist-upgrade` in [Part 3](#part-3--post-install-housekeeping).
 
 ## Part 8 — Snapshot before you build
 

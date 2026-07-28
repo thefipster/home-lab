@@ -2,7 +2,7 @@
 #
 # init-authentik.sh — project-specific setup for the Authentik SSO stack.
 #
-# Assumes Docker is installed (run scripts/init-host.sh first). Steps:
+# Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the persistent data tree under /opt/authentik.
 #   2. Seed infra/authentik/.env from .env.example; auto-generate the two
 #      secrets (AUTHENTIK_SECRET_KEY, PG_PASS) if they are still blank.
@@ -29,7 +29,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 

@@ -1,37 +1,36 @@
 #!/usr/bin/env bash
 #
-# init-host.sh — general host setup (machine-level, not Forgejo-specific).
+# init-host.sh — machine-level basics for a lab guest, independent of Docker.
 #
-# Installs Docker Engine + the compose plugin from Docker's official apt repo
-# and adds the invoking user to the `docker` group so they can run docker
-# without sudo. Safe to re-run (idempotent-ish: apt install is a no-op when
-# already current, and usermod -aG is harmless if the user is already a member).
+# Run this FIRST on both VMs, before init-docker.sh and
+# init-unattended-upgrades.sh: everything after it talks TLS (apt, curl, the
+# ACME client), and TLS is exactly what a skewed clock breaks.
 #
-# Also lets the guest's time-sync daemon STEP a badly skewed clock: a Proxmox
-# snapshot rollback resumes the VM with the clock frozen at snapshot time, and
-# chrony's default policy would never correct the resulting offset — every TLS
-# handshake then fails with "certificate has expired or is not yet valid".
-# See docs/proxmox-setup.md, Part 8.
+# What it does today, in this order:
+#   1. Lets the guest's time-sync daemon STEP a badly skewed clock. A Proxmox
+#      snapshot rollback resumes the VM with the clock frozen at snapshot time,
+#      and chrony's default policy would never correct the resulting offset —
+#      every TLS handshake then fails with "certificate has expired or is not
+#      yet valid", which looks like a certificate problem and isn't.
+#      See docs/proxmox-setup.md, Part 8. First, because step 2 uses apt.
+#   2. Installs qemu-guest-agent, so the hypervisor can read the VM's IP and
+#      shut it down cleanly instead of pulling the virtual plug. Pairs with the
+#      "Qemu Agent" tick in the Create VM wizard — that adds the virtual device,
+#      this is the daemon inside the guest that answers on it.
+#
+# This is the home for host setup that is not tied to a stack or to Docker;
+# the two neighbours are scripts/init-docker.sh (Docker Engine + compose, infra
+# VM only — the apps VM gets its Docker from Coolify's installer) and
+# scripts/init-unattended-upgrades.sh (automatic security updates, both VMs).
 #
 # Target platform: Ubuntu Server 26.04 LTS.
-# Usage:
-#   ./init-host.sh          # run as your normal user; sudo is invoked as needed
-#   sudo ./init-host.sh     # also fine — the real user is read from $SUDO_USER
-#
-# After it finishes you must LOG OUT / BACK IN (or run `newgrp docker`) for the
-# new group membership to take effect in your shell.
+# Re-runnable: it rewrites its drop-in, restarts the time daemon, and apt
+# install is a no-op when the agent is already current.
+# Usage (from the repo root):
+#   scripts/init-host.sh
+#   sudo scripts/init-host.sh   # also fine
 
 set -euo pipefail
-
-# The user who should end up in the `docker` group. When the script is run via
-# sudo, $USER is "root", so prefer $SUDO_USER (the human who invoked sudo).
-TARGET_USER="${SUDO_USER:-$USER}"
-
-if [ "$TARGET_USER" = "root" ]; then
-  echo "Refusing to add 'root' to the docker group. Run this as a normal user" >&2
-  echo "(sudo will be invoked where needed), or set SUDO_USER appropriately." >&2
-  exit 1
-fi
 
 # Run a command as root. If we're already root, run it directly; otherwise sudo.
 run_root() {
@@ -49,8 +48,7 @@ echo "==> Allowing the time-sync daemon to step a badly skewed clock"
 # rollback happens long after those, so a large offset would only ever be
 # slewed — effectively never corrected. `makestep 1 -1` allows stepping at ANY
 # time; it still acts only on offsets over 1s, so normal operation is
-# unaffected. This runs FIRST because the rest of this script needs a sane
-# clock too: apt and curl both do TLS.
+# unaffected.
 if dpkg -s chrony >/dev/null 2>&1; then
   run_root mkdir -p /etc/chrony/conf.d
   printf 'makestep 1 -1\n' \
@@ -66,40 +64,20 @@ else
   run_root systemctl restart systemd-timesyncd
 fi
 
-echo "==> Removing any distro-packaged Docker that would conflict with docker-ce"
-# These are the packages Docker's docs tell you to remove first. Ignore errors:
-# most won't be installed on a fresh box.
-for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
-  run_root apt-get remove -y "$pkg" 2>/dev/null || true
-done
-
-echo "==> Installing prerequisites and Docker's apt signing key"
+echo "==> Installing the QEMU guest agent"
+# Runs AFTER the clock fix: apt does TLS, and a guest resumed from a snapshot
+# can be days behind. Proxmox shows the VM's IP and can request a clean
+# shutdown only once this daemon is answering on the virtio-serial device the
+# "Qemu Agent" tick in the Create VM wizard added.
 run_root apt-get update
-run_root apt-get install -y ca-certificates curl
-run_root install -m 0755 -d /etc/apt/keyrings
-run_root curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-run_root chmod a+r /etc/apt/keyrings/docker.asc
-
-echo "==> Adding Docker's apt repository"
-# Codename is detected from /etc/os-release so this tracks the host release
-# (noble, resolute, …) instead of being hard-coded.
-ARCH="$(dpkg --print-architecture)"
-CODENAME="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
-echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${CODENAME} stable" \
-  | run_root tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-echo "==> Installing Docker Engine, CLI, containerd, buildx and compose plugin"
-run_root apt-get update
-run_root apt-get install -y \
-  docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-echo "==> Adding user '${TARGET_USER}' to the docker group"
-run_root usermod -aG docker "$TARGET_USER"
+run_root apt-get install -y qemu-guest-agent
+run_root systemctl enable --now qemu-guest-agent
 
 echo
-echo "Done. Installed:"
-docker --version
-docker compose version
+echo "Done. Verify (see docs/proxmox-setup.md, Part 7):"
+echo "  timedatectl status                       — 'System clock synchronized: yes'"
+echo "  systemctl is-active qemu-guest-agent     — 'active'"
+echo "  (and the Proxmox VM summary now shows this VM's IP)"
 echo
-echo "NOTE: log out and back in (or run 'newgrp docker') so '${TARGET_USER}'"
-echo "      picks up the docker group and can run docker without sudo."
+echo "Next on the infra VM: scripts/init-docker.sh, then"
+echo "scripts/init-unattended-upgrades.sh. On the apps VM: only the latter."

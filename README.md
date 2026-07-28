@@ -98,8 +98,10 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   └── roadmap/                  What's next (CI hardening; monitoring is done)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
 │   ├── init-host.sh              Docker Engine + compose plugin (both Ubuntu VMs)
+│   ├── init-docker.sh                Install Docker Engine + compose plugin
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
 │   ├── init-authentik.sh         Authentik: data tree, generate secrets
+│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
 │   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
@@ -160,7 +162,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor, create the `infra` and `apps` VMs. The `home-assistant` VM's
    specs are in the same table but it is built in step 10, since it needs an
-   imported disk image rather than an ISO.
+   imported disk image rather than an ISO. Then run the host
+   scripts in each guest: clock + guest agent and automatic security updates on
+   both, Docker on the infra VM only.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
