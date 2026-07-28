@@ -1,5 +1,7 @@
 # SSO applications (registry)
 
+**Runs on:** Authentik on the infra VM — registry, not a build step
+
 Every service behind [Authentik](authentik-setup.md), with the exact values
 its provider and application are created with. All of this is **manual
 clickwork in the Authentik admin UI** — none of it lives in a compose file —
@@ -14,10 +16,13 @@ convention):
   non-browser traffic (git push, `docker login`/registry, CI).
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support.
 
-One service joins **neither**, deliberately — see
-[Uptime Kuma](#uptime-kuma-deliberately-not-joined). It is listed here so this
-registry stays an honest account of every service's relationship to Authentik,
-not only the ones that joined.
+**Two** services join **neither**, deliberately — see
+[Uptime Kuma](#uptime-kuma-deliberately-not-joined) and
+[Home Assistant](#home-assistant-deliberately-not-joined). They are listed here
+so this registry stays an honest account of every service's relationship to
+Authentik, not only the ones that joined. Both are decisions, not gaps: in each
+case the break-glass path for an Authentik outage would need `ssh` at precisely
+the moment you are least able to use it.
 
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
@@ -26,6 +31,7 @@ not only the ones that joined.
 | Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
+| Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik) |
 
 ## Forward-auth: Dockge & Traefik dashboard
 
@@ -126,11 +132,38 @@ Nothing to click in Authentik, and nothing to undo:
 `infra/uptime-kuma/compose.yaml` carries **no** `middlewares` label. Both
 absences are deliberate and commented in place.
 
+## Home Assistant (deliberately not joined)
+
+HA has no OIDC support either, so the convention again points at forward-auth,
+and again it is **not** applied — for a different reason than Kuma's.
+
+Forward-auth gates *everything* behind a browser login flow, and most traffic to
+Home Assistant is not a browser. The **companion mobile app**, webhooks, and
+every local API caller authenticate with long-lived tokens against the same
+endpoints the frontend uses; there is no clean path that admits them while
+challenging a browser. Gating HA would break notifications, presence detection
+and automations that call in from elsewhere on the LAN — the parts you notice
+least until they stop.
+
+And the failure mode is the household's, not just yours: the break-glass is
+editing `infra/traefik/dynamic/ha.yaml` over `ssh` while the lights do not
+respond.
+
+HA ships real local authentication (per-user accounts, optional MFA, trusted
+networks) and the lab is LAN-only, so the exposure is bounded. Same cost as
+Kuma, named the same way: anyone on the LAN reaches HA's login page, where
+another infra UI would have shown them Authentik first.
+
+Nothing to click in Authentik, and nothing to undo:
+`infra/authentik/compose.yaml` carries **no** outpost router for this host, and
+`infra/traefik/dynamic/ha.yaml` carries **no** `middlewares` key. Both absences
+are deliberate and commented in place.
+
 ## Access bindings
 
 An application with **no** bindings admits **any authenticated user**; the
 moment it has at least one, everyone not matched is denied. The lab binds
-each Authentik application above to the `lab-users` group (Uptime Kuma has no
-application, so it has no binding) —
+each Authentik application above to the `lab-users` group (Uptime Kuma and Home
+Assistant have no application, so they have no binding) —
 [authentik-setup.md, step 5](authentik-setup.md#5-control-who-reaches-what)
 covers creating the group and users, and what "denied" means per pattern.

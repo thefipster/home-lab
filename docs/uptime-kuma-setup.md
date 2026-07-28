@@ -1,5 +1,7 @@
 # Uptime Kuma — independent status monitoring (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [grafana-setup.md](grafana-setup.md) complete — Kuma watches
 that stack, so it is the last thing built.
 
@@ -88,54 +90,33 @@ connection type **Socket**, path `/var/run/docker.sock`, then **Test**.
 > whole verification. If it errors, the socket is not mounted — see
 > [Troubleshooting](#troubleshooting).
 
-No compose file in this repo sets `container_name`, so **every container is
-named `<project>-<service>-1`**. The Docker monitors below use those exact
-strings:
+Then create the monitors. **The full list is the registry:
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md)** — grouped by stack, with the
+monitor type for each and the reasoning behind every absence. It lives outside
+this guide because it grows with every service you add, most of which this guide
+will never mention.
 
-| Monitor | Type | Target |
-|---|---|---|
-| Grafana | HTTP(s) | `https://grafana.thefipster.de` |
-| Authentik | HTTP(s) | `https://auth.thefipster.de` |
-| Forgejo | HTTP(s) | `https://git.thefipster.de` |
-| Traefik | Docker | `traefik-traefik-1` |
-| Dockge | Docker | `dockge-dockge-1` |
-| Alloy | Docker | `monitoring-alloy-1` |
-| Prometheus | Docker | `monitoring-prometheus-1` |
-| Loki | Docker | `monitoring-loki-1` |
-| Tempo | Docker | `monitoring-tempo-1` |
-| Grafana DB | Docker | `monitoring-db-1` |
-| Authentik server | Docker | `authentik-server-1` |
-| Authentik worker | Docker | `authentik-worker-1` |
-| Authentik DB | Docker | `authentik-db-1` |
-| Authentik Redis | Docker | `authentik-redis-1` |
-| Forgejo | Docker | `forgejo-forgejo-1` |
-| Forgejo DB | Docker | `forgejo-db-1` |
-| Forgejo runner | Docker | `forgejo-runner-1` |
+For each row there: **Add New Monitor**, pick the type, paste the target, and use
+the registry's **Name** verbatim. The names are functional (`SSO Web`,
+`Logs Storage`) rather than product names, because the dashboard gets read at the
+worst possible moment and should not need a mental lookup table — the product name
+lives in the target, which is what `docker ps` shows you anyway.
 
-`dockge-dockge-1` is the one name you cannot derive from the repo:
-`infra/dockge/compose.yaml` is the only stack with no `name:` key, so its
-project name comes from the directory `init-dockge.sh` copies it into. When in
-doubt, ask the daemon:
+Two things to know before you start, both explained in the registry:
+
+- Docker monitors only see containers on **this** VM — that is the only socket
+  Kuma can read. Services on the apps and home-assistant VMs get an HTTP monitor
+  plus a **Ping** monitor, so a red service can be told apart from a dead machine.
+- Container names are **derived, not configured** (`<project>-<service>-1`), so
+  if a Docker monitor will not come up, check the real name:
 
 ```bash
 docker ps --format '{{.Names}}'
 ```
 
-**Three services are checked by Docker rather than HTTP, on purpose:**
-
-- `dockge.thefipster.de` and `traefik.thefipster.de` are forward-auth gated and
-  answer **302**, not 200. Kuma's accepted-status-codes field would take
-  `200-399`, but that reports "up" for an Authentik redirect page — the
-  container check is the more truthful signal.
-- `otlp.thefipster.de` has **no root route**: its routers match
-  `PathPrefix(/v1/)` and the gRPC proto prefix only, so a bare `GET /` returns a
-  Traefik 404. `monitoring-alloy-1` covers Alloy instead.
-
-The three HTTP monitors buy something the Docker ones cannot: they exercise
-DNS + Traefik + wildcard certificate + application in one shot, along the same
-path a browser takes. Kuma also tracks **certificate expiry per monitor** — a
-second, independent read on wildcard renewal that does not depend on Alloy
-being alive.
+The Coolify and Home Assistant monitors will be **red** until those machines are
+built — they are the last two steps of the
+[build order](../README.md#build-order).
 
 ### 6. Wire notifications (ntfy)
 
@@ -164,12 +145,14 @@ Subscribe on your phone with the ntfy app, or in a browser at
 
 ### Checklist
 
-The runtime proof, in order. `monitoring-loki-1` is the deliberate choice here:
-it sits on `monitoring-net` only, so Kuma can reach it by **no network path at
-all** — a working monitor proves the Docker socket is doing the work.
+The runtime proof, in order. **`Logs Storage`** (`monitoring-loki-1`) is the
+deliberate choice here: it sits on `monitoring-net` only, so Kuma can reach it by
+**no network path at all** — a working monitor proves the Docker socket is doing
+the work.
 
-- [ ] Every monitor added above is green
-- [ ] Stop Loki and watch its monitor go red, with an ntfy push arriving:
+- [ ] Every monitor in [uptime-kuma-monitors.md](uptime-kuma-monitors.md) exists
+      and is green (except Coolify and Home Assistant, if those VMs are not built yet)
+- [ ] Stop Loki and watch **`Logs Storage`** go red, with an ntfy push arriving:
 
 ```bash
 docker stop monitoring-loki-1
@@ -186,9 +169,9 @@ docker start monitoring-loki-1
 
 ## Next
 
-The infra VM is complete. **Coolify on the apps VM** is what remains — see
-[apps/README.md](../apps/README.md) and the
-[README build order](../README.md#build-order).
+The infra VM is complete. **[coolify-setup.md](coolify-setup.md)** is next — the
+apps VM — followed by [home-assistant-setup.md](home-assistant-setup.md). The full
+sequence is the [README build order](../README.md#build-order).
 
 ## Troubleshooting
 
@@ -219,7 +202,7 @@ docker ps --format '{{.Names}}'
 **An HTTP monitor is red with a TLS error.** Almost always the guest clock after
 a snapshot rollback — the same failure mode as every other TLS client in the
 lab, which is why `scripts/init-host.sh` relaxes the time-sync step policy
-before it installs anything:
+before anything else is installed:
 
 ```bash
 timedatectl status
@@ -293,6 +276,6 @@ would mean putting Kuma somewhere else entirely.
 
 ## Next
 
-The infra VM is complete. **Coolify on the apps VM** is what remains — see
-[apps/README.md](../apps/README.md) and the
-[README build order](../README.md#build-order).
+The infra VM is complete. **[coolify-setup.md](coolify-setup.md)** is next — the
+apps VM — followed by [home-assistant-setup.md](home-assistant-setup.md). The full
+sequence is the [README build order](../README.md#build-order).

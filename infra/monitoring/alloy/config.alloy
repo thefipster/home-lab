@@ -140,6 +140,64 @@ prometheus.scrape "proxmox_host" {
   forward_to      = [prometheus.remote_write.default.receiver]
 }
 
+// The APPS VM — same shape as the Proxmox host above and for the same reason:
+// not a container, reached outbound over the LAN, no mount and no published
+// port needed. Debian's prometheus-node-exporter as a systemd unit, installed
+// by scripts/init-node-exporter.sh.
+//
+// Addressed by NAME, like everything else, and this name needs NO DNS record of
+// its own: the *.thefipster.de wildcard already answers with the apps VM, which
+// is the box we want. Note the contrast with pve above — there the wildcard
+// answers with the WRONG machine, which is why that one needs an exact record.
+// Here the general rule gives the right answer, so there is nothing to add.
+// See docs/dns-records.md, which records this as a deliberate non-row.
+//
+// Same job="node" as infra and pve, distinct instance — that shared label plus
+// a distinct instance is the whole reason all three land on the vendored Node
+// Exporter Full dashboard with no edit to its JSON.
+prometheus.scrape "apps_host" {
+  targets = [
+    {"__address__" = "apps.thefipster.de:9100", "job" = "node", "instance" = "apps"},
+  ]
+
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
+// HOME ASSISTANT — the only target that needs a credential, and the only one
+// scraped over HTTPS through Traefik rather than reached directly.
+//
+// Going through ha.thefipster.de, rather than dialling the HA VM directly on
+// :8123, is deliberate: it is the same path a browser takes, so a broken route
+// shows up here too instead of being silently bypassed. The wildcard certificate
+// covers the name and the image trusts public CAs, so no tls_config is needed.
+//
+// /api/prometheus requires a long-lived access token, minted in HA's own UI —
+// which is why init-monitoring.sh does not generate this one. It arrives from
+// infra/monitoring/.env through the alloy service's environment (compose.yaml).
+// An empty value yields 401s on this target and changes nothing else.
+//
+// These are ENTITY metrics (sensor states), NOT machine counters: job is
+// "homeassistant", not "node", and Node Exporter Full will not show them. 60s
+// rather than 15s — entity states are not 15-second data and HA's API is
+// heavier than a node exporter.
+prometheus.scrape "home_assistant" {
+  targets = [
+    {"__address__" = "ha.thefipster.de:443", "job" = "homeassistant"},
+  ]
+
+  scheme       = "https"
+  metrics_path = "/api/prometheus"
+
+  authorization {
+    type        = "Bearer"
+    credentials = sys.env("HA_PROMETHEUS_TOKEN")
+  }
+
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.default.receiver]
+}
+
 // --- logs -------------------------------------------------------------------
 //
 // Phase 2: every container on this VM, discovered over the Docker API and

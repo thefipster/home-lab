@@ -3,7 +3,7 @@
 # init-monitoring.sh — project-specific setup for the monitoring stack
 # (Grafana + Postgres + Prometheus + Loki + Tempo + Alloy).
 #
-# Assumes Docker is installed (run scripts/init-host.sh first). Steps:
+# Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the persistent data tree under /opt/monitoring and set the
 #      per-image ownership each container needs.
 #   2. Seed infra/monitoring/.env from .env.example; auto-generate
@@ -35,7 +35,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 
@@ -94,7 +94,7 @@ run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/monitoring"
 echo
 echo "Done. Next (see docs/grafana-setup.md):"
 echo "  1. Verify the grafana.thefipster.de (and otlp.thefipster.de) host"
-echo "     records resolve to the infra VM (192.168.1.41) — the registry is"
+echo "     records resolve to the infra VM — the registry is"
 echo "     docs/dns-records.md. The *.thefipster.de wildcard points at the"
 echo "     APPS VM, so without an exact record the name hits the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"

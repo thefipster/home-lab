@@ -13,20 +13,65 @@ is verified by reading, not by executing locally.
 
 ## Topology (why things are split the way they are)
 
-Three tiers on one LAN (`192.168.1.0/24`) behind a UniFi Dream Router:
+One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
+Router. **The repo root is the machine map** — one directory per VM — while
+`docs/` and `scripts/` stay flat, because their filenames already carry the
+service name and nesting them would add a `../` to every cross-guide link:
 
-- **Proxmox host** (`.40`) — hypervisor only, no Docker. A bad container can't
+- **Proxmox host** — hypervisor only, no Docker. A bad container can't
   take the box down.
-- **infra VM** (`.41`) — Traefik + Authentik + Forgejo + Dockge + monitoring
-  (the stacks in `infra/`).
-- **apps VM** (`.42`) — Coolify (self-hosted PaaS). Coolify owns its own Docker
-  and manages apps through its UI, so `apps/` is intentionally near-empty — app
-  definitions live in Coolify, not this repo.
+- **infra VM** — Traefik + Authentik + Forgejo + Dockge + monitoring
+  (the stacks in `infra/`). The only machine whose services this repo declares.
+- **apps VM** — Coolify (self-hosted PaaS). Coolify owns its own Docker
+  and manages apps through its UI, so `apps/` holds **no compose file** — only a
+  README and a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
+  needs. App definitions live in Coolify's database, not this repo.
+- **home-assistant VM** — Home Assistant OS, Supervisor included, so
+  add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
+  no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
+  repo cannot be its source of truth, so `home-assistant/` holds a README and a
+  `configuration.yaml` **fragment you append by hand** (the
+  `infra/forgejo/build-and-push.yml` precedent — a real file that lives elsewhere).
+
+Only the infra VM is driven from this repo. For the other two the repo holds
+guides and one config fragment each; treat their machine state as authoritative
+over anything written here.
 
 DNS is split-horizon: real subdomains of `thefipster.de` resolved locally by the
 router; the public zone holds no A records. `git.` / `dockge.` → infra VM,
 `*.thefipster.de` → apps VM. TLS everywhere is a genuine Let's Encrypt **wildcard**
 issued via DNS-01 against the netcup API — nothing is exposed to the internet.
+
+**Never write a host IP address in this repo.** Addresses drift — they already
+have; the running lab does not match the addresses the build plan assumed — and a
+recorded address that has drifted reads as authoritative while being wrong.
+Machines are addressed by **name** everywhere: Traefik's backends, Alloy's scrape
+targets, every command in every guide. `dns-records.md` names hosts and refers to
+them as `infra ip` / `apps ip` / `ha ip` / `pve ip`; the router is the source of
+truth for addresses, that registry for names.
+
+A literal address is therefore a **flag** — something that could not be expressed
+as a name. There is one legitimate case: `trusted_proxies` in
+`home-assistant/configuration.yaml`, which HA validates as an address or CIDR and
+will not accept as a hostname. It ships as the placeholder `<infra-vm-ip>` and is
+filled in on the machine, derived from
+`getent hosts ha.thefipster.de` rather than read off the router. Install-time
+addresses in `proxmox-setup.md` (the Proxmox installer wants a static IP typed in)
+and HA's pre-DNS onboarding URL are the remaining irreducible ones. Anything else
+should be a name.
+
+Three DNS facts are counter-intuitive and all are deliberate:
+
+- **`ha.` points at the infra VM**, not the HA VM, because Traefik
+  terminates TLS there.
+- **Home Assistant therefore has a second name**,
+  `homeassistant.thefipster.de` → the HA VM, which is what Traefik dials. `ha.` is the
+  **service**, `homeassistant.` is the **machine**; they are not interchangeable,
+  and a backend of `http://ha.thefipster.de:8123` would have Traefik dialling its
+  own `:8123` and 502-ing every request. Same service/machine split as
+  `pve.` and `apps.`, which name boxes for internal access.
+- **`coolify.` and `apps.` have no exact record at all**, because the wildcard
+  already reaches the apps VM — the machine both names want.
 
 ## The routing convention (most important cross-file pattern)
 
@@ -42,6 +87,19 @@ There are **no per-router TLS labels** — every `websecure` router is covered b
 the single wildcard cert configured in `infra/traefik/compose.yaml`. When adding a
 new proxied service, copy the label block from `infra/forgejo` or `infra/dockge`
 and change the host + port. Do not add a TLS resolver or domain per router.
+
+**Traefik runs a second provider, and it has exactly one user.** Labels only
+exist where there is a container to put them on, and Home Assistant runs on
+another VM — so Traefik also watches a **file provider** over
+`infra/traefik/dynamic/` (`--providers.file.directory` +
+`--providers.file.watch`, bind-mounted read-only; the repo stays the source of
+truth, same arrangement as Forgejo's `config.yml`). `dynamic/ha.yaml` is its only
+file. Routers declared there are ordinary `websecure` routers, so the
+no-per-router-TLS rule applies to them identically — the entrypoint wildcard
+covers them too. **The label path remains the default:** reach for a file only
+when the backend is not a container on the infra VM. Nothing in
+`scripts/init-traefik.sh` changes for this — the directory lives inside the
+checkout and is mounted, not copied.
 
 ## The SSO convention (Authentik)
 
@@ -60,14 +118,25 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
-**One service joins neither, deliberately: Uptime Kuma.** It has no OIDC, so
-the convention would point at forward-auth — but gating the outage dashboard
-behind the identity provider makes an Authentik outage the one failure you
-cannot see, and break-glass would need SSH mid-incident. It keeps its own local
-login instead. Treat this as a stated exception, not a gap to close:
-`infra/uptime-kuma/compose.yaml` carries no `middlewares` label and
-`infra/authentik/compose.yaml` no outpost router for it, both commented in
-place, with the reasoning in `sso-applications.md`.
+**Two services join neither, deliberately.** Both have no OIDC, so the
+convention would point at forward-auth for each; treat both as stated exceptions,
+not gaps to close. The reasoning lives in `sso-applications.md`, and each absence
+is commented in place so someone about to "fix" it reads why first.
+
+- **Uptime Kuma.** Gating the outage dashboard behind the identity provider makes
+  an Authentik outage the one failure you cannot see, and break-glass would need
+  SSH mid-incident. `infra/uptime-kuma/compose.yaml` carries no `middlewares`
+  label.
+- **Home Assistant.** Forward-auth gates a browser login flow, but most traffic
+  to HA is not a browser: the companion mobile app, webhooks and every local API
+  caller authenticate with long-lived tokens against the same endpoints the
+  frontend uses, and there is no clean split that admits them. Gating it breaks
+  notifications, presence and inbound automations. Break-glass would mean editing
+  Traefik config over SSH while the lights do not respond.
+  `infra/traefik/dynamic/ha.yaml` carries no `middlewares` key.
+
+`infra/authentik/compose.yaml` carries **no** `/outpost.goauthentik.io/` router
+for either host, with a comment naming both and why.
 
 Not every SSO knob is clickwork: Forgejo's auto-registration and account
 linking are **instance settings** in the compose
@@ -83,20 +152,48 @@ Bring-up order matters and is enforced by the guides — Traefik must exist
 before anything is reachable, and Authentik before anything it gates. On a VM,
 the sequence is:
 
-1. `scripts/init-host.sh` — installs Docker Engine + compose plugin (Ubuntu),
-   and **first** relaxes the time-sync daemon's step policy (chrony
-   `makestep 1 -1`, or a tighter `PollIntervalMaxSec` for systemd-timesyncd).
-   A Proxmox snapshot rollback resumes the guest with a stale clock, and
-   chrony's default `makestep 1 3` would only ever slew it back — every TLS
-   client then fails with "certificate has expired or is not yet valid". It
-   runs before the Docker install because apt and curl need a sane clock too.
-2. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
+The first three are **host** scripts, not stack scripts, and the split between
+them is deliberate: only the middle one is about Docker, so only it is
+infra-VM-only. The apps VM runs the other two (it gets its Docker from
+Coolify's installer).
+
+1. `scripts/init-host.sh` — machine-level basics with no Docker in them: the
+   time-sync daemon's step policy (chrony `makestep 1 -1`, or a tighter
+   `PollIntervalMaxSec` for systemd-timesyncd), then `qemu-guest-agent`. A
+   Proxmox snapshot rollback resumes the guest with a stale clock, and chrony's
+   default `makestep 1 3` would only ever slew it back — every TLS client then
+   fails with "certificate has expired or is not yet valid"; the clock comes
+   first inside the script too, because installing the agent already means apt.
+   The guest agent is the guest half of the wizard's "Qemu Agent" tick (IP on
+   the summary page, clean shutdown) and lives here rather than as a manual
+   step in the guide, which is where it used to be. **First on both VMs**,
+   because everything after it (apt, curl, ACME) does TLS. New host setup that
+   isn't tied to a stack or to Docker belongs here.
+2. `scripts/init-docker.sh` — installs Docker Engine + compose plugin from
+   Docker's apt repo (Ubuntu) and adds the invoking user to the `docker` group.
+   Docker and nothing else — the clock fix that used to live at the top of it
+   is step 1, which is what lets that fix reach the apps VM too. Infra VM only.
+3. `scripts/init-unattended-upgrades.sh` — the second script meant for **both**
+   VMs. Writes `/etc/apt/apt.conf.d/20auto-upgrades` plus a `52homelab-…`
+   drop-in numbered above the distro's `50unattended-upgrades` so it wins, and
+   enables `apt-daily{,-upgrade}.timer`. Two deliberate choices: the origins are
+   **security-only** — the `#clear` directives in the drop-in are apt-config
+   syntax, not comments, and without them a second `Origins-Pattern` block
+   would *append* to the distro default instead of replacing it, silently
+   voiding that promise — and Docker's repo (`origin=Docker`) is excluded, so
+   no unattended `docker-ce` upgrade ever restarts the daemon under the lab.
+   Reboots at 04:30 when needed, `WithUsers` included (a forgotten SSH session
+   must not defer kernel patches); `AUTO_REBOOT=false` / `AUTO_REBOOT_TIME=`
+   override per run. Order relative to `init-docker.sh` is free (it touches
+   nothing Docker owns); order relative to `init-host.sh` is not — apt does
+   TLS, so it wants the clock fix first.
+4. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
    `.env` from `.env.example`. The entrypoint-level `tls.domains` makes
    Traefik request the wildcard cert at startup — no router needed.
-3. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
+5. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
    into `.env`. Authentik is the first *routed* stack and must run before the
    forward-auth-gated routers (Dockge, Traefik dashboard) can load.
-4. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
+6. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at
    an identical path so stack symlinks resolve inside the container), and — the
    **only** init script that does — **starts the stack itself**, so its guide
@@ -105,26 +202,53 @@ the sequence is:
    (it would leave an un-gated LAN path), so Dockge is unreachable until both
    Traefik and Authentik run. From here on the remaining stacks can be driven
    from the web UI.
-5. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
+7. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
-6. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
+8. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
    dir to the UID its image runs as (grafana 472, prometheus 65534, loki and
    tempo 10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
    `GRAFANA_ADMIN_PASSWORD`, symlinks the stack. Comes after Authentik because
    Grafana's OIDC needs a provider — but the stack starts fine before SSO is
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
    verified first.
-7. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
-   stack. The **shortest** init script in the repo and the only stack with **no
-   `.env` and no `.env.example`**: Kuma has no database and creates its admin
-   through its own first-run web form, so there is nothing to seed. No `chown`
+9. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
+   stack. The only stack with **no `.env` and no `.env.example`**: Kuma has no
+   database and creates its admin through its own first-run web form, so there
+   is nothing to seed. No `chown`
    either — the default image runs as root, like Alloy. Last on purpose; it
    watches everything above it.
 
+That sequence is the **infra VM**. The other two machines follow it, and the
+build order in the README is grouped by machine for exactly this reason:
+
+8. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
+   Docker Engine ≥ 24, 30 GB free), a swapfile if none is active, then Coolify's
+   official installer **fetched to a temp file with its source URL and sha256
+   printed** before running as root — deliberately not `curl | sudo bash`, which
+   is the documented upstream method. Seeds `apps/.env`. The only init script that
+   installs a whole platform instead of preparing a compose stack, and the only
+   one whose result this repo does not describe.
+9. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
+   only caller**. Explicitly **not** folded into `init-host.sh`: that runs on the
+   infra VM too, where Alloy's embedded `prometheus.exporter.unix` already
+   collects host metrics, so a second exporter there would be a duplicate target.
+   The Proxmox host wants one as well but has no checkout, so it stays a
+   documented `apt install`.
+10. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+    Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
+    per `docs/home-assistant-setup.md`.
+
+`scripts/init-host.sh` now runs on **both** Ubuntu VMs, not just infra. That is
+what removed the manual chrony drop-in `proxmox-setup.md` used to hand you for
+the apps VM — Coolify accepts a pre-existing Docker Engine, so there is no reason
+to skip it there.
+
 All init scripts are **idempotent-ish and re-runnable**, use `set -euo pipefail`,
 resolve paths from `$BASH_SOURCE` (run from anywhere), and share a `run_root()`
-helper (direct if already root, else `sudo`). Match that style in new scripts.
+helper (direct if already root, else `sudo`). Match that style in new scripts, and
+**commit them mode `100755`** — a file created on Windows defaults to `100644` and
+lands non-executable on the VM (`git update-index --chmod=+x`).
 
 Persistent state convention: each stack bind-mounts its data under `/opt/<stack>`
 (e.g. `/opt/forgejo`, `/opt/traefik/letsencrypt`), and stacks are exposed to
@@ -144,6 +268,12 @@ the single source of truth; Dockge only drives start/stop/logs.
 - **`.env` is gitignored**; every stack ships a `.env.example`. Secrets
   (netcup creds, `DOCKER_GID`) live only in the VM's `.env`. Compose uses
   `${VAR:?message}` to fail fast when one is missing — preserve those guards.
+  **One deliberate exception:** `HA_PROMETHEUS_TOKEN` in
+  `infra/monitoring/compose.yaml` uses `${VAR:-}`. It cannot be generated locally
+  (it is minted in Home Assistant's UI) and is legitimately empty until the HA VM
+  exists, so a fail-fast guard would stop the entire monitoring stack from
+  starting during bring-up. Empty means that one scrape target 401s; nothing else
+  changes.
 - **netcup DNS-01 is finicky.** Propagation is slow (~10 min), so
   `NETCUP_PROPAGATION_TIMEOUT` is 900s and propagation is checked against
   netcup's **authoritative** nameservers (not 1.1.1.1/8.8.8.8, which
@@ -166,17 +296,39 @@ the single source of truth; Dockge only drives start/stop/logs.
   it can *see* but does not move the trust boundary the socket already crossed.
   Acceptable only because this is a single-tenant box building the owner's own
   code — never extend this to untrusted/fork code.
-- **The Proxmox host is a scrape target — the only one that isn't a
-  container.** It runs Debian's `prometheus-node-exporter` as a systemd unit
-  (`apt install`, documented in `grafana-setup.md` step 6; **no init script**,
-  because the hypervisor has no checkout of this repo), and Alloy scrapes it at
-  `pve.thefipster.de:9100`. Both hosts carry `job="node"` and are told apart by
-  `instance` (`infra`, `pve`) — that shared job label is what puts them both on
-  the vendored Node Exporter Full dashboard with no edit to its JSON. It is
-  also why `dns-records.md` no longer marks that record optional: without the
-  exact record the `*.thefipster.de` wildcard answers with the apps VM and
-  Alloy silently scrapes the wrong box, which looks exactly like a dead
+- **Three scrape targets aren't containers.** The infra VM is covered by Alloy's
+  embedded `prometheus.exporter.unix`; the **Proxmox host** and the **apps VM**
+  each run Debian's `prometheus-node-exporter` as a systemd unit — the hypervisor
+  by hand (`apt install`, `grafana-setup.md` step 6, **no init script** because it
+  has no checkout of this repo), the apps VM via
+  `scripts/init-node-exporter.sh`. All three carry `job="node"` and are told apart
+  by `instance` (`infra`, `pve`, `apps`); that shared job label is what puts all
+  of them on the vendored Node Exporter Full dashboard with no edit to its JSON.
+  It is also why `dns-records.md` no longer marks the `pve` record optional:
+  without the exact record the `*.thefipster.de` wildcard answers with the apps VM
+  and Alloy silently scrapes the wrong box, which looks exactly like a dead
   exporter.
+- **Whether the wildcard is a safety net or a trap depends only on which machine
+  the name wants.** `pve.thefipster.de` needs an exact record because the wildcard
+  would answer with the apps VM — the wrong box, presenting as a dead exporter.
+  `apps.thefipster.de` needs **no record at all**, because the wildcard's answer
+  *is* the apps VM; Alloy scrapes it at `:9100` by name and the registry lists it
+  as a deliberate non-row. Same for `coolify.thefipster.de`. Don't "fix" either by
+  adding an exact record: letting them follow the wildcard is what makes an
+  apps-VM IP change correct itself everywhere at once.
+- **Home Assistant is scraped differently from everything else** — over HTTPS
+  through Traefik (`ha.thefipster.de:443`, `metrics_path = /api/prometheus`)
+  rather than reached directly, so a broken route surfaces in monitoring instead
+  of being bypassed; and with a credential, via an `authorization` block reading
+  `sys.env("HA_PROMETHEUS_TOKEN")`. Its `job="homeassistant"` carries **entity**
+  metrics (sensor states), *not* machine counters, so it does not and cannot
+  appear on Node Exporter Full. HAOS can't run a node exporter as a systemd unit;
+  HA's **System Monitor** integration is the closest equivalent and feeds the same
+  endpoint.
+- **`ServiceDown` is expected red for `apps` and `homeassistant`** on a fresh
+  build: monitoring comes up on the infra VM before either machine exists. Left
+  live rather than commented out, because `rules.yaml` provisions no contact point
+  or notification policy — alerts are UI-only and send nothing outward.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
   `workflow_dispatch`, and every manual run builds and pushes (see
@@ -191,20 +343,33 @@ the single source of truth; Dockge only drives start/stop/logs.
 `docs/` holds the reproduction guides, one per build-order step:
 `proxmox-setup.md` → `wildcard-dns-udr.md` → `traefik-setup.md` →
 `authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
-`grafana-setup.md` → `uptime-kuma-setup.md`. The README's "Build order" links
-them in sequence and each
-guide ends by linking the next. `grafana-setup.md` owns **all** of monitoring —
+`grafana-setup.md` → `uptime-kuma-setup.md` → `coolify-setup.md` →
+`home-assistant-setup.md`. The README's "Build order" links them in sequence,
+**grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
+and each guide ends by linking the next. The last two guides leave the infra VM:
+their `**Runs on:**` line is the quickest way to tell. `grafana-setup.md` owns **all** of monitoring —
 the platform *and* what it observes; an earlier split into a second
 `monitoring-setup.md` was merged away because, on a fresh checkout, the second
 guide was pure verification.
 
-Two **registries** centralize the manual operations that live outside the repo:
-`dns-records.md` (every UDR DNS record) and `sso-applications.md` (every
-Authentik application and its exact config values). Guides link the registries
-instead of duplicating the lists — a new hostname or SSO app gets its registry
-row first, and per-service values should never be repeated inline in a guide.
+Three **registries** centralize the manual operations that live outside the repo:
+`dns-records.md` (every UDR DNS record), `sso-applications.md` (every Authentik
+application and its exact config values) and `uptime-kuma-monitors.md` (every
+Kuma monitor, grouped by stack). Guides link the registries instead of duplicating
+the lists — a new hostname, SSO app or monitor gets its registry row first, and
+per-service values should never be repeated inline in a guide.
 
-**Every guide follows the same structure**, in this order: headline;
+All three carry `**Runs on:** … — registry, not a build step`, and all three list
+their **deliberate absences** alongside their entries, because a registry that
+only records what exists cannot tell you whether a gap was a decision. The
+absences are load-bearing: `coolify.`/`apps.` have no DNS row, Kuma and Home
+Assistant have no SSO entry, and Kuma does not monitor itself or the hypervisor.
+When adding a service, decide about all three and say so in each.
+
+**Every guide follows the same structure**, in this order: headline; a
+`**Runs on:** <machine>` line naming the machine whose shell you are in (the two
+registries say `— registry, not a build step` instead, because they describe
+manual operations that span machines);
 one-line prerequisite linking the previous guide (never a restatement of it);
 short explanation of the stack; numbered steps with verification, **each
 command in its own fenced block**; jump-off to the next guide;

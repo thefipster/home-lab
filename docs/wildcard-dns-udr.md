@@ -1,5 +1,7 @@
 # Lab DNS on a UniFi Dream Router
 
+**Runs on:** the UniFi Dream Router
+
 **Prerequisite:** [proxmox-setup.md](proxmox-setup.md) complete — both VMs
 exist and have DHCP reservations, so the records below have something stable to
 point at.
@@ -11,14 +13,14 @@ records carve out the infra services.
 
 ```
 foo.thefipster.de ─┐
-bar.thefipster.de ─┼─►  192.168.1.42  ─►  Coolify / Traefik  ─►  right container
-baz.thefipster.de ─┘        (one wildcard A record does this)
+bar.thefipster.de ─┼─►  apps ip   ─►  Coolify / Traefik  ─►  right container
+baz.thefipster.de ─┘         (one wildcard A record does this)
 
-git.thefipster.de ────►  192.168.1.41  ─►  Traefik  ─►  Forgejo
-dockge.thefipster.de ─►  192.168.1.41  ─►  Traefik  ─►  Dockge
+git.thefipster.de ────►  infra ip  ─►  Traefik  ─►  Forgejo
+dockge.thefipster.de ─►  infra ip  ─►  Traefik  ─►  Dockge
 ```
 
-DNS answers "which IP"; the proxy answers "which container". This guide only
+DNS answers "which host"; the proxy answers "which container". This guide only
 covers the DNS half — TLS is handled by [traefik-setup.md](traefik-setup.md).
 
 **This is split-horizon DNS.** These records exist only on the LAN, answered by
@@ -46,7 +48,7 @@ Current UniFi Network path (v9.x / 2026):
 2. Click **Create Entry**.
 3. **Type:** leave on **Host (A)**.
 4. **Domain Name:** `*.thefipster.de`
-5. **IP Address:** the apps VM (`192.168.1.42`).
+5. **IP Address:** the `apps ip` — see [dns-records.md](dns-records.md).
 6. **TTL:** leave on **Auto**.
 7. Click **Add**.
 
@@ -98,8 +100,9 @@ From **inside a container** (Docker's embedded DNS forwards to the host resolver
 docker run --rm alpine getent hosts foo.thefipster.de
 ```
 
-`foo` is arbitrary — the wildcard answers for any label, so it should return
-`.42`, while `git.thefipster.de` must return `.41` (the specific record wins).
+`foo` is arbitrary — the wildcard answers for any label, so it should return the
+`apps ip`, while `git.thefipster.de` must return the `infra ip` (the specific
+record wins).
 
 ## Fallbacks
 

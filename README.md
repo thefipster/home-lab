@@ -2,8 +2,9 @@
 
 Infrastructure-as-notes for a personal homelab built on **Proxmox VE**. The
 physical server is a hypervisor; everything real runs in VMs, split by purpose:
-**infrastructure** services on one, **your own apps** on another. This repo holds
-the compose stacks, setup scripts, and step-by-step guides to reproduce it.
+**infrastructure** services on one, **your own apps** on another, **home
+automation** on a third. This repo holds the compose stacks, setup scripts, and
+step-by-step guides to reproduce it.
 
 ## Start here
 
@@ -19,36 +20,45 @@ are no migration paths and no upgrade branches — if a guide tells you to
 ## Architecture
 
 ```
-UniFi Dream Router  —  DHCP + DNS  (infra host records → infra VM, *.thefipster.de → apps VM)
-        │  LAN 192.168.1.0/24
-        │
-  Proxmox VE  ·  pve.thefipster.de  ·  .40   (hypervisor only)
-        │
-        ├───────────────────────┐
-        │                       │
-  ┌─ infra VM (.41) ─┐   ┌─ apps VM (.42) ─┐
-  │ Traefik: TLS +   │   │ Coolify: PaaS   │
-  │   routing        │   │                 │
-  │ Authentik: SSO   │   │ your apps       │
-  │ Forgejo: CI +    │   │                 │
-  │   registry       │   │                 │
-  │ Dockge: compose  │   │                 │
-  │   management UI  │   │                 │
-  │ Grafana: metrics │   │                 │
-  │   + logs         │   │                 │
-  │ Uptime Kuma:     │   │                 │
-  │   status + alerts│   │                 │
-  └──────────────────┘   └─────────────────┘
+UniFi Dream Router · DHCP + split-horizon DNS
+    exact infra records → infra VM      ha. → infra VM      *.thefipster.de → apps VM
+                                    │
+                            LAN · one flat /24
+                                    │
+Proxmox VE · pve.thefipster.de · 32 threads · 64 GB · 2 TB · hypervisor only, no Docker
+    │
+    ├─ infra VM · 32 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
+    │    Traefik       TLS termination + routing — the lab's only certificate
+    │    Authentik     SSO / identity provider (OIDC + forward-auth)
+    │    Forgejo       git · CI · container registry
+    │    Dockge        compose management UI
+    │    Grafana       metrics · logs · traces (Prometheus · Loki · Tempo · Alloy)
+    │    Uptime Kuma   black-box status + every notification the lab sends
+    │
+    ├─ apps VM · 32 vCPU · 24 GB · 500 GB · Ubuntu Server 26.04
+    │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
+    │    your apps     *.thefipster.de, routed by Host header — no new DNS record
+    │    node_exporter scraped by Alloy over the LAN
+    │
+    └─ home-assistant VM · 32 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
+         Supervisor     full HAOS — add-on store, ESPHome firmware builds
+         ha. → Traefik  proxied from the infra VM via its file provider
+         Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
 ```
 
 | Layer | Runs | Purpose |
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
 | **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Kuma, deliberately, so an Authentik outage stays visible. |
-| **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker. |
+| **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. |
+| **home-assistant VM** | Home Assistant OS | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
-Why two VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Coolify
-wants to own a host outright; keeping it off the infra box avoids that conflict.
+Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
+of the three also refuses to share for its own reason — Coolify expects to own a
+host's Docker outright, HAOS *is* an OS image and cannot be a container beside
+others, and the infra VM is the one machine that must survive an experiment on
+either of them. Rolling back a bad Coolify upgrade should not take TLS, SSO and
+monitoring with it.
 
 ## Networking & DNS
 
@@ -70,8 +80,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 
 ```
 .
-├── docs/                        Guides
-│   ├── proxmox-setup.md          Proxmox host + the two VMs (start here)
+├── docs/                        Guides — flat; each names its machine up top
+│   ├── proxmox-setup.md          Proxmox host + the three VMs (start here)
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
 │   ├── dns-records.md            Registry: every DNS record the lab needs
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
@@ -81,20 +91,28 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
+│   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
+│   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
+│   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (backup, CI hardening; monitoring is done)
-├── scripts/                     Setup automation (run on a VM, in this order)
-│   ├── init-host.sh              Install Docker Engine + compose plugin
+├── scripts/                     Setup automation — flat; run on a VM, in this order
+│   ├── init-host.sh              Docker Engine + compose plugin (both Ubuntu VMs)
+│   ├── init-docker.sh                Install Docker Engine + compose plugin
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
 │   ├── init-authentik.sh         Authentik: data tree, generate secrets
+│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
 │   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
-│   └── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
+│   ├── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
+│   ├── init-coolify.sh           Coolify on the apps VM: preflight, swap, install
+│   └── init-node-exporter.sh     Host metrics unit — apps VM only (see its header)
 ├── infra/                       Stacks for the infra VM
 │   ├── traefik/
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
-│   │   └── .env.example          netcup API credentials template
+│   │   ├── .env.example          netcup API credentials template
+│   │   └── dynamic/ha.yaml       File-provider router for the HA VM (off-box)
 │   ├── authentik/
 │   │   ├── compose.yaml          Authentik SSO (server, worker, postgres, redis)
 │   │   └── .env.example          secret-key / DB / bootstrap template
@@ -107,7 +125,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── compose.yaml          Dockge (compose management UI)
 │   ├── monitoring/
 │   │   ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Tempo + Alloy
-│   │   ├── .env.example          Grafana DB / admin / OIDC template
+│   │   ├── .env.example          Grafana DB / admin / OIDC / HA token template
 │   │   ├── alloy/config.alloy    The collector: metrics, logs, OTLP intake
 │   │   ├── loki/loki.yaml        Log storage, 14d retention
 │   │   ├── tempo/tempo.yaml      Trace storage, 7d retention
@@ -115,18 +133,45 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── grafana/provisioning/ Datasources, dashboards + alerts as code
 │   └── uptime-kuma/
 │       └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
-└── apps/                        Apps VM (Coolify) — see apps/README.md
+├── apps/                        Apps VM (Coolify) — no compose, by design
+│   ├── README.md                 What lives here and what deliberately doesn't
+│   └── .env.example              netcup names Coolify's own proxy needs
+└── home-assistant/              HA VM (Home Assistant OS) — no compose, no script
+    ├── README.md                 Why an appliance has neither
+    └── configuration.yaml        Fragment to APPEND inside the VM
 ```
+
+**The root directories are the machine map** — `infra/`, `apps/` and
+`home-assistant/` are one per VM. `docs/` and `scripts/` stay deliberately flat:
+their filenames already say which service they belong to, and nesting them would
+add a `../` to every cross-guide link without making anything easier to find. Each
+guide instead names its machine in a `**Runs on:**` line under the headline.
+
+Note how little the two new machines contain. Only the infra VM's services are
+declared in this repo; Coolify keeps app definitions in its own database and HAOS
+manages itself through the Supervisor. For those two, the repo holds guides and
+one config fragment each — not a source of truth.
 
 ## Build order
 
+Grouped by machine. Finish the infra VM before starting either of the others —
+they both lean on its TLS, and the HA VM is reachable only through its Traefik.
+
+### Lab foundation — the hypervisor and the network
+
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
-   the hypervisor, create the `infra` and `apps` VMs.
+   the hypervisor, create the `infra` and `apps` VMs. The `home-assistant` VM's
+   specs are in the same table but it is built in step 10, since it needs an
+   imported disk image rather than an ISO. Then run the host
+   scripts in each guest: clock + guest agent and automatic security updates on
+   both, Docker on the infra VM only.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate.
+### infra VM — everything the other two lean on
+
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The certificate is requested at startup; expect
    the ~10–15 min netcup propagation wait on first issuance.
@@ -147,14 +192,32 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 8. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
    monitoring and the lab's notification layer. Last on purpose: it watches
    everything above it, and it is a separate stack precisely so it does not
-   share a lifecycle with the monitoring pipeline it also checks.
-9. **Coolify** on the apps VM — *guide TBD* (see [apps/README.md](apps/README.md)).
+   share a lifecycle with the monitoring pipeline it also checks. The monitors
+   themselves are the registry,
+   **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
+   service gets its rows there.
+
+### apps VM — your own applications
+
+9. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Runs
+   `init-host.sh` like the infra VM (Docker plus the clock fix), then
+   `init-coolify.sh`. Create its admin account *immediately*: a fresh instance is
+   unauthenticated on a LAN port with nothing in front of it. Ends by installing
+   the node exporter that Alloy on the infra VM already expects.
+
+### home-assistant VM — home automation
+
+10. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+    from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
+    it is created empty and its disk imported. Last because it depends on the most:
+    Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
+    pattern, deliberately.
 
 ## Status
 
 | Piece | State |
 |-------|-------|
-| Proxmox host + the two VMs | ✅ deployed |
+| Proxmox host + the infra and apps VMs | ✅ deployed |
 | DNS (UDR split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed |
@@ -167,4 +230,12 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
 | CI: container scanning + SBOM | ⬜ planned — [roadmap](docs/roadmap/ci-supply-chain.md) |
-| Coolify install (apps VM) | ⬜ after the infra VM is finished |
+| Coolify install (apps VM) | 📄 guide ready, not yet built — [guide](docs/coolify-setup.md) |
+| home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](docs/home-assistant-setup.md) |
+| Monitoring the apps + HA VMs | 📄 config shipped; targets red until those VMs exist |
+| VM sizing for 32 threads / 64 GB / 2 TB | 📄 documented — awaiting the target hardware |
+
+`✅` runs today · `📄` written and reviewed, waiting on hardware or a build step ·
+`⬜` not started. The three `📄` rows above are why the guides can describe
+machines you cannot yet log into: the repo documents the lab it is being built
+into, and each guide is verified by reading until the box exists to run it on.

@@ -1,11 +1,14 @@
 # Proxmox VE setup (greenfield homelab foundation)
 
-Turns the bare server into a hypervisor running two VMs:
+**Runs on:** the bare server, then the Proxmox host shell
+
+Turns the bare server into a hypervisor running three VMs:
 
 ```
-Proxmox VE  (pve.thefipster.de · .40)   ← this guide
- ├─ VM: infra  (.41)  → Traefik + Authentik + Forgejo + Dockge + monitoring
- └─ VM: apps   (.42)  → Coolify + your apps
+Proxmox VE  ·  pve.thefipster.de          ← this guide
+ ├─ VM: infra            → Traefik + Authentik + Forgejo + Dockge + monitoring
+ ├─ VM: apps             → Coolify + your apps
+ └─ VM: home-assistant   → Home Assistant OS (Supervisor + add-ons)
 ```
 
 Proxmox VE is a Debian-based type-1 hypervisor. Its native workloads are **KVM
@@ -40,11 +43,14 @@ Boot the server from the USB stick and pick **Install Proxmox VE (graphical)**.
    RAM for it (ZFS likes RAM). `Options` lets you cap the root filesystem size.
 3. Country / timezone / keyboard.
 4. **root password** + an admin **email**.
-5. **Management network**:
+5. **Management network** — the one place in the whole lab where you type
+   addresses in by hand, because no DNS exists yet:
    - **Hostname (FQDN):** `pve.thefipster.de`
-   - **IP (CIDR):** `192.168.1.40/24`  ← static, this is the host's own address
-   - **Gateway:** your router, e.g. `192.168.1.1`
-   - **DNS:** your router (`192.168.1.1`) so `*.thefipster.de` resolves
+   - **IP (CIDR):** the `pve ip` from [dns-records.md](dns-records.md), with your
+     LAN's prefix length — **static**, and the host's own address. Pick it outside
+     the router's DHCP pool.
+   - **Gateway:** your router's address
+   - **DNS:** your router, so `*.thefipster.de` resolves
 6. Install, then **reboot and remove the USB**.
 
 The installer auto-creates a Linux bridge **`vmbr0`** on the physical NIC. VMs
@@ -55,8 +61,16 @@ UDR — exactly what we want. No extra network config needed.
 
 ## Part 3 — Post-install housekeeping
 
-Open the web UI at **`https://192.168.1.40:8006`** (self-signed cert → accept the
-warning). Log in as `root`.
+**First, put the host's name on the router.** You chose a static address in
+Part 2, so you already know it — add the single record
+`pve.thefipster.de` → `pve ip` on the UDR now
+([dns-records.md](dns-records.md) is the registry,
+[wildcard-dns-udr.md](wildcard-dns-udr.md) the how-to). It takes a minute and
+every step from here on can use the name instead of an address. The *rest* of the
+record set waits for Part 6, when the VMs exist to point at.
+
+Then open the web UI at **`https://pve.thefipster.de:8006`** (self-signed cert →
+accept the warning). Log in as `root`.
 
 **Switch off the enterprise repo** (it 401s without a subscription) and enable the
 free **no-subscription** repo. UI path: *Datacenter → pve → Updates →
@@ -94,38 +108,57 @@ community for the nag-removal one-liner if it bugs you.)
 
 ---
 
-## Part 4 — Upload an OS image for the VMs
+## Part 4 — Upload an OS image for the Ubuntu VMs
 
 Grab an **Ubuntu Server 26.04** ISO and upload it: *Datacenter → pve → local →
 ISO Images → Upload* (or `Download from URL`).
 
+The home-assistant VM does not use an ISO at all — HAOS ships a disk image that
+gets imported instead, covered in
+[home-assistant-setup.md](home-assistant-setup.md).
+
 ---
 
-## Part 5 — Create the two VMs
+## Part 5 — Create the VMs
 
-Click **Create VM** (top right) for each. Suggested specs:
+Suggested specs for all three — the reasoning is in
+[Why these sizes](#why-these-sizes), below the fold:
 
-| Setting | infra VM | apps VM (Coolify) |
-|---|---|---|
-| Name | `infra` | `apps` |
-| Cores | 2 | 4 |
-| Memory | 10240 MB | 8192 MB |
-| Disk | 40 GB | 80 GB |
-| Network | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO |
+| Setting | infra VM | apps VM (Coolify) | home-assistant VM |
+|---|---|---|---|
+| Name | `infra` | `apps` | `homeassistant` |
+| VMID | 101 | 102 | 103 |
+| IP | `infra ip` | `apps ip` | `ha ip` |
+| Cores | 32 | 32 | 32 |
+| CPU type | `host` | `host` | `host` |
+| `cpuunits` | 100 (default) | 50 | 200 |
+| Memory | 16384 MB | 24576 MB | 8192 MB |
+| Ballooning | off | off | off |
+| Disk | 150 GB | 500 GB | 64 GB |
+| BIOS / machine | SeaBIOS / `q35` | SeaBIOS / `q35` | **OVMF** / `q35` |
+| Network | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO |
+| OS | Ubuntu Server 26.04 ISO | Ubuntu Server 26.04 ISO | Home Assistant OS image |
 
-The infra VM's 10 GB is not padding: the six monitoring containers run beside
-Authentik, Forgejo, Traefik and Dockge, and at 4 GB an OOM kill would most
-likely take Authentik down with it (see the prerequisites in
-[grafana-setup.md](grafana-setup.md)).
+**Only the first two are built with the Create VM wizard below.** The
+home-assistant VM needs a UEFI firmware and an imported disk image rather than
+an ISO installer, so its creation lives in its own guide —
+[home-assistant-setup.md](home-assistant-setup.md). Its row is here so the whole
+host budget is visible in one place.
 
-In the Create VM wizard:
+Click **Create VM** (top right) for the infra and apps VMs. In the wizard:
 - **OS:** the uploaded Ubuntu ISO.
 - **System:** tick **Qemu Agent**; leave BIOS on SeaBIOS + machine `q35` (fine for
-  Linux). Graphic card: Default.
+  Linux). Graphic card: Default. The tick adds the virtual device — the daemon
+  that answers on it is installed inside the guest in
+  [Part 7](#part-7--repo-and-host-setup-in-the-vms).
 - **Disk:** bus **VirtIO SCSI single** (default), tick **Discard** if the host is
   on an SSD.
-- **CPU:** type **`host`** (best performance on a single-node lab).
-- **Memory:** as above; you can leave ballooning on.
+- **CPU:** type **`host`** (best performance on a single-node lab), **1 socket**
+  with all 32 cores on it. `cpuunits` is not in the wizard — set it afterwards
+  under *VM → Options → CPU units*, or with
+  `qm set 102 --cpuunits 50`.
+- **Memory:** as above, and **untick Ballooning Device**. Fixed allocations here,
+  deliberately — see [Why these sizes](#why-these-sizes).
 - **Network:** model **VirtIO (paravirtualized)**, bridge **`vmbr0`**.
 
 Start each VM, open **Console**, and run the Ubuntu installer (enable OpenSSH when
@@ -133,20 +166,9 @@ prompted).
 
 ---
 
-## Part 6 — In-guest setup (run in each VM)
+## Part 6 — Give the VMs their addresses (on the router)
 
-Install the guest agent so Proxmox can see the VM's IP and shut it down
-cleanly:
-
-```bash
-sudo apt update && sudo apt -y install qemu-guest-agent
-```
-
-```bash
-sudo systemctl enable --now qemu-guest-agent
-```
-
-Then, on the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
+On the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
 are stable — the reservation targets are listed in
 [dns-records.md](dns-records.md) (see [wildcard-dns-udr.md](wildcard-dns-udr.md)
 for where reservations live).
@@ -158,33 +180,86 @@ Add the complete set now: later guides assume the records exist.
 
 ---
 
-## Part 7 — Repo and Docker on the infra VM
+## Part 7 — Repo and host setup in the VMs
 
-Everything the infra VM runs is driven from this repo, so get it and Docker
-onto that VM now:
+Everything the infra VM runs is driven from this repo, so get the checkout onto
+the VM first:
 
 ```bash
 cd ~ && git clone <this-repo> home-lab
 ```
 
+Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
+path, and Dockge later bind-mounts this checkout at the same absolute path —
+don't move it afterwards.
+
+Three scripts, in this order. First the host basics — the time-sync policy and
+the QEMU guest agent, which is what puts the VM's IP on its Proxmox summary
+page and lets the hypervisor shut it down cleanly:
+
 ```bash
 cd ~/home-lab && scripts/init-host.sh
+```
+
+Then Docker Engine + the compose plugin:
+
+```bash
+scripts/init-docker.sh
 ```
 
 Then **log out and back in** (or run `newgrp docker`) so your user picks up
 the `docker` group — until you do, every `docker ...` command fails with
 "permission denied".
 
-Besides Docker, the script also reconfigures the VM's time-sync daemon so a
-snapshot rollback can't leave the clock permanently skewed — see the note in
-[Part 8](#part-8--snapshot-before-you-build) for why that matters.
+Finally, let the VM patch itself:
 
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
+```bash
+scripts/init-unattended-upgrades.sh
+```
 
-The **apps VM** needs none of this — Coolify installs its own Docker via its
-install script.
+Check what the next run would do — it should list security updates only, and
+never anything from Docker's repo:
+
+```bash
+sudo unattended-upgrade --dry-run --debug
+```
+
+The **apps VM** skips only `init-docker.sh` — Coolify installs its own Docker
+via its install script. The other two apply there just as much — it gets
+snapshotted too, it should report its IP to the hypervisor like the infra VM,
+and Coolify's installer sets up no automatic updates — so clone the repo there
+and run both:
+
+```bash
+cd ~ && git clone <this-repo> home-lab && cd home-lab
+```
+
+```bash
+scripts/init-host.sh && scripts/init-unattended-upgrades.sh
+```
+
+Why the split: `init-docker.sh` installs Docker and nothing else, so it stays
+on the one VM that needs it, while the host-level pieces — the clock, the guest
+agent, the updates — are their own scripts and run on both guests.
+
+Two things about the updates are deliberate, on both VMs:
+
+- **Security pocket only.** Regular `-updates` and every third-party repo stay
+  manual. Docker's repo is one of those third parties: an unattended
+  `docker-ce` upgrade restarts the daemon and bounces every container on the
+  box, so you bump Docker by hand, while you're watching.
+- **It reboots at 04:30** when an update needs it — even with an SSH session
+  open. That is the intended trade for a box nobody logs into: every stack in
+  this repo is `restart: unless-stopped`, so Docker brings the lab back without
+  you, and Uptime Kuma will tell you about the gap. To keep reboots manual
+  instead, run it as `AUTO_REBOOT=false scripts/init-unattended-upgrades.sh` —
+  then watch for `/var/run/reboot-required` yourself, because a kernel patch
+  that is installed but never booted into is not applied.
+
+The **Proxmox host** is out of scope here: it has no checkout of this repo (the
+same reason its node exporter is installed by hand in
+[grafana-setup.md](grafana-setup.md)), and its updates ride along with the
+`apt dist-upgrade` in [Part 3](#part-3--post-install-housekeeping).
 
 ## Part 8 — Snapshot before you build
 
@@ -202,9 +277,9 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > chrony's default policy (`makestep 1 3`) steps the clock only during its
 > first three updates after the service starts — a rollback happens long after
 > those, so a large offset would only ever be slewed, i.e. effectively never
-> corrected. On the **infra VM**, `scripts/init-host.sh` (Part 7) fixes the
-> policy (`makestep 1 -1` — step at any time), so the clock corrects itself
-> within moments of the next sync. To force it right away:
+> corrected. `scripts/init-host.sh` (Part 7) fixes the policy
+> (`makestep 1 -1` — step at any time), so the clock corrects itself within
+> moments of the next sync. To force it right away:
 >
 > ```bash
 > sudo chronyc makestep
@@ -213,16 +288,66 @@ For whole-VM backups, use *Datacenter → Backup* (to `local` or an NFS/PBS targ
 > (On a VM running systemd-timesyncd instead of chrony:
 > `sudo systemctl restart systemd-timesyncd`.)
 >
-> The **apps VM** never runs `init-host.sh`, so if you snapshot it — you should
-> — apply the same drop-in there once:
->
-> ```bash
-> printf 'makestep 1 -1\n' | sudo tee /etc/chrony/conf.d/90-step-any-offset.conf
-> ```
->
-> ```bash
-> sudo systemctl restart chrony
-> ```
+> Both Ubuntu VMs run `init-host.sh` (Part 7), so both are already fixed. The
+> home-assistant VM is not: if you snapshot it — you should — force a resync
+> from HA's own terminal after a rollback, or simply reboot the VM.
+
+---
+
+## Why these sizes
+
+The host has **32 threads, 64 GB of RAM and 2 TB** dedicated to VM disks.
+
+**All 32 cores go to all three VMs.** That is 96 vCPU over 32 threads — 3:1
+overcommit, on purpose. Each VM has a workload that spikes hard and briefly
+(CI compiles on infra, ESPHome firmware builds on home-assistant, user load on
+apps) and they rarely spike together, so sharing the whole machine beats
+carving it into three permanently-too-small slices. The configuration that
+actually degrades performance is a *single* VM defined wider than the host;
+32 = 32 stays on the right side of that line.
+
+What arbitrates a collision is **`cpuunits`**, not core count. It is a relative
+scheduler weight — clamped to `[1, 10000]`, default **100** under cgroup v2,
+which Proxmox 8 and 9 use — so only the ratios matter. home-assistant outweighs
+apps 4:1, which means a runaway Coolify build cannot make your lights laggy.
+Nothing is capped: `cpulimit` stays `0` everywhere, so any VM can still use the
+whole box when the others are idle.
+
+**Ballooning is off** because 16 + 24 + 8 = 48 GB against roughly 60 GB usable.
+The balloon driver earns its keep when the sum of configured maxima *exceeds*
+physical RAM; here it does not, so the only thing it could ever do is reclaim
+memory from a VM in the middle of a compile. The ~12 GB left over is the growth
+pool — raising a VM's memory later is an edit and a reboot.
+
+Per-VM, the numbers that changed and why:
+
+- **infra 10 → 16 GB.** The Forgejo Actions runner *compiles*, beside six
+  monitoring containers, Authentik, two Postgres instances, Traefik and Dockge.
+  The old 10 GB was sized before the monitoring stack existed.
+- **infra 40 → 150 GB.** Prometheus 15 d, Loki 14 d, Tempo 7 d, Docker image
+  layers, and Forgejo's container registry, which today gains an image per CI
+  run. Registry retention is owned by the CI roadmap rather than by a disk size,
+  so 150 GB buys comfortable time rather than absorbing growth forever.
+- **apps 8 → 24 GB, 80 → 500 GB.** This is where real user workloads live:
+  app volumes, databases, build cache and image layers. Coolify's own installer
+  requires 30 GB free before it will run at all.
+- **home-assistant 8 GB / 64 GB.** HAOS idles near 2 GB; the spike is ESPHome
+  firmware builds and add-ons. Its own default disk is 32 GB, and the recorder
+  database plus build caches make 64 GB comfortable.
+
+That is 714 GB provisioned. Snapshots, `vzdump` backups and Proxmox itself live
+on separate storage, so the 2 TB is not shared with them and there is ~1.3 TB of
+headroom for growing these three or adding a fourth machine. On the default
+ext4 install the disks land on `local-lvm` (LVM-thin) and are thin-provisioned,
+costing only what is actually written.
+
+Treat all of it as a starting point. These numbers will be revised as the final
+storage layout settles; the reasoning above is the part meant to survive.
+
+> One monitoring blind spot worth knowing: the `DiskAlmostFull` alert reads
+> `node_filesystem_*`, so it sees filesystems *inside* the guests and on the
+> hypervisor. It cannot see the LVM thin pool. Checking that is `lvs` on the
+> host.
 
 ---
 

@@ -1,0 +1,58 @@
+# Home Assistant configuration — FRAGMENT, NOT A FILE TO COPY OVER.
+#
+# This lives inside the HA VM at /config/configuration.yaml, which this repo
+# cannot mount: HAOS is an appliance with no shell of ours in it. So the repo
+# holds the fragment and you paste it by hand, exactly like
+# infra/forgejo/build-and-push.yml, which belongs in an app repo rather than
+# here.
+#
+# APPEND these blocks to the existing /config/configuration.yaml. Do NOT
+# replace that file — a fresh HAOS install ships it with `default_config:` and
+# overwriting it strips the entire default integration set. Both keys below are
+# ones HAOS does not define itself, so appending cannot collide.
+#
+# Edit it from HA's File Editor or Studio Code Server add-on, then
+# Developer Tools -> YAML -> Restart.
+#
+# See docs/home-assistant-setup.md.
+
+# --- reachable through Traefik ----------------------------------------------
+# ha.thefipster.de resolves to the INFRA VM, where Traefik terminates TLS with
+# the lab's wildcard certificate and proxies here over plain HTTP. Home Assistant
+# refuses proxied requests unless it is told to trust the hop, with a 400 and a
+# log line about an untrusted proxy — which reads like a Traefik fault and is not
+# one.
+#
+# THE ONE PLACE IN THIS LAB THAT NEEDS A LITERAL IP ADDRESS. Everything else
+# — Traefik's backends, Alloy's scrape targets, every curl in every guide —
+# addresses machines by NAME, because names are the stable layer and recorded
+# addresses drift. Home Assistant will not accept a hostname here: trusted_proxies
+# takes addresses or CIDR ranges only. So the value is filled in ON THE MACHINE
+# and deliberately NOT recorded in this repo (see docs/dns-records.md).
+#
+# Replace the placeholder with the address ha.thefipster.de resolves to — which
+# is, by definition, the proxy you are being asked to trust. From any LAN host:
+#
+#     getent hosts ha.thefipster.de | awk '{print $1}'
+#
+# It must be the infra VM's LAN address, NOT a Docker subnet: Traefik's container
+# reaches this VM outbound through the Docker bridge, SNAT'd to its host's LAN
+# address, so that is the source HA actually observes.
+#
+# Left as-is, this fails LOUDLY rather than subtly — HA rejects the `http` config
+# as an invalid IP at startup instead of quietly trusting nothing.
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - <infra-vm-ip>          # <- replace; see the note above
+
+# --- metrics ----------------------------------------------------------------
+# Exposes /api/prometheus, scraped by Alloy on the infra VM as
+# job="homeassistant". These are ENTITY metrics — sensor states, not machine
+# counters — so they do not belong on the Node Exporter Full dashboard. Add the
+# System Monitor integration if you want this VM's CPU/RAM/disk in the same
+# feed; HAOS cannot run a node exporter as a systemd unit.
+#
+# The endpoint requires a long-lived access token, minted in HA's own UI and
+# stored in infra/monitoring/.env as HA_PROMETHEUS_TOKEN.
+prometheus:

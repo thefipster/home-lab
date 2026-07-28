@@ -1,5 +1,7 @@
 # Monitoring — Grafana, Prometheus, Loki, Tempo, Alloy (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [forgejo-setup.md](forgejo-setup.md) complete — the stack
 scrapes Traefik, Authentik and Forgejo, so they should exist before you verify
 collection.
@@ -28,7 +30,7 @@ Proxmox host, and then verify each capability in turn.
 > `infra/monitoring/.env`. Never set `GF_AUTH_DISABLE_LOGIN_FORM`.
 
 > **RAM:** this adds six containers to a VM already running Traefik, Authentik,
-> Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 10 GB for
+> Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 16 GB for
 > exactly this reason; at 4 GB an OOM kill would most likely take Authentik
 > with it.
 
@@ -49,7 +51,7 @@ nslookup grafana.thefipster.de
 nslookup otlp.thefipster.de
 ```
 
-Expect `192.168.1.41` for both.
+Expect the `infra ip` for both — the same answer, and *not* the `apps ip`.
 
 > **Don't skip this.** `*.thefipster.de` resolves to the **apps VM**. Without
 > an exact record the name silently points at the wrong box and you get
@@ -192,13 +194,14 @@ are bounced through `auth.thefipster.de` and land in Grafana as an **Admin**
 ### 6. Add the Proxmox host
 
 The hypervisor is the last blind spot: it runs both VMs, and so far nothing
-watches it. A full root filesystem on `.40` takes down everything else in this
+watches it. A full root filesystem on the hypervisor takes down everything in this
 guide, and without this step you would find out from the outage rather than
 from the dashboard.
 
 This is the only step in any guide that runs **on the Proxmox host** instead of
-the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or SSH to
-`192.168.1.40`) and install Debian's node exporter:
+the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or
+`ssh root@pve.thefipster.de` — that record has existed since
+[wildcard-dns-udr.md](wildcard-dns-udr.md)) and install Debian's node exporter:
 
 ```bash
 apt install prometheus-node-exporter
@@ -231,7 +234,7 @@ clear on their own once the exporter answers.
 > **Check the name, not just the exporter.** `pve.thefipster.de` must exist as
 > an **exact** record ([dns-records.md](dns-records.md)). Without it the name
 > still resolves — the `*.thefipster.de` wildcard answers with the **apps VM** —
-> and Alloy scrapes `192.168.1.42:9100`. That presents as
+> and Alloy scrapes the apps VM on `:9100` instead. That presents as
 > `up{instance="pve"} == 0`, indistinguishable from a broken exporter on a host
 > where the exporter is perfectly fine.
 
@@ -239,6 +242,22 @@ There is no init script for this one. Every *stack* in the repo has one, but
 this is a single `apt install` on a machine with no checkout of this repo —
 a script would have to be copied onto the hypervisor first, which is more
 moving parts than the command it would wrap.
+
+**The apps VM joins the same job later**, by the same mechanism: Debian's
+`prometheus-node-exporter` as a systemd unit, this time wrapped in
+[`scripts/init-node-exporter.sh`](../scripts/init-node-exporter.sh) because that
+machine *does* have a checkout. It happens in
+[coolify-setup.md, step 6](coolify-setup.md#6-install-the-host-metrics-exporter),
+after this guide. When it does, the Node Exporter Full dashboard's `instance`
+dropdown gains **`apps`** beside `infra` and `pve` with no edit to its JSON —
+that is what the shared `job="node"` label buys.
+
+Alloy addresses it as `apps.thefipster.de:9100`, and that name needs **no DNS
+record** — the wildcard already answers with the apps VM. Which is the exact
+inverse of the box above: `pve` needs its record *because* the wildcard would
+answer with the apps VM, and `apps` needs none *because* it would. Same
+mechanism, opposite outcome. Both are recorded in
+[dns-records.md](dns-records.md).
 
 ### 7. Verify what is collected
 
@@ -252,9 +271,15 @@ up
 
 Expect one series per `job` — the monitoring stack itself (`alloy`,
 `prometheus`, `loki`, `grafana`, `tempo`) and the infra services (`traefik`,
-`authentik`, `forgejo`) — plus **two** for `node`, one per host:
-`instance="infra"` and `instance="pve"`. Any target sitting at `0` is
-unreachable — see [Troubleshooting](#troubleshooting).
+`authentik`, `forgejo`) — plus **three** for `node`, one per host:
+`instance="infra"`, `instance="pve"` and `instance="apps"`. Any target sitting at
+`0` is unreachable — see [Troubleshooting](#troubleshooting).
+
+**Two of them are expected to be `0` right now**, and that is not a fault:
+`node{instance="apps"}` and `homeassistant` both point at machines built *after*
+this guide ([coolify-setup.md](coolify-setup.md),
+[home-assistant-setup.md](home-assistant-setup.md)). They come up on their own as
+those guides are completed. Everything else should be `1`.
 
 ```promql
 traefik_service_requests_total
@@ -266,9 +291,9 @@ Non-zero after loading any lab URL.
 node_uname_info{job="node"}
 ```
 
-Two series with distinct `nodename` — the infra VM and the Proxmox host. This
-is the query the dashboard's dropdowns are built from, so if it returns one
-series they will offer one node.
+Two series with distinct `nodename` — the infra VM and the Proxmox host (three,
+once the apps VM is built). This is the query the dashboard's dropdowns are built
+from, so if it returns one series they will offer one node.
 
 ```promql
 node_filesystem_avail_bytes{instance="infra"}
@@ -397,7 +422,7 @@ minute, then revert.
 
 **Platform**
 
-- [ ] `nslookup grafana.thefipster.de` and `otlp.thefipster.de` → `192.168.1.41`
+- [ ] `nslookup grafana.thefipster.de` and `otlp.thefipster.de` → both the `infra ip`
 - [ ] `docker compose ps` → six services, `db` healthy, none restarting
 - [ ] `curl -sI https://grafana.thefipster.de` → `HTTP/2 302`, trusted cert
 - [ ] Loki `/ready` → `ready` (queried from the grafana container)
@@ -463,6 +488,27 @@ that endpoint 404s and metrics silently never arrive.
 Prometheus in this design; Alloy pushes. Debug collection in Alloy's UI
 instead.
 
+**`ServiceDown` is red for `apps` or `homeassistant` and both are fine.**
+Expected, if you are following the build order: monitoring comes up on the infra
+VM before either of those machines exists. Nothing is sent anywhere — no contact
+point and no notification policy is provisioned, so these alerts are visible in
+Grafana and nowhere else. They clear on their own as
+[coolify-setup.md](coolify-setup.md) and
+[home-assistant-setup.md](home-assistant-setup.md) are completed.
+
+**`job="homeassistant"` returns nothing, or Alloy logs 401s for it.** The token
+is missing. `HA_PROMETHEUS_TOKEN` in `infra/monitoring/.env` must hold a
+long-lived access token minted in HA's own UI — it is the one secret the init
+script cannot generate. Environment variables are read at container creation, so
+editing `.env` needs `docker compose up -d alloy`, not a restart. Full procedure:
+[home-assistant-setup.md, step 8](home-assistant-setup.md#8-wire-up-metrics).
+
+**`job="homeassistant"` has series but nothing appears on Node Exporter Full.**
+Correct, and not fixable. Those are Home Assistant *entity* metrics — sensor
+states, not machine counters — so they share no metric names with a node
+exporter. Only `job="node"` targets (`infra`, `pve`, `apps`) appear on that
+dashboard.
+
 **A single target shows `up == 0`.** Only that target is affected. Isolate it
 from a container that sits on the same networks:
 
@@ -501,7 +547,7 @@ If that reports `active`, suspect **DNS before the exporter**:
 docker compose exec grafana getent hosts pve.thefipster.de
 ```
 
-It must answer `192.168.1.40`. If it answers `192.168.1.42`, the exact
+It must answer the `pve ip`. If it answers the `apps ip`, the exact
 `pve.thefipster.de` record is missing and the `*.thefipster.de` wildcard is
 catching the name — Alloy has been scraping the apps VM this whole time. Add
 the record ([dns-records.md](dns-records.md)); nothing here needs restarting,
@@ -509,7 +555,7 @@ since the name is re-resolved on every scrape.
 
 If the name resolves correctly and the exporter is running, check the Proxmox
 firewall (*Datacenter → Firewall*). It is off by default, but if it was
-enabled it needs to allow `192.168.1.41` to reach `:9100`.
+enabled it needs to allow the `infra ip` to reach `:9100`.
 
 **Forgejo `/metrics` returns 404.** The variable didn't reach the container:
 
@@ -675,8 +721,11 @@ hypervisor answers any LAN client with its filesystems, kernel version and
 network devices. Same reasoning as the OTLP endpoint, and a smaller surface
 since it only *reads* — but it is a real widening of what the Proxmox host
 serves, so it is stated rather than left implicit. To close it, bind the
-exporter to `192.168.1.40` in `/etc/default/prometheus-node-exporter` and add a
-Proxmox firewall rule allowing only the infra VM.
+exporter to the `pve ip` in `/etc/default/prometheus-node-exporter` and add a
+Proxmox firewall rule allowing only the infra VM. Both need literal addresses —
+read them off the router, and see
+[dns-records.md](dns-records.md#why-this-registry-holds-no-addresses) for why they
+are not written down here.
 
 **Grafana uses Postgres, not SQLite**, so the whole lab has one backup story
 and because `pg_dump` runs against a live database — a consistent SQLite backup

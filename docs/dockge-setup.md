@@ -1,5 +1,7 @@
 # Dockge — compose management UI (infra VM)
 
+**Runs on:** infra VM
+
 **Prerequisite:** [authentik-setup.md](authentik-setup.md) complete — Authentik
 must be running before Dockge's router will load at all.
 
@@ -154,7 +156,7 @@ Two mounts guarantee that:
   under `/opt/stacks` are symlinks into the checkout; without this mount they
   would dangle inside the container and Dockge could not read them.
 
-This is also why [proxmox-setup.md](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-vm)
+This is also why [proxmox-setup.md](proxmox-setup.md#part-7--repo-and-docker-on-the-infra-and-apps-vms)
 insists on cloning to `~/home-lab` and not moving it afterwards.
 
 **The socket is root-equivalent.** Dockge holds `/var/run/docker.sock`, which
@@ -165,7 +167,7 @@ because this is a single-tenant machine, and it is exactly why the UI is gated
 by Authentik rather than merely by Dockge's own login.
 
 **No ports are published.** Dockge is reachable only through Traefik, on
-`proxy`. There is no `http://192.168.1.41:5001` bypassing the gate — which is
+`proxy`. There is no plain-HTTP port on the infra VM bypassing the gate — which is
 why Authentik has to come first in the build order, and why the break-glass
 path above is a label edit rather than a port.
 

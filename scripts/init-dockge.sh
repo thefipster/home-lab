@@ -11,7 +11,7 @@
 # stacks up) — Dockge's router is gated by the authentik@docker middleware and
 # won't load until Authentik is running. See docs/authentik-setup.md.
 #
-# Assumes Docker is installed (run scripts/init-host.sh first).
+# Assumes Docker is installed (run scripts/init-docker.sh first).
 # Usage (from the repo root):
 #   scripts/init-dockge.sh
 
@@ -33,7 +33,7 @@ run_root() {
 }
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "docker not found — run scripts/init-host.sh first." >&2
+  echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
 fi
 
