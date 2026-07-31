@@ -44,14 +44,14 @@ xz -d haos_ova-*.qcow2.xz
 
 *Create VM*, with the specs from the
 [proxmox-setup.md table](proxmox-setup.md#part-5--create-the-vms) — VMID **103**,
-32 cores, 8192 MB, `cpuunits` 200. The settings that differ from the Ubuntu VMs:
+12 cores, 8192 MB, `cpuunits` 200. The settings that differ from the Ubuntu VMs:
 
 - **OS:** select **Do not use any media**. There is no ISO to boot.
-- **System:** machine **`q35`**, BIOS **OVMF (UEFI)**, EFI storage `local-lvm`,
+- **System:** machine **`q35`**, BIOS **OVMF (UEFI)**, EFI storage `local-zfs`,
   and **untick Pre-Enroll keys** — HA needs a non-secureboot OVMF. Tick
   **Qemu Agent**.
 - **Disks:** **delete** the default disk. The real one is imported next.
-- **CPU:** type `host`, 1 socket, 32 cores.
+- **CPU:** type `host`, 1 socket, 12 cores.
 - **Memory:** 8192 MB, **untick Ballooning Device**.
 - **Network:** VirtIO, bridge `vmbr0`.
 
@@ -60,11 +60,18 @@ Do not start it yet.
 ### 3. Import the HAOS disk
 
 ```bash
-qm importdisk 103 /var/lib/vz/template/iso/haos_ova-*.qcow2 local-lvm
+qm importdisk 103 /var/lib/vz/template/iso/haos_ova-*.qcow2 local-zfs
 ```
 
+`local-zfs` is the root pool's storage, created by the Proxmox installer when it
+mirrors the two NVMe drives — see
+[proxmox-setup.md Part 2](proxmox-setup.md#part-2--install-proxmox). It is *not*
+`local-lvm`; that is what an `ext4` single-disk install would have produced, and
+`qm importdisk` fails outright on a storage that does not exist.
+
 It appears as an **unused disk** on the VM. Attach it: *VM 103 → Hardware →
-double-click `Unused Disk 0`* → bus **SCSI**, tick **Discard** on an SSD → *Add*.
+double-click `Unused Disk 0`* → bus **SCSI**, tick **Discard** and **SSD
+emulation** → *Add*.
 Then *Options → Boot Order* → enable **`scsi0`** and move it first.
 
 ### 4. Resize the disk before first boot

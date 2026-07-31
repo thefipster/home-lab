@@ -198,6 +198,14 @@ watches it. A full root filesystem on the hypervisor takes down everything in th
 guide, and without this step you would find out from the outage rather than
 from the dashboard.
 
+**It does not make the hypervisor fully observed, and the gap is worth knowing
+before you rely on this.** The host is on ZFS, and the exporter you are about to
+install reports *filesystems* — so VM disks, which are zvols, and snapshots are
+both invisible to it. What this step buys is CPU, memory, network, and real
+filesystem usage including the two backup pools; what it does not buy is pool
+capacity. [What `DiskAlmostFull` sees under ZFS](#what-diskalmostfull-sees-under-zfs)
+sets out exactly where the line falls.
+
 This is the only step in any guide that runs **on the Proxmox host** instead of
 the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or
 `ssh root@pve.thefipster.de` — that record has existed since
@@ -313,6 +321,16 @@ differs — nothing is containerised there — but the reasoning carries: a targ
 resolving to the wrong machine returns entirely plausible filesystem numbers
 for a box you did not mean to measure.
 
+> **The Proxmox host is on ZFS, so read this output differently.** `df -h` there
+> lists *datasets*, not disks, and every dataset in a pool reports the **same
+> shared free space** — so several rows showing an identical `Avail` is correct,
+> not a bug. Expect `/`, `/rpool/*`, and the three pools mounted at `/backup`,
+> `/data` and `/usbbackup`
+> ([proxmox-setup.md Part 3](proxmox-setup.md#part-3--post-install-housekeeping)).
+> Comparing against `zpool list` as well is the quickest way to see what the
+> pool actually holds — see
+> [What `DiskAlmostFull` sees under ZFS](#what-diskalmostfull-sees-under-zfs).
+
 #### Logs
 
 In **Explore → Loki**:
@@ -408,7 +426,7 @@ In **Alerting → Alert rules**, three rules, each `Normal`:
 
 | Rule | Fires when | For |
 |------|-----------|-----|
-| `DiskAlmostFull` | a real filesystem over 80% used, **on either host** | 15m |
+| `DiskAlmostFull` | a real filesystem over 80% used, **on any host** — but read [what it sees under ZFS](#what-diskalmostfull-sees-under-zfs) before trusting it on the hypervisor | 15m |
 | `ServiceDown` | any scrape target's `up == 0` | 5m |
 | `CertExpiringSoon` | a TLS certificate expires in under 21 days | 1h |
 
@@ -417,6 +435,65 @@ waiting for a disk to fill, lower `DiskAlmostFull`'s threshold in
 `infra/monitoring/grafana/provisioning/alerting/rules.yaml` below current
 usage, `docker compose up -d grafana`, watch it flip to `Firing` within a
 minute, then revert.
+
+#### What `DiskAlmostFull` sees under ZFS
+
+The rule is unchanged by the move to ZFS — its `fstype!~"tmpfs|overlay|squashfs|ramfs"`
+filter admits `zfs` — but **what it can observe on the Proxmox host changed
+completely**, and the number it reports there is not pool utilisation.
+
+Where it works exactly as intended:
+
+| Mount | Why it reads true |
+|---|---|
+| everything on the **infra** and **apps** VMs | ordinary ext4; nothing about this changed |
+| `/backup` on the host | holds `vzdump` **files**, so used grows and avail shrinks together |
+| `/usbbackup` on the host | same — restic writes files |
+
+Those last two are a genuine gain: the backup targets now alert on filling up,
+which nothing watched before.
+
+Where it is **blind**:
+
+- **VM disks are zvols, not files.** Every VM root disk on `rpool`, and the apps
+  VM's 300 GB disk on `data`, is a block device with no filesystem the host can
+  see. node_exporter's filesystem collector never counts them. `rpool` can be
+  near full while `/` on the hypervisor reports gigabytes free.
+- **Snapshots are invisible for the same reason.** A `clean-install` snapshot
+  you kept for a year is charged to the pool and to nothing `df` reports.
+- **`/data` reads ~0% used forever.** Its only content is the apps VM's zvol, so
+  its mounted dataset is empty by construction.
+
+And when a pool genuinely does fill, expect **an alert per dataset, all at
+once** — free space is shared, so every dataset on that pool crosses 80% in the
+same evaluation. One cause, six firing instances.
+
+This is the same class of blind spot the LVM-thin layout had, in a new costume:
+the space is consumed by block devices, and a filesystem collector only counts
+filesystems. There is no metric to fix it with — node_exporter's `zfs` collector
+exposes ARC statistics and per-pool I/O, **not** pool capacity. So checking it
+stays a command on the host:
+
+```bash
+zpool list
+```
+
+```bash
+zfs list -t snapshot
+```
+
+Pool *health* — as opposed to capacity — is covered actively, and not from here:
+a timer on the hypervisor pushes to Uptime Kuma
+([proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)),
+because a degraded mirror is a notification, and notifications are Kuma's half of
+the split.
+
+> **Worth doing later:** that same timer already runs every 5 minutes on the
+> host, and Debian's `prometheus-node-exporter` enables the textfile collector at
+> `/var/lib/prometheus/node-exporter` by default. Writing
+> `zpool list -Hp -o name,capacity` there as a `.prom` file would close the
+> capacity gap with no new service. Not built — noted so the gap above is a
+> known one rather than an accepted one.
 
 ### Checklist
 
@@ -442,7 +519,10 @@ minute, then revert.
 - [ ] `node_filesystem_avail_bytes{instance="infra"}` matches `df -h` on the
       infra VM
 - [ ] `node_filesystem_avail_bytes{instance="pve"}` matches `df -h` on the
-      Proxmox host
+      Proxmox host — remembering that its ZFS datasets share one pool's free
+      space, so repeated identical values are correct
+- [ ] `zpool list` on the host shows all four pools `ONLINE`, and you have read
+      [what `DiskAlmostFull` cannot see there](#what-diskalmostfull-sees-under-zfs)
 
 **Logs**
 
@@ -533,6 +613,25 @@ docker run --rm --network monitoring_monitoring-net alpine wget -qO- http://loki
 **Host metrics show container values.** The mounts and the `procfs_path` /
 `sysfs_path` / `rootfs_path` arguments disagree. Compare
 `node_filesystem_avail_bytes` with `df -h`.
+
+**Several `pve` filesystems report identical free space.** Correct, not a fault.
+ZFS datasets share their pool's free space, so `/`, `/rpool/…` and each pool
+mountpoint all report the same `Avail`. It also means one filling pool fires
+`DiskAlmostFull` once per dataset — see
+[What `DiskAlmostFull` sees under ZFS](#what-diskalmostfull-sees-under-zfs).
+
+**`rpool` is nearly full but Grafana shows plenty free on `pve`.** Also expected,
+and the most misleading of the lot: VM disks are zvols and snapshots are neither
+files nor filesystems, so the exporter cannot count either. Ask the pool
+directly:
+
+```bash
+zpool list
+```
+
+```bash
+zfs list -o name,used,refer,avail -t all
+```
 
 **`up{instance="pve"} == 0`.** Work outwards from the host. On the Proxmox
 host:

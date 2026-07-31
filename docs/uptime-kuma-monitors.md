@@ -41,6 +41,15 @@ that is what you paste into Kuma and what `docker ps` will show you.
 | **HTTP(s)** | DNS → Traefik → certificate → application, end to end | the service answers **200** on `/` without authentication |
 | **Docker** | container state, read from this VM's `docker.sock` | the route is gated, has no root path, or the container is on this VM and you want to tell "container down" from "route down" |
 | **Ping** | ICMP to the host | the machine can fail *independently of Kuma* — see [Reachability](#reachability-and-why-only-two-machines-get-it) |
+| **Push** | nothing — it waits to be told | the thing to check is a **condition Kuma cannot reach**: a shell command, a job's outcome, a machine with no listening port worth polling |
+
+**Push inverts the direction**, which is what makes it the answer for anything
+off-box that has no HTTP surface. Kuma hands you a URL, something out there calls
+it on a schedule, and silence past the interval is a failure. Two failure modes
+for the price of one: the caller can report a problem *actively* by pushing
+`status=down&msg=...`, and if the caller dies instead, the absence is caught
+anyway. There is no monitor type that runs a command — that is precisely the gap
+Push fills.
 
 Docker monitors need the Docker host registered once
 ([uptime-kuma-setup.md, step 5](uptime-kuma-setup.md#5-add-the-monitors)) and only
@@ -177,6 +186,38 @@ service, which resolves to the infra VM) and the ping uses `homeassistant.` (the
 machine). Pinging `ha.` would pointlessly ping the infra VM —
 [dns-records.md](dns-records.md#home-assistant-has-two-names-on-purpose).
 
+## Hypervisor storage — Proxmox host
+
+| Name | Type | Target |
+|---|---|---|
+| Hypervisor Storage | Push | *(push URL — the host calls Kuma)* |
+
+The one monitor here that watches a **condition** rather than a service, and the
+only one whose target is not something Kuma dials. Set the heartbeat interval to
+**300 s** with 2 retries; a timer on the Proxmox host calls the push URL on that
+cadence. Create the monitor first, then paste its URL into
+[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades),
+which is where the script and its systemd timer live — on the hypervisor, because
+that is the machine with the pools.
+
+**Why this exists at all:** the lab's six internal drives are paired into three
+ZFS mirrors, and **a degraded mirror is the failure that takes nothing down.**
+The host keeps running, every VM keeps running, redundancy is silently gone, and
+the second drive of the pair fails weeks later with no audience. Nothing else in
+this registry would go red.
+
+The push carries the pool name, so a `down` here names the drive to look at
+rather than sending you to the shell to find out. It covers all four pools —
+including `usbbackup`, the external backup drive, whose *absence* is otherwise
+invisible: a pool whose device vanished does not appear in `zpool list` at all,
+which is why the script checks an expected list rather than trusting that output.
+
+Pool health is deliberately **not** in Grafana, even though Alloy already scrapes
+the hypervisor. This is a notification, and notifications are Kuma's half of the
+split ([uptime-kuma-setup.md](uptime-kuma-setup.md)) — putting it here means it
+inherits the configured ntfy notification with no new alert rule and no new
+contact point.
+
 ---
 
 ## Reachability, and why only two machines get it
@@ -221,12 +262,21 @@ spot and it is structural — closing it needs something *outside* the lab, eith
 push/heartbeat monitor to an external service or a second watcher on another
 machine. Neither exists yet.
 
-**The Proxmox host.** Tempting, and useless from here, for the reason in the table
-above: Kuma is a guest of the hypervisor, so any failure severe enough to take
-Proxmox down takes Kuma with it. The hypervisor is watched from the metrics side
-instead — Alloy scrapes its node exporter as `instance="pve"`, and Grafana's
-`DiskAlmostFull` and `ServiceDown` rules cover it
+**The Proxmox host's *availability*.** Tempting, and useless from here, for the
+reason in the table above: Kuma is a guest of the hypervisor, so any failure
+severe enough to take Proxmox down takes Kuma with it. Uptime is watched from the
+metrics side instead — Alloy scrapes its node exporter as `instance="pve"`, and
+Grafana's `DiskAlmostFull` and `ServiceDown` rules cover it
 ([grafana-setup.md](grafana-setup.md#6-add-the-proxmox-host)).
+
+> **Note the word *availability*.** That argument is about the host being up, and
+> it does not extend to the host's **condition**. A degraded ZFS mirror leaves
+> Proxmox running perfectly, so the shared-failure-domain reasoning simply does
+> not apply — which is why
+> [Hypervisor Storage](#hypervisor-storage--proxmox-host) exists above and is not
+> a contradiction of this absence. The distinction is worth keeping straight:
+> "same failure domain" rules out watching whether the box answers, not whether
+> the box is healthy.
 
 **A DNS monitor for the wildcard-versus-exact-record trap.** The repo's
 most-warned-about failure is an infra name losing its exact record and falling
@@ -242,8 +292,9 @@ write down.
 Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
 (`Gateway`, `Identity`, `Git`, `Stack management`, `Observability`,
-`App platform`, `Home automation`) makes the status page collapse to seven rows
-that expand on demand, instead of twenty-two flat entries.
+`App platform`, `Home automation`, `Hypervisor storage`) makes the status page
+collapse to eight rows that expand on demand, instead of twenty-three flat
+entries.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups
 are cosmetic — they do not affect checks or notifications — so this registry
