@@ -184,6 +184,42 @@ The `usbbackup` pool is included, so the monitor also reports the backup target
 falling off the bus — layer 2 silently writing nowhere is the failure the whole
 roadmap exists to prevent.
 
+### Capacity is a different question, and a different metric
+
+Health is "is a mirror broken". Capacity is "is a pool filling up", and
+`DiskAlmostFull` structurally cannot answer it: VM disks are **zvols** and
+snapshots are neither files nor filesystems, so `node_filesystem_*` counts
+neither and `/` on the hypervisor reports gigabytes free while `rpool` fills.
+node_exporter's own `zfs` collector does not help — it exposes ARC statistics and
+per-pool I/O, not capacity.
+
+So the same timer writes a `.prom` file into
+`/var/lib/prometheus/node-exporter`, which the node exporter already installed on
+the host serves on the same `:9100` Alloy already scrapes. **No new service, no
+new scrape target, nothing changes on the infra VM.** Four gauges labelled by
+pool — `zfs_pool_size_bytes`, `zfs_pool_allocated_bytes`, `zfs_pool_free_bytes`,
+`zfs_pool_online` — and one new rule, `ZfsPoolAlmostFull`, at 80% for 15m. 80%
+matches `DiskAlmostFull` and is a real threshold: ZFS write performance degrades
+past it.
+
+`DiskAlmostFull` itself is **unchanged**. Its `fstype!~"tmpfs|overlay|squashfs|ramfs"`
+filter already admits `zfs`, and it reads correctly for `/backup` and
+`/usbbackup`, which hold files. Extending it was never possible; the metric it
+reads does not describe pools.
+
+Two deliberate omissions:
+
+- **No Grafana alert on `zfs_pool_online`.** It would duplicate the Kuma push,
+  and Grafana's rules are UI-only — a second rule saying the same thing would
+  send nothing anyone sees. The metric is exported for the *explaining* half:
+  a degraded period on a timeline beside the I/O panels.
+- **No staleness alert.** A textfile that stops being updated keeps being
+  served, so a dead writer would freeze a healthy-looking figure — normally
+  worth its own rule. Not here: the script that writes the file also pushes the
+  heartbeat, so stopping one stops the other and the deadman fires. **This is
+  why the two jobs share a script**; splitting them would mean adding the
+  staleness rule back.
+
 ### Why this does not reverse a documented decision
 
 [uptime-kuma-monitors.md](../../uptime-kuma-monitors.md) lists the Proxmox host
@@ -217,7 +253,8 @@ carry it, and that is a follow-on rather than part of this change.
 | `docs/roadmap/backup.md` | Named targets, SFTP transport, apps VM as future consumer, sizing |
 | `docs/uptime-kuma-monitors.md` | The new row; the Proxmox absence scoped to availability |
 | `docs/uptime-kuma-setup.md` | Step 7 — return to Part 10 once a push URL exists |
-| `docs/grafana-setup.md` | What `DiskAlmostFull` can and cannot see under ZFS |
+| `docs/grafana-setup.md` | What `DiskAlmostFull` can and cannot see under ZFS; the pool-capacity metric and its queries |
+| `infra/monitoring/grafana/provisioning/alerting/rules.yaml` | `ZfsPoolAlmostFull` |
 | `docs/home-assistant-setup.md` | `local-lvm` → `local-zfs`, 32 → 12 cores |
 | `docs/coolify-setup.md` | Mount the data disk before the installer runs |
 
@@ -230,10 +267,8 @@ them would destroy the only evidence that the assumption ever changed.
 - **Sizing the apps VM's backup job.** It has no services yet. The transport is
   chosen to accommodate it; the job is not written.
 - **SMART monitoring.** Named as the natural follow-on, not built here.
-- **A pool-capacity metric.** node_exporter's `zfs` collector exposes ARC stats
-  and per-pool I/O, not capacity, so `DiskAlmostFull` cannot see a pool filling
-  with zvols or snapshots. Documented as a known gap in `grafana-setup.md`, with
-  a textfile-collector sketch; the alert rule itself is unchanged and correct.
+- **Splitting the health push and the capacity metric into two units.** They
+  share one `zpool list` and, more importantly, one failure signal — see below.
 - **Replacing offsite backup.** The USB drive is phase 2's local target. Phase 3
   stands.
 - **A `proxmox/` directory in the repo root.** Considered, rejected; revisit if

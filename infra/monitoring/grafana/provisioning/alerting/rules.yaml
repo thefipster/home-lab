@@ -1,4 +1,4 @@
-# Grafana unified alerting, provisioned. Three rules that matter for a
+# Grafana unified alerting, provisioned. Four rules that matter for a
 # one-person lab (roadmap phase 5). UI-ONLY: no contact point or notification
 # policy is provisioned, so these use Grafana's default policy — they show in
 # Alerting and on panels but send nothing outward. Wiring a real channel later
@@ -33,6 +33,49 @@ groups:
               expr: >-
                 100 * (1 - node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs"}
                 / node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+
+      # ---- a ZFS pool is filling up ---------------------------------------
+      # DiskAlmostFull cannot see this and never will: VM disks are zvols and
+      # snapshots are neither files nor filesystems, so node_filesystem_* counts
+      # neither, and `/` on the hypervisor reports gigabytes free while rpool
+      # fills. The metric comes from the textfile collector on the Proxmox host
+      # (proxmox-setup.md Part 10) because node_exporter's own zfs collector
+      # exposes ARC stats and per-pool I/O, not capacity.
+      #
+      # 80% matches DiskAlmostFull, and is a real threshold rather than a round
+      # number: ZFS write performance degrades once a pool passes it.
+      #
+      # No staleness rule beside this one, deliberately. A textfile that stops
+      # being written keeps being served, so a dead script would freeze this
+      # value looking healthy — but the script that writes it also pushes the
+      # Uptime Kuma heartbeat, so the deadman there covers it.
+      - uid: zfs-pool-almost-full
+        title: ZfsPoolAlmostFull
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "ZFS pool {{ $labels.pool }} on {{ $labels.instance }} is over 80% allocated"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                100 * zfs_pool_allocated_bytes / zfs_pool_size_bytes
           - refId: C
             datasourceUid: __expr__
             model:

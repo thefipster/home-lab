@@ -212,11 +212,20 @@ including `usbbackup`, the external backup drive, whose *absence* is otherwise
 invisible: a pool whose device vanished does not appear in `zpool list` at all,
 which is why the script checks an expected list rather than trusting that output.
 
-Pool health is deliberately **not** in Grafana, even though Alloy already scrapes
-the hypervisor. This is a notification, and notifications are Kuma's half of the
-split ([uptime-kuma-setup.md](uptime-kuma-setup.md)) — putting it here means it
-inherits the configured ntfy notification with no new alert rule and no new
-contact point.
+Pool *health* is deliberately **not** alerted from Grafana, even though Alloy
+already scrapes the hypervisor. This is a notification, and notifications are
+Kuma's half of the split ([uptime-kuma-setup.md](uptime-kuma-setup.md)) — putting
+it here means it inherits the configured ntfy notification with no new alert rule
+and no new contact point.
+
+Pool *capacity* goes the other way, and the same timer does both jobs from one
+`zpool list`: it pushes here, and writes `zfs_pool_*` metrics for Prometheus, so
+`ZfsPoolAlmostFull` in Grafana covers a filling pool
+([grafana-setup.md](grafana-setup.md#what-diskalmostfull-sees-under-zfs)). A
+degrading mirror is something to be told about; a pool at 74% is something to
+look at on a graph. The coupling is also what makes a staleness alert
+unnecessary — a script that stops writing metrics stops pushing heartbeats, and
+this monitor says so.
 
 ---
 
@@ -266,7 +275,7 @@ machine. Neither exists yet.
 reason in the table above: Kuma is a guest of the hypervisor, so any failure
 severe enough to take Proxmox down takes Kuma with it. Uptime is watched from the
 metrics side instead — Alloy scrapes its node exporter as `instance="pve"`, and
-Grafana's `DiskAlmostFull` and `ServiceDown` rules cover it
+Grafana's `DiskAlmostFull`, `ZfsPoolAlmostFull` and `ServiceDown` rules cover it
 ([grafana-setup.md](grafana-setup.md#6-add-the-proxmox-host)).
 
 > **Note the word *availability*.** That argument is about the host being up, and

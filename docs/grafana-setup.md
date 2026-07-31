@@ -198,13 +198,16 @@ watches it. A full root filesystem on the hypervisor takes down everything in th
 guide, and without this step you would find out from the outage rather than
 from the dashboard.
 
-**It does not make the hypervisor fully observed, and the gap is worth knowing
-before you rely on this.** The host is on ZFS, and the exporter you are about to
-install reports *filesystems* — so VM disks, which are zvols, and snapshots are
-both invisible to it. What this step buys is CPU, memory, network, and real
-filesystem usage including the two backup pools; what it does not buy is pool
-capacity. [What `DiskAlmostFull` sees under ZFS](#what-diskalmostfull-sees-under-zfs)
-sets out exactly where the line falls.
+**One thing about it is worth knowing before you rely on it.** The host is on
+ZFS, and this exporter reports *filesystems* — so VM disks, which are zvols, and
+snapshots are both invisible to it. What this step buys is CPU, memory, network,
+and real filesystem usage including the two backup pools. **Pool capacity comes
+from somewhere else**: a timer on this host writes it into this exporter's
+textfile directory, set up in
+[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)
+once Uptime Kuma exists. [What `DiskAlmostFull` sees under
+ZFS](#what-diskalmostfull-sees-under-zfs) sets out exactly where the line falls
+and which metric covers which side of it.
 
 This is the only step in any guide that runs **on the Proxmox host** instead of
 the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or
@@ -422,11 +425,12 @@ In Grafana → **Dashboards**, two appear (provisioned, read-only):
 - **Traefik Official Standalone Dashboard** — load any lab URL, then watch the
   request-rate and status-code panels move.
 
-In **Alerting → Alert rules**, three rules, each `Normal`:
+In **Alerting → Alert rules**, four rules, each `Normal`:
 
 | Rule | Fires when | For |
 |------|-----------|-----|
 | `DiskAlmostFull` | a real filesystem over 80% used, **on any host** — but read [what it sees under ZFS](#what-diskalmostfull-sees-under-zfs) before trusting it on the hypervisor | 15m |
+| `ZfsPoolAlmostFull` | a ZFS pool over 80% allocated — the part `DiskAlmostFull` structurally cannot see | 15m |
 | `ServiceDown` | any scrape target's `up == 0` | 5m |
 | `CertExpiringSoon` | a TLS certificate expires in under 21 days | 1h |
 
@@ -470,30 +474,74 @@ same evaluation. One cause, six firing instances.
 
 This is the same class of blind spot the LVM-thin layout had, in a new costume:
 the space is consumed by block devices, and a filesystem collector only counts
-filesystems. There is no metric to fix it with — node_exporter's `zfs` collector
-exposes ARC statistics and per-pool I/O, **not** pool capacity. So checking it
-stays a command on the host:
+filesystems.
 
-```bash
-zpool list
+#### Pool capacity, from the textfile collector
+
+`DiskAlmostFull` is not extended to cover this, because it cannot be — the metric
+it reads does not describe pools. A **separate metric** does, and it does not come
+from node_exporter's `zfs` collector either: that one exposes ARC statistics and
+per-pool I/O, not capacity.
+
+It comes from the same timer on the Proxmox host that pushes health to Kuma
+([proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)).
+One `zpool list` serves both: a `.prom` file written into
+`/var/lib/prometheus/node-exporter`, which the node exporter already installed in
+[step 6](#6-add-the-proxmox-host) serves on the same `:9100` Alloy is already
+scraping. **No new service, no new scrape target, no change on the infra VM.**
+
+Four gauges, labelled by pool:
+
+```promql
+zfs_pool_size_bytes
 ```
+
+```promql
+zfs_pool_allocated_bytes
+```
+
+```promql
+zfs_pool_free_bytes
+```
+
+```promql
+zfs_pool_online
+```
+
+Expect four series each — `rpool`, `backup`, `data`, `usbbackup`. The number that
+matters, and the one the alert thresholds on:
+
+```promql
+100 * zfs_pool_allocated_bytes / zfs_pool_size_bytes
+```
+
+**Compare it against `zpool list` on the host.** This is the one figure in the
+whole monitoring stack that has no second source: if it is wrong, nothing else
+contradicts it.
+
+`ZfsPoolAlmostFull` fires above **80%** for 15m — matching `DiskAlmostFull`, and
+a real threshold rather than a round number, since ZFS write performance degrades
+once a pool passes it.
+
+`zfs_pool_online` is exported but **not** alerted on, deliberately. Pool health is
+a notification, notifications are Kuma's half of the split, and a second UI-only
+Grafana rule saying the same thing would send nothing anyone would see. The metric
+is here for the *explaining* half — so a degraded period shows up on a timeline
+next to the I/O and latency panels that say what it did to the box.
+
+There is also **no staleness rule**, which is worth being explicit about because
+a textfile that stops being updated keeps being served — node_exporter has no way
+to know the writer died, so a frozen capacity figure would look perfectly
+healthy. That normally demands its own alert. It does not here, because the
+script that writes the file also pushes the Kuma heartbeat: stop writing, stop
+pushing, and the deadman fires. The coupling is load-bearing, not incidental.
+
+Snapshots remain worth an occasional eye directly, since they are charged to the
+pool and attributed to nothing:
 
 ```bash
 zfs list -t snapshot
 ```
-
-Pool *health* — as opposed to capacity — is covered actively, and not from here:
-a timer on the hypervisor pushes to Uptime Kuma
-([proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)),
-because a degraded mirror is a notification, and notifications are Kuma's half of
-the split.
-
-> **Worth doing later:** that same timer already runs every 5 minutes on the
-> host, and Debian's `prometheus-node-exporter` enables the textfile collector at
-> `/var/lib/prometheus/node-exporter` by default. Writing
-> `zpool list -Hp -o name,capacity` there as a `.prom` file would close the
-> capacity gap with no new service. Not built — noted so the gap above is a
-> known one rather than an accepted one.
 
 ### Checklist
 
@@ -523,6 +571,11 @@ the split.
       space, so repeated identical values are correct
 - [ ] `zpool list` on the host shows all four pools `ONLINE`, and you have read
       [what `DiskAlmostFull` cannot see there](#what-diskalmostfull-sees-under-zfs)
+- [ ] `zfs_pool_allocated_bytes` returns four series (`rpool`, `backup`, `data`,
+      `usbbackup`) and `100 * zfs_pool_allocated_bytes / zfs_pool_size_bytes`
+      matches the `CAP` column of `zpool list` on the host — *(needs
+      [Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades), which
+      runs after Uptime Kuma exists)*
 
 **Logs**
 
@@ -546,7 +599,8 @@ the split.
 - [ ] Node Exporter Full: dropdowns populate, panels show data, and **Nodename**
       switches between the infra VM and the Proxmox host
 - [ ] Traefik dashboard: panels move when a lab URL is loaded
-- [ ] Three alert rules listed, all `Normal`
+- [ ] Four alert rules listed, all `Normal` — `ZfsPoolAlmostFull` shows
+      `Normal` only once Part 10 feeds it; until then it is `NoData` → `OK`
 - [ ] Temporarily lowering the disk threshold flips `DiskAlmostFull` to
       `Firing`
 
@@ -620,10 +674,26 @@ mountpoint all report the same `Avail`. It also means one filling pool fires
 `DiskAlmostFull` once per dataset — see
 [What `DiskAlmostFull` sees under ZFS](#what-diskalmostfull-sees-under-zfs).
 
-**`rpool` is nearly full but Grafana shows plenty free on `pve`.** Also expected,
-and the most misleading of the lot: VM disks are zvols and snapshots are neither
-files nor filesystems, so the exporter cannot count either. Ask the pool
-directly:
+**`rpool` is nearly full but `node_filesystem_*` shows plenty free on `pve`.**
+Expected, and the most misleading of the lot: VM disks are zvols and snapshots
+are neither files nor filesystems, so that metric cannot count either. Use
+`zfs_pool_allocated_bytes` instead — and if it returns nothing, the textfile
+half of [Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades) is not
+working. Check the file exists on the host:
+
+```bash
+cat /var/lib/prometheus/node-exporter/zfs_pool.prom
+```
+
+If it does but the metric never reaches Prometheus, the exporter is not reading
+that directory:
+
+```bash
+ps -o args= -C prometheus-node-exporter
+```
+
+`--collector.textfile.directory` must be present and must match where the script
+writes. Ask the pool directly meanwhile:
 
 ```bash
 zpool list

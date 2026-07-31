@@ -254,7 +254,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--schedule-whole-vm-backups) |
 | Backup layer 2: `restic` file-level to the USB drive | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
-| ZFS pool health → Uptime Kuma push monitor | 📄 documented — [Part 10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades) |
+| ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |

@@ -488,7 +488,13 @@ evaluates pool health and calls a **push monitor**. Create the monitor first —
 its row is in [uptime-kuma-monitors.md](uptime-kuma-monitors.md) — and copy its
 push URL.
 
-The script. Note that it checks an **expected list** of pools rather than
+The script does **two** things from one `zpool list`, because both consumers want
+the same three seconds of work: it pushes health to Kuma, and it writes pool
+capacity where Prometheus can scrape it. Capacity has to come from here —
+node_exporter's own `zfs` collector reports ARC statistics and per-pool I/O, but
+**not** how full a pool is, and `node_filesystem_*` cannot see zvols at all.
+
+Note that the health check walks an **expected list** of pools rather than
 whatever `zpool list` happens to return, because a pool whose drive vanished does
 not appear in that output at all — which is precisely the USB backup drive
 falling off the bus:
@@ -496,18 +502,43 @@ falling off the bus:
 ```bash
 cat > /usr/local/bin/zfs-health-push.sh <<'EOF'
 #!/usr/bin/env bash
-# Report ZFS pool health to an Uptime Kuma push monitor.
+# Push ZFS pool health to Uptime Kuma, and write pool capacity for Prometheus.
 set -uo pipefail
 
 PUSH_URL="${PUSH_URL:?PUSH_URL is not set}"
 EXPECTED="rpool backup data usbbackup"
+TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/prometheus/node-exporter}"
 
-# Fail closed: if zpool itself errors, push nothing and let the deadman fire.
-health="$(zpool list -H -o name,health)" || exit 1
+# Fail closed: if zpool itself errors, write nothing, push nothing, and let the
+# deadman fire. A stale metric beside a silent failure is worse than neither.
+health="$(zpool list -Hp -o name,size,allocated,free,health)" || exit 1
 
+# ---- metrics: written to a temp file and moved into place, so node_exporter
+# ---- never reads a half-written file
+if [ -d "$TEXTFILE_DIR" ]; then
+  tmp="$(mktemp "$TEXTFILE_DIR/zfs_pool.prom.XXXXXX")"
+  {
+    echo '# HELP zfs_pool_size_bytes Total usable size of the pool.'
+    echo '# TYPE zfs_pool_size_bytes gauge'
+    printf '%s\n' "$health" | awk '{ printf "zfs_pool_size_bytes{pool=\"%s\"} %s\n", $1, $2 }'
+    echo '# HELP zfs_pool_allocated_bytes Space allocated in the pool.'
+    echo '# TYPE zfs_pool_allocated_bytes gauge'
+    printf '%s\n' "$health" | awk '{ printf "zfs_pool_allocated_bytes{pool=\"%s\"} %s\n", $1, $3 }'
+    echo '# HELP zfs_pool_free_bytes Space free in the pool.'
+    echo '# TYPE zfs_pool_free_bytes gauge'
+    printf '%s\n' "$health" | awk '{ printf "zfs_pool_free_bytes{pool=\"%s\"} %s\n", $1, $4 }'
+    echo '# HELP zfs_pool_online Whether the pool state is ONLINE.'
+    echo '# TYPE zfs_pool_online gauge'
+    printf '%s\n' "$health" | awk '{ printf "zfs_pool_online{pool=\"%s\"} %d\n", $1, ($5 == "ONLINE" ? 1 : 0) }'
+  } > "$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$TEXTFILE_DIR/zfs_pool.prom"
+fi
+
+# ---- health: pushed to Kuma
 problems=""
 for pool in $EXPECTED; do
-  state="$(printf '%s\n' "$health" | awk -v p="$pool" '$1 == p { print $2 }')"
+  state="$(printf '%s\n' "$health" | awk -v p="$pool" '$1 == p { print $5 }')"
   [ -z "$state" ] && state="MISSING"
   [ "$state" != "ONLINE" ] && problems="${problems}${pool} ${state}; "
 done
@@ -521,6 +552,34 @@ else
 fi
 EOF
 ```
+
+Each metric family is emitted with its `HELP`/`TYPE` and all of its samples
+together, which the Prometheus text format requires — interleaving them per pool
+would be easier to write and is not valid.
+
+**The textfile directory has to exist and be the one node_exporter reads.** It is
+created by the `prometheus-node-exporter` package installed in
+[grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host), but verify
+the collector is actually pointed at it rather than assuming:
+
+```bash
+ps -o args= -C prometheus-node-exporter
+```
+
+If `--collector.textfile.directory` is missing from that output, add it and
+restart:
+
+```bash
+echo 'ARGS="--collector.textfile.directory=/var/lib/prometheus/node-exporter"' >> /etc/default/prometheus-node-exporter
+```
+
+```bash
+systemctl restart prometheus-node-exporter
+```
+
+The `if [ -d ... ]` guard means the script still pushes health correctly on a
+host where the directory does not exist — the metrics are the part that degrades,
+not the alerting.
 
 ```bash
 chmod +x /usr/local/bin/zfs-health-push.sh
@@ -581,6 +640,24 @@ systemctl start zfs-health-push.service && systemctl status zfs-health-push.serv
 The monitor in Kuma should go green within a minute, and its message should read
 `all pools ONLINE`.
 
+Then check the other half — four lines, one per pool:
+
+```bash
+cat /var/lib/prometheus/node-exporter/zfs_pool.prom
+```
+
+And confirm node_exporter is actually serving them, which is the step that
+catches a wrong textfile directory:
+
+```bash
+curl -s localhost:9100/metrics | grep '^zfs_pool_'
+```
+
+Alloy already scrapes this endpoint, so nothing changes on the infra VM — the
+metrics arrive on the next scrape and
+[grafana-setup.md](grafana-setup.md#what-diskalmostfull-sees-under-zfs) has the
+queries and the alert.
+
 **What this covers, and what it doesn't.** A degraded or faulted pool pushes
 `down` *with the pool name in the notification*, so ntfy tells you which drive to
 look at. If the script breaks, the host loses power, or the network goes, nothing
@@ -588,6 +665,15 @@ is pushed at all and the monitor goes down as a plain deadman — two failure mo
 one monitor. What it does not cover is a disk that is dying but has not yet been
 kicked from its pool; that is SMART's job, and the same script could grow a
 `smartctl -H` loop later.
+
+**Why the deadman also protects the metrics.** A textfile that stops being
+updated does not disappear — node_exporter keeps serving the last version
+indefinitely, so a dead script would leave Prometheus reading a frozen capacity
+figure that looks perfectly healthy. That would normally need its own staleness
+alert. Here it does not: the same script writes the file and pushes the
+heartbeat, so a script that stops writing also stops pushing, and Kuma says so.
+Keeping both jobs in one script is what makes that true — splitting them would
+mean adding the staleness alert back.
 
 `zfs-zed` is the native alternative and fires on the ZFS event itself rather than
 on a five-minute poll. It is better latency, and it needs a working outbound MTA
@@ -677,13 +763,15 @@ charged to `rpool`, not to the backup mirror.
 Treat all of it as a starting point. The reasoning above is the part meant to
 survive.
 
-> One monitoring blind spot worth knowing: the `DiskAlmostFull` alert reads
-> `node_filesystem_*`, so it counts **filesystems**. VM disks are zvols — block
-> devices — and snapshots are neither, so `rpool` can be nearly full while the
-> hypervisor reports gigabytes free. Checking that is `zpool list` and
-> `zfs list -t snapshot` on the host. Degraded pools are a different question and
-> are covered actively by [Part 10](#part-10--notice-when-a-mirror-degrades); the
-> full account of where the line falls is
+> Worth knowing which metric answers which question here. `DiskAlmostFull` reads
+> `node_filesystem_*`, so it counts **filesystems** — and VM disks are zvols,
+> block devices, while snapshots are neither. `rpool` can therefore be nearly
+> full while the hypervisor reports gigabytes free. Pool capacity is a **separate
+> metric**, `zfs_pool_allocated_bytes`, written by the same timer as the health
+> push in [Part 10](#part-10--notice-when-a-mirror-degrades) and alerted on as
+> `ZfsPoolAlmostFull`. Snapshots still show up in neither, being charged to the
+> pool and attributed to nothing — `zfs list -t snapshot` is the only view of
+> those. Full account:
 > [grafana-setup.md](grafana-setup.md#what-diskalmostfull-sees-under-zfs).
 
 ---
