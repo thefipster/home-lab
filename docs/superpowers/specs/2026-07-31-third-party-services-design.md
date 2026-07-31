@@ -116,30 +116,28 @@ Also considered: **Tandoor** in place of Mealie — Postgres-required, with
 nutrition data and meal-cost tracking Mealie cannot match, at the price of more
 complexity. A taste call, not a correctness one. **Mealie stands.**
 
-### SSO: four OIDC rows, one deliberate absence
+### SSO: four join by OIDC, one deliberately does not
 
-| App | SSO | Where configured |
-|---|---|---|
-| Paperless-ngx | OIDC | `PAPERLESS_APPS` + `PAPERLESS_SOCIALACCOUNT_PROVIDERS`; callback `/accounts/oidc/authentik/login/callback/` |
-| Mealie | OIDC | env vars |
-| BookStack | OIDC | env vars |
-| LubeLogger | OIDC | **Server Settings UI**, not env |
-| Vaultwarden | **none — deliberate** | — |
+Paperless-ngx, Mealie, BookStack and LubeLogger all support OIDC and all join
+Authentik, per the repo rule that anything with native OIDC uses it. The catalog
+records **the decision**; the client IDs, callback URLs and environment variables
+that implement it live in each app's Forgejo directory.
 
 **Vaultwarden keeps local login only**, though it now supports OIDC. It is the
-third stated exception to the "anything with native OIDC uses it" rule, and it
-joins Uptime Kuma and Home Assistant for a reason of the same shape: a password
-manager that dies with the identity provider is the one outage from which you
-cannot recover, because the credentials needed to fix Authentik are inside it.
-Recorded in `sso-applications.md` as an intentional non-integration.
+third stated exception to that rule, joining Uptime Kuma and Home Assistant for a
+reason of the same shape: a password manager that dies with the identity provider
+is the one outage from which you cannot recover, because the credentials needed
+to fix Authentik are inside it.
 
-**LubeLogger links accounts on email address** — the Authentik user's address
-must match the LubeLogger user's, or SSO silently creates a second account. This
-is the same trap `sso-applications.md` already documents for Forgejo, and it gets
-the same treatment.
+Two gotchas the catalog carries because they cause silent, hard-to-diagnose
+damage rather than a visible failure:
 
-The registry's "which side does this value live on" column gains a third
-possible answer: **Coolify env vars**, alongside app-side and Authentik-side.
+- **LubeLogger links accounts on email address.** The Authentik user's address
+  must match the LubeLogger user's, or SSO quietly creates a second account —
+  the same trap `sso-applications.md` already documents for Forgejo.
+- **LubeLogger's OIDC is configured in its Server Settings UI**, not by
+  environment variable, so it is the one integration a `git clone` of the
+  Forgejo repo cannot reproduce.
 
 ## The five entries
 
@@ -164,26 +162,41 @@ official compose, and BookStack has no choice to make.
 Vaultwarden additionally needs `SIGNUPS_ALLOWED=false` once the first account
 exists, and an argon2-hashed `ADMIN_TOKEN`.
 
-## Registry ripples
+## The three registries stay untouched — deliberately
 
-The repo rule is that a new service decides about all three registries and says
-so in each.
+The repo rule is that a new service decides about
+[dns-records.md](../../dns-records.md),
+[sso-applications.md](../../sso-applications.md) and
+[uptime-kuma-monitors.md](../../uptime-kuma-monitors.md), and says so in each.
+**These five decide to stay out of all three**, and each app's DNS, SSO and
+monitor facts live in its own Forgejo directory instead.
 
-**DNS — zero new records, and that is a deliberate non-row.** All five ride the
-`*.thefipster.de` wildcard to the apps VM, exactly like `coolify.` and `apps.`.
-`dns-records.md` gains one line recording the class as absent on purpose. Pinning
-five exact records at the apps VM would break the auto-correcting property the
-wildcard provides: an apps-VM address change currently fixes itself everywhere at
-once.
+The reason is that duplication here would be pure cost. The registries earn their
+keep for infra VM services because the *implementation* is clickwork with no
+other home — an Authentik application exists only in Authentik's database, a Kuma
+monitor only in Kuma's SQLite, so a file in this repo is the only durable record.
+These five have another home: a git repository per app directory, which is
+exactly where a reader already goes to change them. A second copy here would
+drift, and a drifted registry is worse than none, because it reads as
+authoritative.
 
-**SSO — four rows plus one absence**, as above.
+Two facts are worth stating once, in the catalog, because they are properties of
+the *machine* rather than of any one app:
 
-**Uptime Kuma — five HTTPS monitors in a new group, and one hard limitation.**
-Kuma's container-state monitors **cannot see any of these**. It reads the *infra*
-VM's Docker socket; these run on a different daemon on a different machine. HTTP
-checks through Coolify's proxy are the only signal available, and the registry
-says so rather than leaving a reader to wonder why this group has no container
-rows.
+- **No app needs a DNS record.** All five ride the `*.thefipster.de` wildcard to
+  the apps VM, exactly like `coolify.` and `apps.`. Pinning exact records would
+  break the auto-correcting property the wildcard provides — an apps-VM address
+  change currently fixes itself everywhere at once.
+- **Uptime Kuma can only check these over HTTP.** Its container-state monitors
+  read the *infra* VM's Docker socket; these run on a different daemon on a
+  different machine, so container-level monitoring is not available to them at
+  all. Anyone adding monitors in the Forgejo repos needs to know that before
+  wondering why the option does nothing.
+
+**Cost accepted:** `sso-applications.md` describes itself as covering every
+Authentik application, and after this it no longer does. The catalog closes that
+by naming, per entry, where the app's SSO configuration lives — so the pointer
+exists even though the values are not copied.
 
 ## Known gap: container logs
 
@@ -205,13 +218,18 @@ specifically: Coolify's own containers are equally invisible today.
 | `apps/services.md` | **New.** The catalog. |
 | `apps/README.md` | Link it; extend "what deliberately does not live here" to cover third-party compose. |
 | `docs/roadmap/apps-vm-logs.md` | **New.** Shipping apps VM container logs to Loki. |
-| `docs/sso-applications.md` | Four OIDC rows; Vaultwarden as a stated absence; note the Coolify-side value column. |
-| `docs/uptime-kuma-monitors.md` | Five HTTPS monitors in a new group; note why no container monitors. |
-| `docs/dns-records.md` | Extend the deliberate non-row note to cover the class. |
-| `README.md` | Layout tree, architecture diagram, status table row. |
-| `CLAUDE.md` | The apps VM is no longer only "your own apps". |
+| `README.md` | **Vague on purpose** — the apps VM runs third-party apps too, with a link to the catalog where one fits naturally. No per-app names, no list to keep in sync. |
+| `CLAUDE.md` | One clause: `apps/` now holds a catalog alongside the README and `.env.example`. |
+
+The README stays deliberately thin because the catalog is the single place the
+list is allowed to live. A README that enumerated five app names would be a
+fourth copy competing with the catalog and the Forgejo repos.
 
 **Out of scope:**
+
+- **All three registries** — `dns-records.md`, `sso-applications.md` and
+  `uptime-kuma-monitors.md` are untouched. See the section above for why, and
+  for the cost that accepts.
 
 - The Forgejo `self-hosted-services` repo and the compose files themselves.
 - Creating the Coolify resources.
@@ -228,11 +246,12 @@ specifically: Coolify's own containers are equally invisible today.
 There is nothing to execute — the deliverable is documentation. Correctness is
 established by reading, per the repo's standing rule:
 
-1. Every hostname in the catalog is absent from `dns-records.md` **and** the
-   absence is explained there.
-2. Every SSO decision in the catalog has a matching row or stated absence in
-   `sso-applications.md`, and neither file contradicts the other.
-3. Every app in the catalog has monitor rows in `uptime-kuma-monitors.md`.
-4. The catalog names no image tag, no environment value and no compose fragment.
-5. The BookStack MariaDB exception and the Vaultwarden SSO absence each carry
+1. `git diff` touches no file under `docs/` except the new roadmap entry — the
+   three registries are provably unchanged.
+2. The catalog names no image tag, no environment value and no compose fragment.
+3. Every entry names where its implementation lives, so nothing is merely
+   omitted — a reader who wants the DNS, SSO or monitor detail is told which
+   Forgejo directory holds it.
+4. The BookStack MariaDB exception and the Vaultwarden SSO absence each carry
    their reasoning at the point a reader would try to change them.
+5. The README names no individual application.
