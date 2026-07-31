@@ -295,22 +295,33 @@ prompted).
 
 ## Part 6 — Give the VMs their addresses (on the router)
 
-On the **UDR**, add a **DHCP reservation** for each VM's MAC so the IPs
-are stable — the reservation targets are listed in
-[dns-records.md](dns-records.md) (see [wildcard-dns-udr.md](wildcard-dns-udr.md)
-for where reservations live).
+On the **UDR**, add a **DHCP reservation** for the MAC of each VM you just
+built — infra and apps — so the IPs are stable. The reservation targets are
+listed in [dns-records.md](dns-records.md) (see
+[wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
 
-Once the VMs are up, add **every** DNS record from the registry
+Then add **every** DNS record from the registry
 ([dns-records.md](dns-records.md)) — the wildcard to the apps VM and the exact
 infra host records; [wildcard-dns-udr.md](wildcard-dns-udr.md) is the how-to.
 Add the complete set now: later guides assume the records exist.
+
+**One row waits, and only one:** `homeassistant.thefipster.de` points at the
+third VM, which does not exist until
+[home-assistant-setup.md](home-assistant-setup.md) — that guide creates the VM,
+its reservation and that record together. Note that `ha.thefipster.de` is *not*
+the exception: it points at the infra VM, so add it now like the rest.
 
 ---
 
 ## Part 7 — Repo and host setup in the VMs
 
 Everything the infra VM runs is driven from this repo, so get the checkout onto
-the VM first:
+the VM first. The Ubuntu Server install carries no `git`, so it is one apt
+install away:
+
+```bash
+sudo apt install -y git
+```
 
 ```bash
 cd ~ && git clone <this-repo> home-lab

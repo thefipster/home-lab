@@ -121,13 +121,13 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── review/                   Findings from replaying the guides
 │   └── roadmap/                  What's next (backup, CI hardening; monitoring is done)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
-│   ├── init-host.sh              Docker Engine + compose plugin (both Ubuntu VMs)
-│   ├── init-docker.sh                Install Docker Engine + compose plugin
+│   ├── init-host.sh              Clock-step policy + guest agent (both Ubuntu VMs)
+│   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
+│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
 │   ├── init-authentik.sh         Authentik: data tree, generate secrets
-│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-dockge.sh            Bring up the Dockge management UI
-│   ├── init-forgejo.sh           Forgejo Part 0: data tree, .env secrets
+│   ├── init-forgejo.sh           Forgejo prep: data tree, .env secrets
 │   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
 │   ├── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
 │   ├── init-coolify.sh           Coolify on the apps VM: preflight, swap, install
@@ -196,7 +196,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
-   a valid certificate.
+   a valid certificate. The one exception is
+   `homeassistant.thefipster.de`, whose target VM does not exist until step 10
+   and which that guide adds.
 ### infra VM — everything the other two lean on
 
 3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
@@ -226,11 +228,13 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### apps VM — your own applications
 
-9. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Runs
-   `init-host.sh` like the infra VM (Docker plus the clock fix), then
-   `init-coolify.sh`. Create its admin account *immediately*: a fresh instance is
-   unauthenticated on a LAN port with nothing in front of it. Ends by installing
-   the node exporter that Alloy on the infra VM already expects.
+9. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Runs the two
+   host scripts the infra VM runs — `init-host.sh` (clock + guest agent) and
+   `init-unattended-upgrades.sh` — but **not** `init-docker.sh`: Coolify's own
+   installer brings the Engine, which `init-coolify.sh` then runs. Create its
+   admin account *immediately*: a fresh instance is unauthenticated on a LAN
+   port with nothing in front of it. Ends by installing the node exporter that
+   Alloy on the infra VM already expects.
 
 ### home-assistant VM — home automation
 

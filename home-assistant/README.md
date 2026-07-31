@@ -15,7 +15,7 @@ truth. There is nothing here to `docker compose up`, nothing to symlink into
 `/opt/stacks`, and no `.env` to seed.
 
 That makes it the only machine in the lab with no script at all: `infra/` stacks
-have one each, the apps VM has three, this has none.
+have one each, the apps VM has four, this has none.
 
 | File | Purpose |
 |------|---------|

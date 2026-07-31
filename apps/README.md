@@ -24,9 +24,16 @@ What that leaves in this directory:
 
 | Script | What it does |
 |--------|--------------|
-| [`init-host.sh`](../scripts/init-host.sh) | Docker Engine + compose plugin, and the time-sync step fix that survives a snapshot rollback. Shared with the infra VM. |
+| [`init-host.sh`](../scripts/init-host.sh) | The time-sync step fix that survives a snapshot rollback, plus the QEMU guest agent. Shared with the infra VM. |
+| [`init-unattended-upgrades.sh`](../scripts/init-unattended-upgrades.sh) | Automatic security updates. Also shared with the infra VM — Coolify's installer sets up none. |
 | [`init-coolify.sh`](../scripts/init-coolify.sh) | Preflight, swapfile, then Coolify's official installer — fetched to disk with its checksum printed, rather than piped into a root shell. |
 | [`init-node-exporter.sh`](../scripts/init-node-exporter.sh) | Host metrics for Alloy on the infra VM to scrape. The infra VM must **not** run this — Alloy collects its own host metrics there. |
+
+**[`init-docker.sh`](../scripts/init-docker.sh) is the one script this machine
+deliberately skips.** Coolify's installer brings its own Docker Engine, so this
+VM has no Docker — and no `docker` group — until `init-coolify.sh` runs. Its
+preflight treats a missing Engine as the normal first-run state and only
+version-checks one that is already there.
 
 ## TLS and DNS
 

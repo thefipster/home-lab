@@ -109,12 +109,8 @@ so it cannot also be the proxy's backend.
 
 ### 6. Onboard
 
-With the records in place, open Home Assistant by name and create your account
-through the onboarding wizard:
-
-```bash
-http://homeassistant.thefipster.de:8123
-```
+With the records in place, open **`http://homeassistant.thefipster.de:8123`** in
+a browser and create your account through the onboarding wizard.
 
 Plain HTTP and the machine name, deliberately: Traefik is not in the path yet, and
 `ha.thefipster.de` would reach the infra VM, which has nothing to serve you until
