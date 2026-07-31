@@ -49,7 +49,65 @@ scripts/init-unattended-upgrades.sh
 > preflight there treats a missing Engine as normal and only version-checks one
 > that already exists.
 
-### 2. Run the init script
+### 2. Mount the data disk
+
+This VM has **two** disks: an 80 GB root on the hypervisor's NVMe mirror, and a
+300 GB second disk on the `data` mirror
+([proxmox-setup.md Part 5](proxmox-setup.md#part-5--create-the-vms)). Coolify
+keeps everything it manages under **`/data/coolify`**, so the second disk gets
+mounted at `/data` *before* the installer runs — afterwards means moving a live
+data directory.
+
+Find it. It is the one with no mountpoint and no children:
+
+```bash
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+```
+
+> **Check the size before the next command.** `mkfs` on the wrong device wipes
+> the OS you just installed. The target is the empty 300 GB disk — almost
+> certainly `/dev/sdb`, but confirm rather than assume.
+
+A filesystem straight on the device, no partition table — this disk will only
+ever hold one, and skipping the table makes a later resize simpler:
+
+```bash
+sudo mkfs.ext4 -L coolify-data /dev/sdb
+```
+
+Mount it by **label**, so it survives the device letter changing between boots,
+and with `nofail` so a missing disk cannot leave the VM stuck at boot:
+
+```bash
+sudo mkdir -p /data
+```
+
+```bash
+echo 'LABEL=coolify-data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+```
+
+```bash
+sudo systemctl daemon-reload && sudo mount -a
+```
+
+Verify — it must show ~300 GB, not the root disk's 80:
+
+```bash
+df -h /data
+```
+
+**Why ext4 on top of ZFS.** The hypervisor already mirrors and checksums this
+disk; a second copy-on-write layer inside the guest would add write amplification
+and a second ARC for no redundancy that isn't already there. Plain ext4 in the
+guest is the right pairing with ZFS on the host.
+
+**This disk is excluded from whole-VM backups** (`backup=0`), deliberately — see
+[proxmox-setup.md Part 9](proxmox-setup.md#part-9--schedule-whole-vm-backups).
+It is meant to be covered by the file-level backup layer instead, which is not
+built yet ([roadmap/backup.md](roadmap/backup.md)). Until it is, treat everything
+under `/data` as **unbacked** and deploy accordingly.
+
+### 3. Run the init script
 
 ```bash
 cd ~/home-lab
@@ -71,7 +129,7 @@ Expect a few minutes and a lot of image pulls.
 > 20.04/22.04/24.04 and Debian 11/12. The installer is Debian-family generic, so
 > the warning is expected and the script continues on purpose.
 
-### 3. Create the admin account — immediately
+### 4. Create the admin account — immediately
 
 ```bash
 echo "http://$(hostname -I | awk '{print $1}'):8000"
@@ -82,7 +140,7 @@ unauthenticated, and it is listening on a LAN port with no Traefik and no
 Authentik in front of it. This is the one window in the whole lab where a service
 is reachable and unprotected.
 
-### 4. Set the instance domain
+### 5. Set the instance domain
 
 In Coolify: *Settings → Configuration → Instance Domain* →
 `https://coolify.thefipster.de`.
@@ -92,7 +150,7 @@ Coolify's proxy routes by `Host` header — the same mechanism that serves every
 app you deploy. The registry records this as a deliberate non-row; see
 [dns-records.md](dns-records.md).
 
-### 5. Give the proxy its netcup credentials
+### 6. Give the proxy its netcup credentials
 
 Coolify's bundled proxy issues its **own** Let's Encrypt wildcard for
 `*.thefipster.de` via DNS-01. Same credentials as the infra VM, separate
@@ -116,7 +174,7 @@ Verify once issuance completes:
 curl -sI https://coolify.thefipster.de | head -1
 ```
 
-### 6. Install the host metrics exporter
+### 7. Install the host metrics exporter
 
 The infra VM watches this machine, and host metrics come from a node exporter
 running here as a systemd unit:
@@ -137,7 +195,7 @@ last machine in the lab.
 
 ## Troubleshooting
 
-**The script warns about the OS version.** Expected on Ubuntu 26.04 — see step 2.
+**The script warns about the OS version.** Expected on Ubuntu 26.04 — see step 3.
 
 **"requires 30 GB" and the script stops.** Coolify's own installer enforces this
 too; the preflight just fails earlier and names the cause. Grow the disk in
@@ -164,6 +222,7 @@ there lands you on **this** box and produces the same 404.
 
 | What | Where |
 |------|-------|
+| The data disk | `/data` — the 300 GB second disk, `LABEL=coolify-data`, on the host's `data` mirror |
 | Coolify itself | `/data/coolify/` — source of truth for everything it manages |
 | Coolify's compose | `/data/coolify/source/` — installed, not from this repo |
 | App data + volumes | Docker volumes, managed by Coolify |

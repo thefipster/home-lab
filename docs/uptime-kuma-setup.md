@@ -143,6 +143,26 @@ enabled** *and* **Apply on all existing monitors**.
 Subscribe on your phone with the ntfy app, or in a browser at
 `https://ntfy.sh/<your-topic>`. Verify with Kuma's **Test** button.
 
+### 7. Go back to the Proxmox guide for the pool monitor
+
+> **This is the one loose end in the build order.** The hypervisor's ZFS pools
+> are watched by a **push** monitor, so the check runs on the Proxmox host — but
+> it needs a push URL, and until this guide ran there was no Kuma to get one
+> from. So that part of [proxmox-setup.md](proxmox-setup.md) was deliberately
+> left until now.
+
+Create the `Hypervisor Storage` monitor from
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#hypervisor-storage--proxmox-host)
+— type **Push**, heartbeat **300 s**, retries **2**, and attach the ntfy
+notification you just wired. Copy its push URL, then work through
+[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)
+on the host: the health script, its `EnvironmentFile`, and the systemd timer.
+
+Worth doing rather than deferring. The lab's six internal drives are three
+mirrors, and **a degraded mirror takes nothing down** — the box runs, the VMs
+run, and the redundancy you paid for is quietly gone. This monitor is the only
+thing in the lab that would tell you.
+
 ### Checklist
 
 The runtime proof, in order. **`Logs Storage`** (`monitoring-loki-1`) is the
@@ -164,6 +184,8 @@ docker stop monitoring-loki-1
 docker start monitoring-loki-1
 ```
 
+- [ ] `Hypervisor Storage` is green and its latest heartbeat message reads
+      `all pools ONLINE` — proof the host's timer is actually calling in
 - [ ] No regressions: Grafana, Authentik and Forgejo still load, and Grafana's
       alert rules still show `Normal`
 
@@ -172,6 +194,10 @@ docker start monitoring-loki-1
 The infra VM is complete. **[coolify-setup.md](coolify-setup.md)** is next — the
 apps VM — followed by [home-assistant-setup.md](home-assistant-setup.md). The full
 sequence is the [README build order](../README.md#build-order).
+
+If you skipped step 7, that is the one thing to come back for: **[proxmox-setup.md
+Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)** is the only
+part of the build order that cannot be completed in its own guide's turn.
 
 ## Troubleshooting
 

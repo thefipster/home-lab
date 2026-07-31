@@ -25,9 +25,13 @@ UniFi Dream Router · DHCP + split-horizon DNS
                                     │
                             LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · 32 threads · 64 GB · 2 TB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · i5-12500HL · 12 threads · 64 GB · hypervisor only, no Docker
+    │  rpool  2×500 GB NVMe mirror  → Proxmox + VM root disks
+    │  backup 2×1 TB  SATA mirror  → vzdump whole-VM archives
+    │  data   2×500 GB SATA mirror  → the apps VM's second disk
+    │  usb    1×500 GB USB  NVMe    → restic container backups (offsite-capable)
     │
-    ├─ infra VM · 32 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
+    ├─ infra VM · 12 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
     │    Authentik     SSO / identity provider (OIDC + forward-auth)
     │    Forgejo       git · CI · container registry
@@ -35,12 +39,12 @@ Proxmox VE · pve.thefipster.de · 32 threads · 64 GB · 2 TB · hypervisor onl
     │    Grafana       metrics · logs · traces (Prometheus · Loki · Tempo · Alloy)
     │    Uptime Kuma   black-box status + every notification the lab sends
     │
-    ├─ apps VM · 32 vCPU · 24 GB · 500 GB · Ubuntu Server 26.04
+    ├─ apps VM · 12 vCPU · 24 GB · 80 GB + 300 GB on data · Ubuntu Server 26.04
     │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
     │    your apps     *.thefipster.de, routed by Host header — no new DNS record
     │    node_exporter scraped by Alloy over the LAN
     │
-    └─ home-assistant VM · 32 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
+    └─ home-assistant VM · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
          Supervisor     full HAOS — add-on store, ESPHome firmware builds
          ha. → Traefik  proxied from the infra VM via its file provider
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
@@ -59,6 +63,26 @@ host's Docker outright, HAOS *is* an OS image and cannot be a container beside
 others, and the infra VM is the one machine that must survive an experiment on
 either of them. Rolling back a bad Coolify upgrade should not take TLS, SSO and
 monitoring with it.
+
+## Storage
+
+Six internal drives paired into **three ZFS mirrors**, plus one external drive.
+Every mirror answers a different question, which is why they are not one big pool:
+`rpool` is fast flash for the hypervisor and every VM root disk; `backup` is
+deliberately **double** its size, because that is what makes a retention policy
+possible instead of a single copy; `data` absorbs the growth — Coolify's app
+volumes, databases and image layers — on drives whose failure cannot take the
+hypervisor with it.
+
+The external USB drive is the only copy that can physically leave the building.
+It holds the file-level `restic` repository, reached over SFTP so both VMs can
+write to it — see [docs/roadmap/backup.md](docs/roadmap/backup.md).
+
+Mirrors only help if a failure is noticed, and a degraded mirror is precisely the
+failure that takes *nothing* down. A timer on the hypervisor reports pool health
+to an Uptime Kuma push monitor, so it lands in the same ntfy notifications as
+everything else ([docs/proxmox-setup.md, Part
+10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades)).
 
 ## Networking & DNS
 
@@ -160,11 +184,14 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 ### Lab foundation — the hypervisor and the network
 
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
-   the hypervisor, create the `infra` and `apps` VMs. The `home-assistant` VM's
+   the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
+   cap the ARC, then create the `infra` and `apps` VMs. The `home-assistant` VM's
    specs are in the same table but it is built in step 10, since it needs an
    imported disk image rather than an ISO. Then run the host
    scripts in each guest: clock + guest agent and automatic security updates on
-   both, Docker on the infra VM only.
+   both, Docker on the infra VM only. Its last two parts — the whole-VM backup
+   job and the pool-health monitor — are done at the end, since the monitor needs
+   a Kuma that does not exist until step 8.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
@@ -229,7 +256,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
-| Backup & restore (infra VM) | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
+| Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--schedule-whole-vm-backups) |
+| Backup layer 2: `restic` file-level to the USB drive | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
+| ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
@@ -237,7 +266,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Coolify install (apps VM) | 📄 guide ready, not yet built — [guide](docs/coolify-setup.md) |
 | home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](docs/home-assistant-setup.md) |
 | Monitoring the apps + HA VMs | 📄 config shipped; targets red until those VMs exist |
-| VM sizing for 32 threads / 64 GB / 2 TB | 📄 documented — awaiting the target hardware |
+| Sizing for the target hardware (12 threads / 64 GB / 4 pools) | 📄 documented — [spec](docs/superpowers/specs/2026-07-31-hardware-specs-design.md) |
 
 `✅` runs today · `📄` written and reviewed, waiting on hardware or a build step ·
 `⬜` not started. The three `📄` rows above are why the guides can describe

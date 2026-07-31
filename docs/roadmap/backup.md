@@ -81,18 +81,22 @@ is a backup nobody keeps running.
 Neither available mechanism covers both failure modes, and they fail in
 opposite directions — so run both, at different frequencies.
 
-**Layer 1 — Proxmox `vzdump`, whole-VM, for disaster recovery.**
+**Layer 1 — Proxmox `vzdump`, whole-VM, for disaster recovery.** ✅ **built**
 Answers "the SSD died" / "I broke the VM beyond repair" with a single restore
 that brings back the OS, Docker, the checkout and every `/opt` tree at once.
-Requires no code in this repo. `proxmox-setup.md` Part 8 already points at
-*Datacenter → Backup*; what's missing is a **schedule**, the **qemu-guest-agent**
-(so snapshot mode can fs-freeze instead of taking a torn image), and a
-**target that is not the boot SSD**.
+Requires no code in this repo. All three things this roadmap said were missing —
+a **schedule**, the **qemu-guest-agent** for fs-freeze, and a **target that is
+not the boot pool** — now exist as
+[proxmox-setup.md Part 9](../proxmox-setup.md#part-9--schedule-whole-vm-backups):
+a nightly job onto the `backup` mirror, which is dedicated 1 TB on different
+physical drives, deliberately double the 500 GB root pool so retention is
+possible rather than a single copy.
 
 **Layer 2 — `restic`, file-level, encrypted, offsite, for data recovery.**
 Answers "Authentik ate its database", "which version of that repo was it
 yesterday", and "the house burned down". Granular, deduplicated, and small
-enough to send off-premises daily.
+enough to send off-premises daily. Its target is the **external 500 GB USB
+NVMe** — see [Where layer 2 writes](#where-layer-2-writes).
 
 Why not just one:
 
@@ -113,6 +117,46 @@ Why not just one:
 | rsnapshot / rsync+hardlinks | No encryption at all — disqualifying for `.env` and ACME private keys on an off-site target. |
 | `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a fifth root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
 | Proxmox Backup Server | The right answer *if a second machine exists* — dedup, incremental, verify jobs, and it makes layer 1 genuinely offsite. Running PBS as a VM on the host it protects is the classic anti-pattern. Revisit when there is a NAS or a mini-PC to put it on. |
+
+### Where layer 2 writes
+
+The target is the **external 500 GB USB 3.1 NVMe**, a single-disk ZFS pool
+(`usbbackup`) created on the Proxmox host in
+[proxmox-setup.md Part 3](../proxmox-setup.md#part-3--post-install-housekeeping).
+It is phase 2's "local target first" — **not** a replacement for phase 3. Offsite
+still stands; this is the drive that gets the mechanism debugged without also
+debugging cloud credentials, and it is the only copy that can physically leave
+the building.
+
+**Transport: SFTP against the Proxmox host's existing `sshd`.** restic speaks
+SFTP natively, so the drive stays mounted on the hypervisor and the repository
+is `sftp:backup@pve.thefipster.de:/restic`. A dedicated unprivileged `backup`
+user, key-only, one key per client, confined with `ChrootDirectory` +
+`ForceCommand internal-sftp` — the chroot directory must be root-owned and not
+group-writable, which is the usual thing to get wrong.
+
+Three options were weighed, and the deciding factor is **who else will need this
+drive**:
+
+| Option | Verdict |
+|---|---|
+| **SFTP over the existing sshd** ✅ | No new daemon on a host this repo deliberately keeps free of workloads. Both VMs reach the same repository, so the apps VM joins later with a key and an `.env` value rather than a redesign. |
+| USB passthrough to the infra VM | Simplest — restic writes to a local path — but it binds the drive to one guest. Re-sharing it from there to the apps VM is strictly worse than sharing it from the host that owns it. |
+| NFS/SMB share from the host | Same reach, but it adds a file server to the hypervisor and a network hop with its own failure modes, to achieve what a daemon already running achieves. |
+
+**Sizing.** 500 GB against a set dominated by Forgejo's registry blobs, which
+grow monotonically. restic's dedup absorbs repeated image layers well but cannot
+delete what the registry never expires — so the registry-hygiene item in
+[ci-supply-chain.md](ci-supply-chain.md) phase 3 is also the lever on whether
+this drive stays big enough.
+
+**One obligation this creates.** Layer 1 excludes the apps VM's 300 GB data disk
+(`backup=0`, [proxmox-setup.md Part 5](../proxmox-setup.md#part-5--create-the-vms)),
+so that disk is covered by *nothing* until the apps VM runs its own restic job —
+which this roadmap scopes out. That is deliberate and currently harmless: the
+apps VM has no services on it yet. It stops being harmless the day it does, and
+the transport above is chosen so that day is a key and a config value rather than
+a rethink.
 
 ### Why dumps, not raw directory copies, for the databases
 
@@ -136,17 +180,20 @@ argues against.
 ## Architecture
 
 ```
-        ┌─ Layer 1: Proxmox vzdump (weekly, snapshot mode + guest agent)
-        │     infra VM ──► NAS / PBS datastore ──► "the VM is gone" restore
-Proxmox │
- host   └─ (same job also covers the apps VM)
-
-infra VM
-  pg_dump ×3 ─┐
+        ┌─ Layer 1: vzdump nightly, snapshot mode + guest agent   ✅ built
+        │     infra + apps + HA roots ──► `backup` pool ──► "the VM is gone" restore
+Proxmox │        (2×1 TB SATA mirror, 2× the root pool, retention on the storage)
+ host   │
+        └─ `usbbackup` pool (500 GB USB NVMe), served over SFTP by the host's sshd
+                                    ▲
+infra VM                            │
+  pg_dump ×3 ─┐                     │
   sqlite .backup ─┼─► /opt/backup/dumps ─┐
-  /opt/{forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ──► offsite repo
-  infra/*/.env ──────────────────────────┘                          │   (encrypted)
+  /opt/{forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ─┘  (encrypted)
+  infra/*/.env ──────────────────────────┘                          │
                                                                     └─► Kuma push URL (deadman)
+
+apps VM (later) ─── same repository, its own key ───────────────────────┘
 ```
 
 Layer 2 is a **systemd timer**, not a compose stack — deliberately. A backup
@@ -159,7 +206,8 @@ repo still owns the files, same as every other stack:
 infra/backup/
   backup.sh          dump → restic backup → forget --prune → ping Kuma
   restic-backup.service / .timer
-  .env.example       RESTIC_REPOSITORY, RESTIC_PASSWORD, target creds, KUMA_PUSH_URL
+  .env.example       RESTIC_REPOSITORY (sftp:backup@pve.thefipster.de:/restic),
+                     RESTIC_PASSWORD, KUMA_PUSH_URL
 scripts/init-backup.sh   installs the unit, creates /opt/backup, seeds .env, restic init
 docs/backup-setup.md     the guide, once phase 2 lands
 ```
@@ -170,23 +218,28 @@ on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
 
 ## Phases
 
-1. **Layer 1 — whole-VM backups, no repo code.** Install `qemu-guest-agent`
-   in both VMs and enable the agent in each VM's Proxmox options (snapshot
-   mode fs-freezes instead of taking a torn image). Create a
-   *Datacenter → Backup* job on a target that is **not** the boot SSD, with a
-   retention policy. Extend `proxmox-setup.md` Part 8 from "for whole-VM
-   backups, use *Datacenter → Backup*" to an actual procedure. Biggest
-   coverage-per-effort in the whole roadmap; do it first.
-2. **Layer 2 — the dump + restic job, local target.** `infra/backup/` as
-   above, `scripts/init-backup.sh`, `docs/backup-setup.md`. Repository on a
-   NAS or second disk first, so the mechanism gets debugged without also
-   debugging cloud credentials. Retention `--keep-daily 7 --keep-weekly 4
-   --keep-monthly 6`; a weekly `restic check`.
+1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
+   [proxmox-setup.md Part 9](../proxmox-setup.md#part-9--schedule-whole-vm-backups).
+   Nightly *Datacenter → Backup* job in snapshot mode onto the `backup` mirror,
+   with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
+   the storage. Was the biggest coverage-per-effort item in the roadmap, and it
+   is the one piece of this design that needed no repo code at all.
+2. **Layer 2 — the dump + restic job, USB target.** `infra/backup/` as above,
+   `scripts/init-backup.sh`, `docs/backup-setup.md`. The repository is the
+   `usbbackup` pool over SFTP ([Where layer 2 writes](#where-layer-2-writes)) —
+   local first, so the mechanism gets debugged without also debugging cloud
+   credentials. Retention `--keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
+   weekly `restic check`. Host-side prerequisites: the `backup` user, its
+   chroot, and one authorized key per client.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
    bandwidth check against the first full upload. This is what makes 3-2-1
-   true rather than aspirational.
+   true rather than aspirational. **The USB drive does not close this phase:**
+   it is the second copy, on the same premises and plugged into the machine it
+   protects. Unplugging it and carrying it elsewhere is a valid third copy only
+   for as long as someone actually does — and nothing here can alert on a human
+   step that didn't happen.
 4. **Notice when it stops.** A silent backup failure is indistinguishable
    from a backup. `backup.sh` curls an **Uptime Kuma push monitor** on
    success; Kuma alerts through ntfy when the heartbeat doesn't arrive — a
