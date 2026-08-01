@@ -209,7 +209,7 @@ sudo chronyc makestep
 ```
 
 Background and the permanent fix are in
-[proxmox-setup.md, Part 8](proxmox-setup.md#part-8--snapshot-before-you-build).
+[proxmox-setup.md, Part 7](proxmox-setup.md#part-7--snapshot-before-you-build).
 
 **The runner restart-loops with "Cannot connect to the Docker daemon at
 unix:///var/run/docker.sock".** Either `DOCKER_GID` is missing from `.env`

@@ -9,7 +9,7 @@
 #
 # Run scripts/init-host.sh FIRST. It relaxes the time-sync daemon's step policy,
 # and this script needs a sane clock: apt and curl both do TLS, and a guest
-# resumed from a snapshot can be days behind. See docs/proxmox-setup.md, Part 8.
+# resumed from a snapshot can be days behind. See docs/proxmox-setup.md, Part 7.
 #
 # The infra VM only — the apps VM gets its Docker from Coolify's installer. The
 # host setup both guests share is scripts/init-host.sh (clock) and

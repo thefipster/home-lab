@@ -54,7 +54,11 @@ form, which makes this the only stack in the repo without one.
 ### 3. Start the stack
 
 ```bash
-cd /opt/stacks/uptime-kuma && docker compose up -d
+cd ~/home-lab/infra/uptime-kuma
+```
+
+```bash
+docker compose up -d
 ```
 
 ```bash
@@ -155,7 +159,7 @@ Create the `Hypervisor Storage` monitor from
 [uptime-kuma-monitors.md](uptime-kuma-monitors.md#hypervisor-storage--proxmox-host)
 — type **Push**, heartbeat **300 s**, retries **2**, and attach the ntfy
 notification you just wired. Copy its push URL, then work through
-[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)
+[proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades)
 on the host: the health script, its `EnvironmentFile`, and the systemd timer.
 
 Worth doing rather than deferring. The lab's six internal drives are three
@@ -191,12 +195,14 @@ docker start monitoring-loki-1
 
 ## Next
 
-The infra VM is complete. **[coolify-setup.md](coolify-setup.md)** is next — the
-apps VM — followed by [home-assistant-setup.md](home-assistant-setup.md). The full
-sequence is the [README build order](../README.md#build-order).
+The infra VM is complete. **[apps-vm-setup.md](apps-vm-setup.md)** is next — the
+second machine's checkout, host setup and data disk — followed by
+[coolify-setup.md](coolify-setup.md) and
+[home-assistant-setup.md](home-assistant-setup.md). The full sequence is the
+[README build order](../README.md#build-order).
 
 If you skipped step 7, that is the one thing to come back for: **[proxmox-setup.md
-Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades)** is the only
+Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades)** is the only
 part of the build order that cannot be completed in its own guide's turn.
 
 ## Troubleshooting
@@ -302,6 +308,8 @@ would mean putting Kuma somewhere else entirely.
 
 ## Next
 
-The infra VM is complete. **[coolify-setup.md](coolify-setup.md)** is next — the
-apps VM — followed by [home-assistant-setup.md](home-assistant-setup.md). The full
-sequence is the [README build order](../README.md#build-order).
+The infra VM is complete. **[apps-vm-setup.md](apps-vm-setup.md)** is next — the
+second machine's checkout, host setup and data disk — followed by
+[coolify-setup.md](coolify-setup.md) and
+[home-assistant-setup.md](home-assistant-setup.md). The full sequence is the
+[README build order](../README.md#build-order).

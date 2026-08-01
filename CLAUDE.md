@@ -26,7 +26,13 @@ service name and nesting them would add a `../` to every cross-guide link:
   and manages apps through its UI, so `apps/` holds **no compose file** — a
   README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
   needs, and `services.md`, a **catalog** of the third-party software this VM
-  runs. App definitions live in Coolify's database, not this repo; the
+  runs. Coolify never reads that `.env` and has **no credentials form**: the
+  values are typed into the proxy's own compose in its UI (*Servers → Proxy →
+  Configuration*), beside the flags that switch it off its default HTTP-01
+  challenge — which cannot issue a wildcard at all. The file is the **recovery
+  copy** for when Coolify regenerates that compose from its own store, not
+  merely a record of what is required. App definitions live in Coolify's
+  database, not this repo; the
   third-party compose files live in a Forgejo repo, so the catalog records what
   runs and why, never how. It deliberately adds no rows to the three `docs/`
   registries — those cover infra VM services, whose implementation is clickwork
@@ -160,7 +166,9 @@ the sequence is:
 The first three are **host** scripts, not stack scripts, and the split between
 them is deliberate: only the middle one is about Docker, so only it is
 infra-VM-only. The apps VM runs the other two (it gets its Docker from
-Coolify's installer).
+Coolify's installer). Those two runs have a guide each —
+`docs/infra-vm-setup.md` and `docs/apps-vm-setup.md` — rather than one shared
+section, for the reasons under [Docs layout](#docs-layout).
 
 1. `scripts/init-host.sh` — machine-level basics with no Docker in them: the
    time-sync daemon's step policy (chrony `makestep 1 -1`, or a tighter
@@ -271,7 +279,9 @@ the single source of truth; Dockge only drives start/stop/logs.
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
   `forgejo:11`) — a deliberate policy; keep it when bumping. Four exceptions,
   each for a different reason: Authentik is pinned **major.minor** (`2025.6`)
-  because its minor releases ship breaking DB migrations; `grafana/grafana` is
+  because its minor releases ship breaking DB migrations — moving off that pin
+  is a planned piece of work with its own cost, not a routine bump
+  (`docs/roadmap/authentik-2026.md`); `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
   `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`2.9.4`) are pinned to a
   **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify
@@ -352,10 +362,20 @@ the single source of truth; Dockge only drives start/stop/logs.
 ## Docs layout
 
 `docs/` holds the reproduction guides, one per build-order step:
-`proxmox-setup.md` → `wildcard-dns-udr.md` → `traefik-setup.md` →
-`authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
-`grafana-setup.md` → `uptime-kuma-setup.md` → `coolify-setup.md` →
-`home-assistant-setup.md`. The README's "Build order" links them in sequence,
+`proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
+`traefik-setup.md` → `authentik-setup.md` → `dockge-setup.md` →
+`forgejo-setup.md` → `grafana-setup.md` → `uptime-kuma-setup.md` →
+**`apps-vm-setup.md`** → `coolify-setup.md` → `home-assistant-setup.md`.
+
+**The two `*-vm-setup.md` guides are one section split in two, and the split is
+load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which
+made that guide the only one whose steps ran in a shell its `**Runs on:**` line
+did not name — it says *the bare server, then the Proxmox host shell*, and Part 7
+ran in two guests. It also provisioned the apps VM seven guides before anything
+used it, which is what grew the duplicated Part 0 back into `coolify-setup.md`.
+Each machine's section of the build order now opens with the guide that prepares
+that machine. Do not fold them back in, and do not add a third: the Proxmox host
+has no checkout, and the HA VM is an appliance. The README's "Build order" links them in sequence,
 **grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
 and each guide ends by linking the next. The last two guides leave the infra VM:
 their `**Runs on:**` line is the quickest way to tell. `grafana-setup.md` owns **all** of monitoring —

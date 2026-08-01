@@ -2,8 +2,9 @@
 
 **Runs on:** apps VM
 
-**Prerequisite:** [uptime-kuma-setup.md](uptime-kuma-setup.md) complete — the
-infra VM is finished, so this machine has TLS, SSO, CI and monitoring to lean on.
+**Prerequisite:** [apps-vm-setup.md](apps-vm-setup.md) complete — this machine
+has the repo checked out, the host scripts run, and its 300 GB second disk
+mounted at `/data`, which the installer needs *before* it runs.
 
 [Coolify](https://coolify.io) is a self-hosted PaaS, reached on this VM's own
 address at port **8000** during install and at **`https://coolify.thefipster.de`**
@@ -18,96 +19,7 @@ is the opposite: the repo is the source of truth and Dockge only drives it.
 
 ## Steps
 
-### 1. Repo and host setup
-
-This machine runs the two **host** scripts the infra VM runs, and neither of
-them is about Docker. `init-host.sh` relaxes the time-sync step policy so a
-snapshot rollback cannot leave this VM's clock permanently skewed, and installs
-the guest agent; `init-unattended-upgrades.sh` gives it security patches, which
-Coolify's installer does not set up. Full reasoning in
-[proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-host-setup-in-the-vms).
-
-```bash
-sudo apt install -y git
-```
-
-```bash
-cd ~ && git clone <this-repo> home-lab
-```
-
-```bash
-cd ~/home-lab && scripts/init-host.sh
-```
-
-```bash
-scripts/init-unattended-upgrades.sh
-```
-
-> **`init-docker.sh` is deliberately not in that list.** It is the one script
-> the apps VM skips: Coolify's installer brings its own Docker Engine in step 2,
-> so this VM has no Docker — and no `docker` group to join — until then. The
-> preflight there treats a missing Engine as normal and only version-checks one
-> that already exists.
-
-### 2. Mount the data disk
-
-This VM has **two** disks: an 80 GB root on the hypervisor's NVMe mirror, and a
-300 GB second disk on the `data` mirror
-([proxmox-setup.md Part 5](proxmox-setup.md#part-5--create-the-vms)). Coolify
-keeps everything it manages under **`/data/coolify`**, so the second disk gets
-mounted at `/data` *before* the installer runs — afterwards means moving a live
-data directory.
-
-Find it. It is the one with no mountpoint and no children:
-
-```bash
-lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
-```
-
-> **Check the size before the next command.** `mkfs` on the wrong device wipes
-> the OS you just installed. The target is the empty 300 GB disk — almost
-> certainly `/dev/sdb`, but confirm rather than assume.
-
-A filesystem straight on the device, no partition table — this disk will only
-ever hold one, and skipping the table makes a later resize simpler:
-
-```bash
-sudo mkfs.ext4 -L coolify-data /dev/sdb
-```
-
-Mount it by **label**, so it survives the device letter changing between boots,
-and with `nofail` so a missing disk cannot leave the VM stuck at boot:
-
-```bash
-sudo mkdir -p /data
-```
-
-```bash
-echo 'LABEL=coolify-data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
-```
-
-```bash
-sudo systemctl daemon-reload && sudo mount -a
-```
-
-Verify — it must show ~300 GB, not the root disk's 80:
-
-```bash
-df -h /data
-```
-
-**Why ext4 on top of ZFS.** The hypervisor already mirrors and checksums this
-disk; a second copy-on-write layer inside the guest would add write amplification
-and a second ARC for no redundancy that isn't already there. Plain ext4 in the
-guest is the right pairing with ZFS on the host.
-
-**This disk is excluded from whole-VM backups** (`backup=0`), deliberately — see
-[proxmox-setup.md Part 9](proxmox-setup.md#part-9--schedule-whole-vm-backups).
-It is meant to be covered by the file-level backup layer instead, which is not
-built yet ([roadmap/backup.md](roadmap/backup.md)). Until it is, treat everything
-under `/data` as **unbacked** and deploy accordingly.
-
-### 3. Run the init script
+### 1. Run the init script
 
 ```bash
 cd ~/home-lab
@@ -125,11 +37,17 @@ same operation, but you can read the script that is about to own your machine.
 
 Expect a few minutes and a lot of image pulls.
 
+> **This is where the apps VM gets Docker.** It is the one machine that skips
+> `init-docker.sh` ([apps-vm-setup.md](apps-vm-setup.md)), so the Engine ≥ 24
+> preflight above is deliberately **soft**: a missing Engine is normal on a
+> first run and only an existing one is version-checked. Making that gate hard
+> would deadlock the only machine that needs this script.
+
 > **On Ubuntu 26.04 the script warns.** Coolify officially lists Ubuntu
 > 20.04/22.04/24.04 and Debian 11/12. The installer is Debian-family generic, so
 > the warning is expected and the script continues on purpose.
 
-### 4. Create the admin account — immediately
+### 2. Create the admin account — immediately
 
 ```bash
 echo "http://$(hostname -I | awk '{print $1}'):8000"
@@ -140,7 +58,7 @@ unauthenticated, and it is listening on a LAN port with no Traefik and no
 Authentik in front of it. This is the one window in the whole lab where a service
 is reachable and unprotected.
 
-### 5. Set the instance domain
+### 3. Set the instance domain
 
 In Coolify: *Settings → Configuration → Instance Domain* →
 `https://coolify.thefipster.de`.
@@ -150,31 +68,95 @@ Coolify's proxy routes by `Host` header — the same mechanism that serves every
 app you deploy. The registry records this as a deliberate non-row; see
 [dns-records.md](dns-records.md).
 
-### 6. Give the proxy its netcup credentials
+### 4. Switch the proxy to the netcup DNS-01 challenge
 
 Coolify's bundled proxy issues its **own** Let's Encrypt wildcard for
-`*.thefipster.de` via DNS-01. Same credentials as the infra VM, separate
-certificate, separate ACME account — nothing is shared and nothing needs to be.
+`*.thefipster.de`. Same credentials as the infra VM, separate certificate,
+separate ACME account — nothing is shared and nothing needs to be.
+
+**This is not just a credentials step.** Coolify's proxy ships configured for
+the **HTTP-01** challenge, and Let's Encrypt does not issue wildcards over
+HTTP-01 at all. Switching the challenge type is the part that actually matters;
+the credentials are what the new challenge type needs.
+
+First record the values in the repo's copy:
 
 ```bash
 nano ~/home-lab/apps/.env
 ```
 
-Fill in the three `NETCUP_*` values, then enter the same values in Coolify's UI
-(*Settings → Proxy*). The file is the repo's record of *what* is required;
-Coolify reads its own store, not this file.
+Then open **Servers → *your server* → Proxy → Configuration** in Coolify. That
+page holds the Traefik container's `docker-compose` YAML in an editor — there is
+no credentials form anywhere in Coolify, and the *Dynamic Configurations*
+listed beside it (`coolify.yaml`, `default_redirect_503.yaml`) cannot carry
+these values: a file provider declares routers and middlewares but sets no
+environment variables and no command-line flags. Leave those two alone.
 
-The netcup caveats are unchanged and not restated here — slow propagation and
-wildcard-only with no apex SAN. See
-[traefik-setup.md](traefik-setup.md#how-it-works).
+Make three changes to the `traefik` service.
 
-Verify once issuance completes:
+**Replace the HTTP-01 lines** — they look like
+`--certificatesresolvers.letsencrypt.acme.httpchallenge=true` and
+`...httpchallenge.entrypoint=http` — with the netcup DNS-01 set:
+
+```
+- "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+- "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=netcup"
+- "--certificatesresolvers.letsencrypt.acme.dnschallenge.resolvers=root-dns.netcup.net:53,second-dns.netcup.net:53,third-dns.netcup.net:53"
+```
+
+**Add an `environment:` block** with the values you just recorded, plus the two
+propagation knobs — without them first issuance fails on netcup's ~10 minute
+publish delay:
+
+```yaml
+environment:
+  NETCUP_CUSTOMER_NUMBER: "..."
+  NETCUP_API_KEY: "..."
+  NETCUP_API_PASSWORD: "..."
+  NETCUP_PROPAGATION_TIMEOUT: "900"
+  NETCUP_POLLING_INTERVAL: "30"
+```
+
+**Declare the wildcard at the entrypoint**, so Traefik requests it at startup
+with no router needed — the same arrangement as the infra VM:
+
+```
+- "--entrypoints.https.http.tls.certresolver=letsencrypt"
+- "--entrypoints.https.http.tls.domains[0].main=*.thefipster.de"
+```
+
+> **Two deviations from Coolify's own documentation, both load-bearing.**
+> Upstream's wildcard page tells you to add `tls.domains[0].sans=*.example.com`
+> beside a `main` of the apex — that requests apex *and* wildcard, which needs
+> two TXT records at the same `_acme-challenge` FQDN, and netcup's non-atomic
+> zone updates lose that race. Wildcard only, no SAN, exactly as
+> `infra/traefik/compose.yaml` does it. And Coolify names its entrypoints
+> `http`/`https`, **not** the `web`/`websecure` this repo's own Traefik uses —
+> an entrypoint name copied from the infra VM silently matches nothing.
+
+Save, then restart the proxy from that same page, and watch issuance:
+
+```bash
+docker logs -f coolify-proxy
+```
+
+Verify once it completes:
 
 ```bash
 curl -sI https://coolify.thefipster.de | head -1
 ```
 
-### 7. Install the host metrics exporter
+> **Coolify regenerates this file from its own store.** A closed issue reports
+> server revalidation wiping custom proxy edits; it dates to a 4.0 beta and is
+> probably long fixed, but it is unverified on the version here. After clicking
+> anything resembling *Validate Server*, re-open the Proxy tab and confirm these
+> lines survived. That risk is why `apps/.env` exists — it is the recovery copy,
+> not decoration.
+
+The remaining netcup caveats are unchanged and not restated here. See
+[traefik-setup.md](traefik-setup.md#how-it-works).
+
+### 5. Install the host metrics exporter
 
 The infra VM watches this machine, and host metrics come from a node exporter
 running here as a systemd unit:
@@ -195,7 +177,16 @@ last machine in the lab.
 
 ## Troubleshooting
 
-**The script warns about the OS version.** Expected on Ubuntu 26.04 — see step 3.
+**The script warns about the OS version.** Expected on Ubuntu 26.04 — see step 1.
+
+**There is no *Settings → Proxy* page.** Correct — there never was. Proxy
+configuration is per-server, at *Servers → your server → Proxy*, and it is a
+YAML editor rather than a form. See [step 4](#4-switch-the-proxy-to-the-netcup-dns-01-challenge).
+
+**The certificate is issued but for the wrong name, or only for
+`coolify.thefipster.de`.** The entrypoint block did not take. Check you used
+`https` and not `websecure` — Coolify's entrypoint names differ from the infra
+VM's, and a flag naming an entrypoint that does not exist is silently ignored.
 
 **"requires 30 GB" and the script stops.** Coolify's own installer enforces this
 too; the preflight just fails earlier and names the cause. Grow the disk in
@@ -222,11 +213,12 @@ there lands you on **this** box and produces the same 404.
 
 | What | Where |
 |------|-------|
-| The data disk | `/data` — the 300 GB second disk, `LABEL=coolify-data`, on the host's `data` mirror |
+| The data disk | `/data` — mounted in [apps-vm-setup.md](apps-vm-setup.md#4-mount-the-data-disk) |
 | Coolify itself | `/data/coolify/` — source of truth for everything it manages |
 | Coolify's compose | `/data/coolify/source/` — installed, not from this repo |
+| The proxy's compose | Coolify's own store, edited at *Servers → Proxy* — **not** in this repo |
 | App data + volumes | Docker volumes, managed by Coolify |
-| netcup credentials (record) | `apps/.env` — gitignored, VM-only |
+| netcup credentials (recovery copy) | `apps/.env` — gitignored, VM-only |
 | Swap | `/swapfile`, with an `/etc/fstab` entry |
 
 `/data/coolify/` is the thing to back up. Nothing under it is reproducible from

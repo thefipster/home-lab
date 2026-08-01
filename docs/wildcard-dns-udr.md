@@ -123,10 +123,13 @@ If the UI won't take a wildcard on your firmware:
 
 ## Next
 
-**[traefik-setup.md](traefik-setup.md)** — TLS, the other half. Traefik on the
-infra VM holds a genuine Let's Encrypt wildcard for `*.thefipster.de`, issued
-via the DNS-01 challenge against the netcup API: no browser warnings, no
-internal CA, nothing exposed to the internet. DNS answers "which IP"; Traefik
+**[infra-vm-setup.md](infra-vm-setup.md)** — the checkout and the host
+underneath it, on the first VM. Then
+[traefik-setup.md](traefik-setup.md) gives that machine TLS, the other half of
+what this guide started: Traefik holds a genuine Let's Encrypt wildcard for
+`*.thefipster.de`, issued via the DNS-01 challenge against the netcup API — no
+browser warnings, no internal CA, nothing exposed to the internet. DNS answers
+"which IP"; Traefik
 answers "which container".
 
 The full sequence is the [README build order](../README.md#build-order).

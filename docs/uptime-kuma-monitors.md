@@ -196,7 +196,7 @@ The one monitor here that watches a **condition** rather than a service, and the
 only one whose target is not something Kuma dials. Set the heartbeat interval to
 **300 s** with 2 retries; a timer on the Proxmox host calls the push URL on that
 cadence. Create the monitor first, then paste its URL into
-[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades),
+[proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades),
 which is where the script and its systemd timer live — on the hypervisor, because
 that is the machine with the pools.
 

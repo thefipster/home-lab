@@ -2,9 +2,9 @@
 
 **Runs on:** infra VM
 
-**Prerequisite:** [wildcard-dns-udr.md](wildcard-dns-udr.md) complete — every
-record from [dns-records.md](dns-records.md) resolving, and the repo plus
-Docker on the infra VM ([proxmox-setup.md, Part 7](proxmox-setup.md#part-7--repo-and-host-setup-in-the-vms)).
+**Prerequisite:** [infra-vm-setup.md](infra-vm-setup.md) complete — the repo
+checked out and Docker running on this VM, with every record from
+[dns-records.md](dns-records.md) resolving.
 
 Traefik is the only thing on the infra VM that terminates TLS and routes
 traffic. It serves every service on a real hostname under **one wildcard
@@ -123,14 +123,16 @@ this point in the build.
 curl -Is http://traefik.thefipster.de | head -1
 ```
 
-Expect `HTTP/1.1 301 Moved Permanently`.
+Expect `HTTP/1.1 308 Permanent Redirect`. Traefik answers permanent entrypoint
+redirections with **308**, not 301 — 301 lets a client rewrite the method to
+GET, 308 does not.
 
 ### Checklist
 
 - [ ] `acme.json` names `thefipster.de`
 - [ ] `openssl s_client` shows a Let's Encrypt–issued `*.thefipster.de` cert
 - [ ] `https://traefik.thefipster.de` → `HTTP/2 404` with **no** TLS warning
-- [ ] `http://traefik.thefipster.de` → `301`
+- [ ] `http://traefik.thefipster.de` → `308`
 
 ## Next
 
@@ -143,7 +145,7 @@ makes the dashboard (and later Dockge) reachable.
 **`certificate has expired or is not yet valid` after a Proxmox snapshot
 rollback.** The VM clock is stale, not the certificate — a rollback resumes the
 guest with its clock frozen at snapshot time, before the cert was issued. See
-[proxmox-setup.md, Part 8](proxmox-setup.md#part-8--snapshot-before-you-build);
+[proxmox-setup.md, Part 7](proxmox-setup.md#part-7--snapshot-before-you-build);
 the immediate fix is:
 
 ```bash

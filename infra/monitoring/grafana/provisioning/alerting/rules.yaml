@@ -47,7 +47,7 @@ groups:
       # snapshots are neither files nor filesystems, so node_filesystem_* counts
       # neither, and `/` on the hypervisor reports gigabytes free while rpool
       # fills. The metric comes from the textfile collector on the Proxmox host
-      # (proxmox-setup.md Part 10) because node_exporter's own zfs collector
+      # (proxmox-setup.md Part 9) because node_exporter's own zfs collector
       # exposes ARC stats and per-pool I/O, not capacity.
       #
       # 80% matches DiskAlmostFull, and is a real threshold rather than a round

@@ -313,6 +313,17 @@ Dated documents under `superpowers/` also mention Part 7 and Part 8. Those are
 **historical records and must not be retro-edited** — the same rule that kept
 the 2026-07-26 review intact.
 
+**That rule has a cost here, and it is being paid knowingly.** The
+[2026-07-26 review](2026-07-26-guide-replay.md) links
+`../proxmox-setup.md#part-8--snapshot-before-you-build`, and after the
+renumbering that anchor is `#part-7-…`. The link rots. Fixing it would mean
+editing a record of what was true on 2026-07-26 to describe a repo from 2026-08-01,
+which is exactly what the no-retro-edit rule exists to prevent — a dated
+document that silently tracks the present is worth less than one with a stale
+link in it. Left broken, deliberately; the same applies to the two `superpowers/`
+plans. If this recurs often enough to matter, the answer is a link check that
+excludes the dated directories, not an edit.
+
 ### Build order
 
 Two insertions, no reordering of anything that exists:

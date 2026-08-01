@@ -120,6 +120,21 @@ itself. List what is there:
 ls -l /dev/disk/by-id/ | grep -v -- '-part'
 ```
 
+**That lists each disk more than once, and the duplicates are not extra
+drives.** udev writes one symlink per identifier it can derive, and a SATA disk
+exposes at least two: `ata-<MODEL>_<SERIAL>`, built from the ATA IDENTIFY
+strings, and `wwn-0x…`, the World Wide Name in the drive firmware. Entries
+resolving to the same `../../sdX` are one disk — and on Crucial drives the WWN
+is derived from the serial, so the tails match visibly
+(`…_2022E2A7651D` and `wwn-0x500a0751e2a7651d`).
+
+**Use the `ata-…` form.** Both are equally stable across boots, which is the
+whole point of `by-id` over `sdX`. The difference shows up the day a drive
+fails: `zpool status` prints the name the pool was created with, and that
+output is what tells you which of four physically identical drives to unplug.
+`ata-CT500MX500SSD1_2022E2A7651D` names the model and the serial printed on the
+label. `wwn-0x500a0751e2a7651d` does not get you there without a lookup.
+
 The 1 TB pair becomes `backup`, the whole-VM archive target:
 
 ```bash
@@ -139,6 +154,37 @@ backups — see [roadmap/backup.md](roadmap/backup.md):
 ```bash
 zpool create -o ashift=12 -O compression=lz4 usbbackup /dev/disk/by-id/<usb-nvme>
 ```
+
+> **If `zpool create` refuses the disks, that is the safety interlock, not a
+> failure.** ZFS declines a device carrying a recognisable filesystem
+> signature, because that usually means the wrong device was named. Retail and
+> shucked SSDs commonly arrive formatted exFAT, so expect it on the SATA pairs
+> and the USB drive.
+>
+> Confirm there is nothing on them you want — this is the one step here that
+> destroys data you might not have meant to give up:
+>
+> ```bash
+> mkdir -p /mnt/check && mount -o ro /dev/disk/by-id/<disk>-part1 /mnt/check && ls -la /mnt/check
+> ```
+>
+> ```bash
+> umount /mnt/check
+> ```
+>
+> Then clear the signatures explicitly — on the **whole** disk, no `-part1`:
+>
+> ```bash
+> wipefs -a /dev/disk/by-id/<disk-a> /dev/disk/by-id/<disk-b>
+> ```
+>
+> The original `zpool create` now succeeds unchanged. **Reach for `wipefs`
+> rather than `zpool create -f`:** `-f` only tells ZFS to ignore the signature,
+> leaving the old superblock and partition table on disk underneath ZFS's own
+> labels, where `blkid`, `lsblk -f` and the Proxmox disk view will go on
+> reporting the drive as exFAT. `wipefs -a` removes the signature *and* the
+> partition table, so the pool sits on a clean device and nothing contradicts
+> `zpool status` later.
 
 Confirm all four pools are `ONLINE` and each mirror shows two devices:
 
@@ -252,8 +298,8 @@ Click **Create VM** (top right) for the infra and apps VMs. In the wizard:
 - **OS:** the uploaded Ubuntu ISO.
 - **System:** tick **Qemu Agent**; leave BIOS on SeaBIOS + machine `q35` (fine for
   Linux). Graphic card: Default. The tick adds the virtual device — the daemon
-  that answers on it is installed inside the guest in
-  [Part 7](#part-7--repo-and-host-setup-in-the-vms).
+  that answers on it is installed inside each guest by `scripts/init-host.sh`
+  ([infra-vm-setup.md](infra-vm-setup.md), [apps-vm-setup.md](apps-vm-setup.md)).
 - **Disk:** storage **`local-zfs`**, bus **VirtIO SCSI single** (default), tick
   **Discard** and **SSD emulation** — every pool here is on flash.
 - **CPU:** type **`host`** (best performance on a single-node lab), **1 socket**
@@ -279,7 +325,7 @@ Do it before the OS install, so the disk is present when
 disk by default, and 300 GB of container volumes on top of the VM roots would
 leave the 1 TB backup mirror holding barely one compressed copy — no room for a
 retention policy at all. Excluding it is what keeps
-[Part 9](#part-9--schedule-whole-vm-backups) honest.
+[Part 8](#part-8--schedule-whole-vm-backups) honest.
 
 The trade is real and worth stating plainly: this disk is meant to be covered by
 the **file-level** layer instead, which can restore a single directory — and that
@@ -313,93 +359,7 @@ the exception: it points at the infra VM, so add it now like the rest.
 
 ---
 
-## Part 7 — Repo and host setup in the VMs
-
-Everything the infra VM runs is driven from this repo, so get the checkout onto
-the VM first. The Ubuntu Server install carries no `git`, so it is one apt
-install away:
-
-```bash
-sudo apt install -y git
-```
-
-```bash
-cd ~ && git clone <this-repo> home-lab
-```
-
-Clone to `~/home-lab` specifically: the guides' `cd` commands assume that
-path, and Dockge later bind-mounts this checkout at the same absolute path —
-don't move it afterwards.
-
-Three scripts, in this order. First the host basics — the time-sync policy and
-the QEMU guest agent, which is what puts the VM's IP on its Proxmox summary
-page and lets the hypervisor shut it down cleanly:
-
-```bash
-cd ~/home-lab && scripts/init-host.sh
-```
-
-Then Docker Engine + the compose plugin:
-
-```bash
-scripts/init-docker.sh
-```
-
-Then **log out and back in** (or run `newgrp docker`) so your user picks up
-the `docker` group — until you do, every `docker ...` command fails with
-"permission denied".
-
-Finally, let the VM patch itself:
-
-```bash
-scripts/init-unattended-upgrades.sh
-```
-
-Check what the next run would do — it should list security updates only, and
-never anything from Docker's repo:
-
-```bash
-sudo unattended-upgrade --dry-run --debug
-```
-
-The **apps VM** skips only `init-docker.sh` — Coolify installs its own Docker
-via its install script. The other two apply there just as much — it gets
-snapshotted too, it should report its IP to the hypervisor like the infra VM,
-and Coolify's installer sets up no automatic updates — so clone the repo there
-and run both:
-
-```bash
-cd ~ && git clone <this-repo> home-lab && cd home-lab
-```
-
-```bash
-scripts/init-host.sh && scripts/init-unattended-upgrades.sh
-```
-
-Why the split: `init-docker.sh` installs Docker and nothing else, so it stays
-on the one VM that needs it, while the host-level pieces — the clock, the guest
-agent, the updates — are their own scripts and run on both guests.
-
-Two things about the updates are deliberate, on both VMs:
-
-- **Security pocket only.** Regular `-updates` and every third-party repo stay
-  manual. Docker's repo is one of those third parties: an unattended
-  `docker-ce` upgrade restarts the daemon and bounces every container on the
-  box, so you bump Docker by hand, while you're watching.
-- **It reboots at 04:30** when an update needs it — even with an SSH session
-  open. That is the intended trade for a box nobody logs into: every stack in
-  this repo is `restart: unless-stopped`, so Docker brings the lab back without
-  you, and Uptime Kuma will tell you about the gap. To keep reboots manual
-  instead, run it as `AUTO_REBOOT=false scripts/init-unattended-upgrades.sh` —
-  then watch for `/var/run/reboot-required` yourself, because a kernel patch
-  that is installed but never booted into is not applied.
-
-The **Proxmox host** is out of scope here: it has no checkout of this repo (the
-same reason its node exporter is installed by hand in
-[grafana-setup.md](grafana-setup.md)), and its updates ride along with the
-`apt dist-upgrade` in [Part 3](#part-3--post-install-housekeeping).
-
-## Part 8 — Snapshot before you build
+## Part 7 — Snapshot before you build
 
 Take a clean baseline you can roll back to: select the VM → **Snapshots → Take
 Snapshot** (name it `clean-install`). Do this again before risky changes — this is
@@ -408,7 +368,7 @@ the payoff for choosing Proxmox.
 Snapshots are **not** backups and they are not free: a ZFS snapshot lives in the
 same pool as the disk it snapshots, so every one you keep consumes `rpool` — the
 one pool a failed disk would take with it. Scheduled whole-VM backups to a
-different pool are [Part 9](#part-9--schedule-whole-vm-backups).
+different pool are [Part 8](#part-8--schedule-whole-vm-backups).
 
 > **Rolling back skews the clock.** A rollback resumes the guest with its clock
 > frozen at the moment the snapshot was taken — potentially days behind. Until
@@ -418,7 +378,7 @@ different pool are [Part 9](#part-9--schedule-whole-vm-backups).
 > chrony's default policy (`makestep 1 3`) steps the clock only during its
 > first three updates after the service starts — a rollback happens long after
 > those, so a large offset would only ever be slewed, i.e. effectively never
-> corrected. `scripts/init-host.sh` (Part 7) fixes the policy
+> corrected. `scripts/init-host.sh` fixes the policy
 > (`makestep 1 -1` — step at any time), so the clock corrects itself within
 > moments of the next sync. To force it right away:
 >
@@ -429,11 +389,12 @@ different pool are [Part 9](#part-9--schedule-whole-vm-backups).
 > (On a VM running systemd-timesyncd instead of chrony:
 > `sudo systemctl restart systemd-timesyncd`.)
 >
-> Both Ubuntu VMs run `init-host.sh` (Part 7), so both are already fixed. The
+> Both Ubuntu VMs run `init-host.sh` ([infra-vm-setup.md](infra-vm-setup.md),
+> [apps-vm-setup.md](apps-vm-setup.md)), so both are already fixed. The
 > home-assistant VM is not: if you snapshot it — you should — force a resync
 > from HA's own terminal after a rollback, or simply reboot the VM.
 
-## Part 9 — Schedule whole-VM backups
+## Part 8 — Schedule whole-VM backups
 
 This is **layer 1** of the backup design: whole-VM archives that answer "the disk
 died" or "I broke the VM beyond repair" with one restore. The file-level layer
@@ -460,7 +421,8 @@ backup.
 `qemu-guest-agent` running, Proxmox asks the guest to freeze its filesystems for
 the instant the snapshot is taken, so the archive is consistent rather than a
 torn image of a live disk. `scripts/init-host.sh` installs it on both Ubuntu VMs
-([Part 7](#part-7--repo-and-host-setup-in-the-vms)), HAOS ships it, and the
+([infra-vm-setup.md](infra-vm-setup.md), [apps-vm-setup.md](apps-vm-setup.md)),
+HAOS ships it, and the
 **Qemu Agent** tick in each VM's *Options* is the other half. Without it the job
 still runs and still says "OK" — it just quietly produces the torn image.
 
@@ -483,7 +445,7 @@ The apps VM's 300 GB data disk is **not** in these archives, by the `backup=0`
 set in [Part 5](#part-5--create-the-vms). That is what keeps a 1 TB target able
 to hold real retention instead of a single copy.
 
-## Part 10 — Notice when a mirror degrades
+## Part 9 — Notice when a mirror degrades
 
 > **Come back to this after [uptime-kuma-setup.md](uptime-kuma-setup.md).** It
 > needs a push URL from Kuma, which does not exist until the infra VM is built.
@@ -752,7 +714,7 @@ Per-VM, the numbers and why:
 | Pool | Devices | Holds |
 |---|---|---|
 | `rpool` | 2 × 500 GB NVMe, mirror | Proxmox + all three VM **root** disks |
-| `backup` | 2 × 1 TB SATA, mirror | `vzdump` archives — [Part 9](#part-9--schedule-whole-vm-backups) |
+| `backup` | 2 × 1 TB SATA, mirror | `vzdump` archives — [Part 8](#part-8--schedule-whole-vm-backups) |
 | `data` | 2 × 500 GB SATA, mirror | the apps VM's second disk |
 | `usbbackup` | 1 × 500 GB USB 3.1 NVMe | restic repository — [roadmap/backup.md](roadmap/backup.md) |
 
@@ -779,7 +741,7 @@ survive.
 > block devices, while snapshots are neither. `rpool` can therefore be nearly
 > full while the hypervisor reports gigabytes free. Pool capacity is a **separate
 > metric**, `zfs_pool_allocated_bytes`, written by the same timer as the health
-> push in [Part 10](#part-10--notice-when-a-mirror-degrades) and alerted on as
+> push in [Part 9](#part-9--notice-when-a-mirror-degrades) and alerted on as
 > `ZfsPoolAlmostFull`. Snapshots still show up in neither, being charged to the
 > pool and attributed to nothing — `zfs list -t snapshot` is the only view of
 > those. Full account:
