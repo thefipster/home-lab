@@ -25,7 +25,7 @@ UniFi Dream Router · DHCP + split-horizon DNS
                                     │
                             LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · i5-12500HL · 12 threads · 64 GB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · i5-10500K · 12 threads · 64 GB · hypervisor only, no Docker
     │  rpool  2×500 GB NVMe mirror  → Proxmox + VM root disks
     │  backup 2×1 TB  SATA mirror  → vzdump whole-VM archives
     │  data   2×500 GB SATA mirror  → the apps VM's second disk
@@ -112,7 +112,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── infra-vm-setup.md         infra VM: checkout, clock, guest agent, Docker
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-│   ├── sso-applications.md       Registry: every service behind Authentik
+│   ├── sso-applications.md       Registry: the infra VM's SSO applications
 │   ├── dockge-setup.md           Dockge, the compose management UI
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
@@ -191,9 +191,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
    `home-assistant` VM's specs are in the same table but it is built in step 12,
-   since it needs an imported disk image rather than an ISO. Its last two parts —
-   the whole-VM backup job and the pool-health monitor — are done at the end,
-   since the monitor needs a Kuma that does not exist until step 9.
+   since it needs an imported disk image rather than an ISO. Its last part —
+   the pool-health monitor — is done at the end, since it needs a Kuma that
+   does not exist until step 9; everything before it, the whole-VM backup job
+   included, is done now.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step

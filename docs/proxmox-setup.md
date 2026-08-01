@@ -658,7 +658,7 @@ worth blocking on.
 
 ## Why these sizes
 
-The host is an Intel **`i5-12500HL`** (Alder Lake) with **12 threads**, **64 GB
+The host is an Intel **`i5-10500K`** (Comet Lake) with **12 threads**, **64 GB
 of RAM**, and **seven drives** — six internal, paired into three mirrors, plus
 one external.
 

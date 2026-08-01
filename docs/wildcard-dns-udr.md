@@ -83,7 +83,8 @@ Resolve-DnsName foo.thefipster.de
 Resolve-DnsName git.thefipster.de
 ```
 
-From the **lab host** itself (Linux — this is who the host Docker daemon uses):
+From a **Linux shell in the lab** — either freshly created VM, or the Proxmox
+host:
 
 ```bash
 getent hosts foo.thefipster.de
@@ -94,7 +95,9 @@ getent hosts git.thefipster.de
 ```
 
 From **inside a container** (Docker's embedded DNS forwards to the host resolver
-→ UDR):
+→ UDR). Nothing in the lab has Docker yet at this point in the build — the infra
+VM gets it in [infra-vm-setup.md](infra-vm-setup.md), step 3; run this layer from
+there when you arrive:
 
 ```bash
 docker run --rm alpine getent hosts foo.thefipster.de

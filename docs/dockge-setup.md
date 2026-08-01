@@ -72,8 +72,8 @@ Create its local admin account there.
       Dockge after login
 - [ ] The trusted wildcard certificate is served (no browser warning)
 - [ ] Dockge lists a `dockge` stack — it manages itself
-- [ ] `Dockge` appears as its own application in Authentik under
-      **Admin → Events → Logs**
+- [ ] The login shows as an authorization event against the `Dockge`
+      application in Authentik under **Admin → Events → Logs**
 
 Stacks added later (Forgejo, monitoring) appear in the list as soon as their
 init scripts symlink them in — nothing to configure in Dockge itself.

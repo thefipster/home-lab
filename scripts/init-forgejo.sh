@@ -71,7 +71,9 @@ echo "==> Ensuring FORGEJO_DB_PASSWORD is set in ${ENV_FILE}"
 ensure_secret FORGEJO_DB_PASSWORD "$(openssl rand -base64 36 | tr -d '\n')"
 
 echo "==> Recording DOCKER_GID in ${ENV_FILE}"
-DOCKER_GID="$(getent group docker | cut -d: -f3)"
+# `|| true`: with `set -euo pipefail`, a missing docker group would otherwise
+# kill the script right here — before the guard below can say why.
+DOCKER_GID="$(getent group docker | cut -d: -f3 || true)"
 if [ -z "$DOCKER_GID" ]; then
   echo "Could not read the docker group GID. Is Docker installed (./init-docker.sh)?" >&2
   exit 1

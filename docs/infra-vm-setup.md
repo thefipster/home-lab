@@ -3,8 +3,9 @@
 **Runs on:** infra VM
 
 **Prerequisite:** [wildcard-dns-udr.md](wildcard-dns-udr.md) complete — every
-record from [dns-records.md](dns-records.md) resolves, so this machine can be
-reached and can reach the internet by name.
+record from [dns-records.md](dns-records.md) resolves (bar the one deferred
+`homeassistant.` row the registry marks), so this machine can be reached and
+can reach the internet by name.
 
 The infra VM is the only machine whose services this repo declares, so
 everything from here to [uptime-kuma-setup.md](uptime-kuma-setup.md) runs out of
@@ -97,6 +98,13 @@ docker run --rm hello-world
 > ([apps-vm-setup.md](apps-vm-setup.md)).
 
 ### 4. Automatic security updates
+
+Back into the checkout first — if you logged out and in for step 3, the fresh
+shell starts in `~`:
+
+```bash
+cd ~/home-lab
+```
 
 ```bash
 scripts/init-unattended-upgrades.sh

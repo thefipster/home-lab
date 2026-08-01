@@ -4,7 +4,8 @@
 
 **Prerequisite:** [infra-vm-setup.md](infra-vm-setup.md) complete — the repo
 checked out and Docker running on this VM, with every record from
-[dns-records.md](dns-records.md) resolving.
+[dns-records.md](dns-records.md) resolving (bar the one deferred
+`homeassistant.` row the registry marks).
 
 Traefik is the only thing on the infra VM that terminates TLS and routes
 traffic. It serves every service on a real hostname under **one wildcard

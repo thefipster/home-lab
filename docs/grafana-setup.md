@@ -1,6 +1,7 @@
 # Monitoring — Grafana, Prometheus, Loki, Tempo, Alloy (infra VM)
 
-**Runs on:** infra VM
+**Runs on:** infra VM — except step 6, which is the one step in any guide that
+runs on the Proxmox host
 
 **Prerequisite:** [forgejo-setup.md](forgejo-setup.md) complete — the stack
 scrapes Traefik, Authentik and Forgejo, so they should exist before you verify
@@ -230,7 +231,12 @@ curl -s localhost:9100/metrics | head -3
 ```
 
 Then go **back to the infra VM** and exercise the exact path Alloy will take,
-name resolution included:
+name resolution included — the fresh shell starts in `~`, so return to the
+stack directory first:
+
+```bash
+cd ~/home-lab/infra/monitoring
+```
 
 ```bash
 docker compose exec grafana wget -qO- http://pve.thefipster.de:9100/metrics | head -3
@@ -425,7 +431,11 @@ In Grafana → **Dashboards**, two appear (provisioned, read-only):
 - **Traefik Official Standalone Dashboard** — load any lab URL, then watch the
   request-rate and status-code panels move.
 
-In **Alerting → Alert rules**, four rules, each `Normal`:
+In **Alerting → Alert rules**, four rules. Three show `Normal`; `ServiceDown`
+is **`Firing`**, and that is expected, not a fault — the `apps` and
+`homeassistant` targets it watches point at machines built after this guide
+(the same two zeros step 7 already explained). It clears on its own as those
+machines come up:
 
 | Rule | Fires when | For |
 |------|-----------|-----|
@@ -599,8 +609,10 @@ zfs list -t snapshot
 - [ ] Node Exporter Full: dropdowns populate, panels show data, and **Nodename**
       switches between the infra VM and the Proxmox host
 - [ ] Traefik dashboard: panels move when a lab URL is loaded
-- [ ] Four alert rules listed, all `Normal` — `ZfsPoolAlmostFull` shows
-      `Normal` only once Part 9 feeds it; until then it is `NoData` → `OK`
+- [ ] Four alert rules listed — `DiskAlmostFull` and `CertExpiringSoon`
+      `Normal`; `ZfsPoolAlmostFull` `Normal` only once Part 9 feeds it (until
+      then it is `NoData` → `OK`); `ServiceDown` `Firing` for the two machines
+      not built yet
 - [ ] Temporarily lowering the disk threshold flips `DiskAlmostFull` to
       `Firing`
 
@@ -928,6 +940,7 @@ under [superpowers/specs/](superpowers/specs/).
 
 **[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the independent
 watcher and the lab's notification layer. After that the infra VM is complete
-and **Coolify on the apps VM** is what remains — see
-[apps/README.md](../apps/README.md) and the
+and two machines remain: the **apps VM** ([apps-vm-setup.md](apps-vm-setup.md),
+then [coolify-setup.md](coolify-setup.md)) and the **home-assistant VM**
+([home-assistant-setup.md](home-assistant-setup.md)) — see the
 [README build order](../README.md#build-order).

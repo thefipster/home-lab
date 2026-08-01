@@ -191,7 +191,8 @@ docker start monitoring-loki-1
 - [ ] `Hypervisor Storage` is green and its latest heartbeat message reads
       `all pools ONLINE` — proof the host's timer is actually calling in
 - [ ] No regressions: Grafana, Authentik and Forgejo still load, and Grafana's
-      alert rules still show `Normal`
+      alert state is unchanged — `ServiceDown` still fires for the two machines
+      not built yet, and nothing new has joined it
 
 ## Next
 
