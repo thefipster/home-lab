@@ -25,7 +25,7 @@ UniFi Dream Router · DHCP + split-horizon DNS
                                     │
                             LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · i5-10500K · 12 threads · 64 GB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 64 GB · hypervisor only, no Docker
     │  rpool  2×500 GB NVMe mirror  → Proxmox + VM root disks
     │  backup 2×1 TB  SATA mirror  → vzdump whole-VM archives
     │  data   2×500 GB SATA mirror  → the apps VM's second disk
