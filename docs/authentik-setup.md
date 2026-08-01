@@ -155,7 +155,8 @@ the new user → the dashboard loads. Remove the user from `lab-users` and retry
       then shows the dashboard
 - [ ] A `lab-users` member reaches it; removing them from the group denies
       access
-- [ ] `Traefik` appears as its own application under **Admin → Events → Logs**
+- [ ] The login just performed shows as an authorization event against the
+      `Traefik` application under **Admin → Events → Logs**
 
 ## Next
 

@@ -2,12 +2,18 @@
 
 **Runs on:** Authentik on the infra VM — registry, not a build step
 
-Every service behind [Authentik](authentik-setup.md), with the exact values
-its provider and application are created with. All of this is **manual
-clickwork in the Authentik admin UI** — none of it lives in a compose file —
-so this registry is the record of what must exist. The click-path procedures
-live in the linked guides; **when a new service joins SSO, add its section
-here first.**
+Every **infra-VM** service behind [Authentik](authentik-setup.md), with the
+exact values its provider and application are created with. All of this is
+**manual clickwork in the Authentik admin UI** — none of it lives in a compose
+file — so this registry is the record of what must exist. The click-path
+procedures live in the linked guides; **when a new infra-VM service joins SSO,
+add its section here first.**
+
+**Scope: the infra VM only.** The apps VM's deployed services also join
+Authentik by OIDC, but their Authentik rows live beside the services
+themselves — [apps/services.md](../apps/services.md) is their catalog, and the
+per-app directories in Forgejo hold the how. Their absence here is deliberate,
+not a gap.
 
 Services join by one of two patterns, never both on one service (the repo
 convention):

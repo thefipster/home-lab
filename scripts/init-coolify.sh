@@ -3,7 +3,7 @@
 # init-coolify.sh — install Coolify (self-hosted PaaS) on the APPS VM.
 #
 # Assumes scripts/init-host.sh and scripts/init-unattended-upgrades.sh have run
-# on this machine (docs/proxmox-setup.md, Part 7). It does NOT assume Docker:
+# on this machine (docs/apps-vm-setup.md). It does NOT assume Docker:
 # the apps VM skips init-docker.sh on purpose, because the Coolify installer
 # below brings its own Engine. Steps:
 #   1. Preflight: OS family, Docker Engine version IF one is present, disk, RAM.
@@ -74,8 +74,9 @@ case "${VERSION_ID:-}" in
 esac
 
 # Docker is OPTIONAL here — the one preflight in this repo that does not demand
-# it. The apps VM deliberately skips scripts/init-docker.sh (docs/proxmox-setup.md,
-# Part 7): Coolify's installer brings its own Engine, so a missing docker binary
+# it. The apps VM deliberately skips scripts/init-docker.sh
+# (docs/apps-vm-setup.md): Coolify's installer brings its own Engine, so a
+# missing docker binary
 # is the NORMAL state on a first run and must not abort. When one IS already
 # present — a re-run, or an Engine that arrived some other way — Coolify needs
 # major version 24 or newer, so check that instead of assuming.
@@ -170,10 +171,11 @@ echo
 echo "Done. Next (see docs/coolify-setup.md):"
 echo "  1. Open http://${IP}:8000 and create the admin account NOW — the"
 echo "     instance is unauthenticated until you do."
-echo "  2. Fill in ${APPS_DIR}/.env with your netcup credentials, then enter"
-echo "     the same values in Coolify's UI so its proxy can issue the"
-echo "     *.thefipster.de wildcard via DNS-01. Coolify keeps its own config"
-echo "     store; the file is the repo's record of what is needed."
+echo "  2. Fill in ${APPS_DIR}/.env with your netcup credentials, then type"
+echo "     the same values into the proxy's compose in Coolify's UI"
+echo "     (Servers -> Proxy -> Configuration) so it can issue the"
+echo "     *.thefipster.de wildcard via DNS-01. Coolify regenerates that"
+echo "     compose from its own store; the .env file is the recovery copy."
 echo "  3. Install the host metrics exporter so the infra VM can watch this"
 echo "     machine:  scripts/init-node-exporter.sh"
 echo "  4. coolify.thefipster.de needs NO DNS record — the *.thefipster.de"

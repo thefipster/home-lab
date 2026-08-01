@@ -25,7 +25,7 @@ UniFi Dream Router · DHCP + split-horizon DNS
                                     │
                             LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · i5-12500HL · 12 threads · 64 GB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · i5-10500K · 12 threads · 64 GB · hypervisor only, no Docker
     │  rpool  2×500 GB NVMe mirror  → Proxmox + VM root disks
     │  backup 2×1 TB  SATA mirror  → vzdump whole-VM archives
     │  data   2×500 GB SATA mirror  → the apps VM's second disk
@@ -83,7 +83,7 @@ Mirrors only help if a failure is noticed, and a degraded mirror is precisely th
 failure that takes *nothing* down. A timer on the hypervisor reports pool health
 to an Uptime Kuma push monitor, so it lands in the same ntfy notifications as
 everything else ([docs/proxmox-setup.md, Part
-10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades)).
+9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades)).
 
 ## Networking & DNS
 
@@ -109,18 +109,20 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── proxmox-setup.md          Proxmox host + the three VMs (start here)
 │   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
 │   ├── dns-records.md            Registry: every DNS record the lab needs
+│   ├── infra-vm-setup.md         infra VM: checkout, clock, guest agent, Docker
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-│   ├── sso-applications.md       Registry: every service behind Authentik
+│   ├── sso-applications.md       Registry: the infra VM's SSO applications
 │   ├── dockge-setup.md           Dockge, the compose management UI
 │   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
 │   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
+│   ├── apps-vm-setup.md          apps VM: checkout, host scripts, data disk
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (backup, CI hardening, apps VM logs)
+│   └── roadmap/                  What's next (backup, CI hardening, Authentik bump)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
 │   ├── init-host.sh              Clock-step policy + guest agent (both Ubuntu VMs)
 │   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
@@ -187,40 +189,44 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
-   cap the ARC, then create the `infra` and `apps` VMs. The `home-assistant` VM's
-   specs are in the same table but it is built in step 10, since it needs an
-   imported disk image rather than an ISO. Then run the host
-   scripts in each guest: clock + guest agent and automatic security updates on
-   both, Docker on the infra VM only. Its last two parts — the whole-VM backup
-   job and the pool-health monitor — are done at the end, since the monitor needs
-   a Kuma that does not exist until step 8.
+   cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
+   `home-assistant` VM's specs are in the same table but it is built in step 12,
+   since it needs an imported disk image rather than an ISO. Its last part —
+   the pool-health monitor — is done at the end, since it needs a Kuma that
+   does not exist until step 9; everything before it, the whole-VM backup job
+   included, is done now.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate. The one exception is
-   `homeassistant.thefipster.de`, whose target VM does not exist until step 10
+   `homeassistant.thefipster.de`, whose target VM does not exist until step 12
    and which that guide adds.
+
 ### infra VM — everything the other two lean on
 
-3. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
+3. **[infra VM setup](docs/infra-vm-setup.md)** — the first time you open a
+   shell on a guest. Clone the repo to `~/home-lab`, then three scripts in
+   order: clock policy + guest agent, Docker Engine, automatic security
+   updates. Nothing is served yet; this is the ground everything else stands on.
+4. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The certificate is requested at startup; expect
    the ~10–15 min netcup propagation wait on first issuance.
-4. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
+5. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
    gates: the Traefik dashboard and Dockge reference its forward-auth
    middleware, so their routers do not load until it runs. Each service that
    joins SSO gets its row in the registry,
    **[docs/sso-applications.md](docs/sso-applications.md)**, first.
-5. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
+6. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
    after Authentik (it has no ports published and its route is gated), and
    before the remaining stacks so they can be driven from a browser.
-6. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
+7. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
    to Authentik by OIDC.
-7. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
+8. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
    (container logs, service + host metrics, OTLP with traces, dashboards and
    alerts).
-8. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
+9. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
    monitoring and the lab's notification layer. Last on purpose: it watches
    everything above it, and it is a separate stack precisely so it does not
    share a lifecycle with the monitoring pipeline it also checks. The monitors
@@ -230,17 +236,20 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### apps VM — your own applications
 
-9. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Runs the two
-   host scripts the infra VM runs — `init-host.sh` (clock + guest agent) and
-   `init-unattended-upgrades.sh` — but **not** `init-docker.sh`: Coolify's own
-   installer brings the Engine, which `init-coolify.sh` then runs. Create its
-   admin account *immediately*: a fresh instance is unauthenticated on a LAN
-   port with nothing in front of it. Ends by installing the node exporter that
-   Alloy on the infra VM already expects.
+10. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
+    and host scripts: `init-host.sh` and `init-unattended-upgrades.sh`, but
+    **not** `init-docker.sh` — Coolify's own installer brings the Engine. Also
+    mounts the 300 GB second disk at `/data`, which has to happen *before*
+    Coolify exists rather than after.
+11. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
+    admin account *immediately*: a fresh instance is unauthenticated on a LAN
+    port with nothing in front of it. Its bundled proxy needs switching from
+    HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
+    installing the node exporter that Alloy on the infra VM already expects.
 
 ### home-assistant VM — home automation
 
-10. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+12. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
@@ -253,14 +262,14 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Proxmox host + the infra and apps VMs | ✅ deployed |
 | DNS (UDR split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
-| Authentik SSO (OIDC + forward-auth) | ✅ deployed |
+| Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2025.6`; moving off it is [planned](docs/roadmap/authentik-2026.md) |
 | Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
-| Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--schedule-whole-vm-backups) |
+| Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 8](docs/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | Backup layer 2: `restic` file-level to the USB drive | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
-| ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 10](docs/proxmox-setup.md#part-10--notice-when-a-mirror-degrades) |
+| ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |

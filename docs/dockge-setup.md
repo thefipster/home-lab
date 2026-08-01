@@ -72,8 +72,8 @@ Create its local admin account there.
       Dockge after login
 - [ ] The trusted wildcard certificate is served (no browser warning)
 - [ ] Dockge lists a `dockge` stack — it manages itself
-- [ ] `Dockge` appears as its own application in Authentik under
-      **Admin → Events → Logs**
+- [ ] The login shows as an authorization event against the `Dockge`
+      application in Authentik under **Admin → Events → Logs**
 
 Stacks added later (Forgejo, monitoring) appear in the list as soon as their
 init scripts symlink them in — nothing to configure in Dockge itself.
@@ -156,7 +156,7 @@ Two mounts guarantee that:
   under `/opt/stacks` are symlinks into the checkout; without this mount they
   would dangle inside the container and Dockge could not read them.
 
-This is also why [proxmox-setup.md](proxmox-setup.md#part-7--repo-and-host-setup-in-the-vms)
+This is also why [infra-vm-setup.md](infra-vm-setup.md#1-clone-the-repo)
 insists on cloning to `~/home-lab` and not moving it afterwards.
 
 **The socket is root-equivalent.** Dockge holds `/var/run/docker.sock`, which

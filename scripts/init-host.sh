@@ -12,7 +12,7 @@
 #      and chrony's default policy would never correct the resulting offset —
 #      every TLS handshake then fails with "certificate has expired or is not
 #      yet valid", which looks like a certificate problem and isn't.
-#      See docs/proxmox-setup.md, Part 8. First, because step 2 uses apt.
+#      See docs/proxmox-setup.md, Part 7. First, because step 2 uses apt.
 #   2. Installs qemu-guest-agent, so the hypervisor can read the VM's IP and
 #      shut it down cleanly instead of pulling the virtual plug. Pairs with the
 #      "Qemu Agent" tick in the Create VM wizard — that adds the virtual device,
@@ -74,7 +74,7 @@ run_root apt-get install -y qemu-guest-agent
 run_root systemctl enable --now qemu-guest-agent
 
 echo
-echo "Done. Verify (see docs/proxmox-setup.md, Part 7):"
+echo "Done. Verify (see docs/infra-vm-setup.md or docs/apps-vm-setup.md):"
 echo "  timedatectl status                       — 'System clock synchronized: yes'"
 echo "  systemctl is-active qemu-guest-agent     — 'active'"
 echo "  (and the Proxmox VM summary now shows this VM's IP)"

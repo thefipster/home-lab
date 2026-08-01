@@ -161,8 +161,11 @@ Traefik 404. `Telemetry Collector` covers the same process.
 | Apps Host     | Ping | `apps.thefipster.de` |
 
 No Docker monitors: Coolify runs on **another VM**, so there is no container here
-for a Docker check to read. Add a row per deployed app as you deploy them — each
-gets its own hostname under the wildcard, and none of them needs a DNS record.
+for a Docker check to read. Per-app monitors are **not** recorded here either:
+each deployed app's monitors are listed beside the app itself, in its directory
+of the `self-hosted-services` repo in Forgejo ([apps/services.md](../apps/services.md)
+is the catalog). Each app gets its own hostname under the wildcard, and none of
+them needs a DNS record.
 
 The ping monitor is what makes a red `Apps Platform` interpretable. On its own it
 could mean the app, Coolify's proxy, or the VM being off; with `Apps Host`
@@ -196,7 +199,7 @@ The one monitor here that watches a **condition** rather than a service, and the
 only one whose target is not something Kuma dials. Set the heartbeat interval to
 **300 s** with 2 retries; a timer on the Proxmox host calls the push URL on that
 cadence. Create the monitor first, then paste its URL into
-[proxmox-setup.md Part 10](proxmox-setup.md#part-10--notice-when-a-mirror-degrades),
+[proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades),
 which is where the script and its systemd timer live — on the hypervisor, because
 that is the machine with the pools.
 

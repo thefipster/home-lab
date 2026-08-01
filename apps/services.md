@@ -127,8 +127,8 @@ which is where a reader already goes to change them. A second copy here would
 drift, and a drifted registry is worse than none because it reads as
 authoritative.
 
-One consequence, stated plainly: `docs/sso-applications.md` describes itself as
-covering every Authentik application, and with four OIDC applications listed
-above it no longer does.
+`docs/sso-applications.md` scopes itself to the infra VM for exactly this
+reason and names this catalog as where the apps-VM applications live — the two
+files point at each other on purpose.
 
 See also [apps/README.md](README.md) and the main [README](../README.md).

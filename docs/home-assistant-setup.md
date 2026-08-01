@@ -1,6 +1,7 @@
 # Home Assistant OS (home-assistant VM)
 
-**Runs on:** the Proxmox host shell, then the HA VM's web UI
+**Runs on:** the Proxmox host shell, then the HA VM's web UI — with side trips
+to the UDR (step 5) and an infra-VM shell (step 8)
 
 **Prerequisite:** [coolify-setup.md](coolify-setup.md) complete — the apps VM is
 finished, so this is the last machine in the lab.
@@ -92,11 +93,14 @@ watching for it to settle, not logging in.
 
 **Name it before you open it.** HAOS ships the guest agent, so Proxmox shows the
 VM's address on its **Summary** tab as soon as it boots. Use that to set things up
-on the **UDR** — a DHCP reservation for this VM's MAC, then the **two** records
-this machine needs ([dns-records.md](dns-records.md) is the registry):
+on the **UDR** — a DHCP reservation for this VM's MAC, then the **one record the
+registry deferred until now** ([dns-records.md](dns-records.md)):
 
-- `ha.thefipster.de` → the **infra VM** (the *service* — Traefik answers here)
 - `homeassistant.thefipster.de` → **this VM** (the *machine* — what Traefik dials)
+
+Its sibling `ha.thefipster.de` → the **infra VM** (the *service* — Traefik
+answers there) went in with the rest back in
+[wildcard-dns-udr.md](wildcard-dns-udr.md); verify both now:
 
 ```bash
 getent hosts ha.thefipster.de homeassistant.thefipster.de
@@ -194,8 +198,8 @@ That is every machine. The full sequence is the
 [README build order](../README.md#build-order).
 
 Worth doing from here: add the **System Monitor** integration for this VM's
-CPU/RAM/disk, and point Uptime Kuma at `ha.thefipster.de`
-([uptime-kuma-setup.md](uptime-kuma-setup.md)).
+CPU/RAM/disk, and add this machine's two Kuma monitors from the registry
+([uptime-kuma-monitors.md](uptime-kuma-monitors.md#home-automation--home-assistant-vm)).
 
 ## Troubleshooting
 

@@ -87,7 +87,7 @@ that brings back the OS, Docker, the checkout and every `/opt` tree at once.
 Requires no code in this repo. All three things this roadmap said were missing —
 a **schedule**, the **qemu-guest-agent** for fs-freeze, and a **target that is
 not the boot pool** — now exist as
-[proxmox-setup.md Part 9](../proxmox-setup.md#part-9--schedule-whole-vm-backups):
+[proxmox-setup.md Part 8](../proxmox-setup.md#part-8--schedule-whole-vm-backups):
 a nightly job onto the `backup` mirror, which is dedicated 1 TB on different
 physical drives, deliberately double the 500 GB root pool so retention is
 possible rather than a single copy.
@@ -219,7 +219,7 @@ on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
 ## Phases
 
 1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
-   [proxmox-setup.md Part 9](../proxmox-setup.md#part-9--schedule-whole-vm-backups).
+   [proxmox-setup.md Part 8](../proxmox-setup.md#part-8--schedule-whole-vm-backups).
    Nightly *Datacenter → Backup* job in snapshot mode onto the `backup` mirror,
    with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
    the storage. Was the biggest coverage-per-effort item in the roadmap, and it
@@ -272,7 +272,7 @@ on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
   hit first: a restored/rolled-back guest resumes with a stale clock and every
   TLS client fails with "certificate has expired or is not yet valid".
   `init-host.sh` already handles it on the infra VM
-  ([proxmox-setup.md Part 8](../proxmox-setup.md#part-8--snapshot-before-you-build));
+  ([proxmox-setup.md Part 7](../proxmox-setup.md#part-7--snapshot-before-you-build));
   expect to see it during the drill and don't misdiagnose it as a bad restore.
 - **Non-goals:** continuous replication, PITR/WAL archiving, HA. This is a
   one-person lab — a daily RPO is the right answer, and anything tighter buys
