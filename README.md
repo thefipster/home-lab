@@ -42,6 +42,7 @@ Proxmox VE · pve.thefipster.de · i5-12500HL · 12 threads · 64 GB · hypervis
     ├─ apps VM · 12 vCPU · 24 GB · 80 GB + 300 GB on data · Ubuntu Server 26.04
     │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
     │    your apps     *.thefipster.de, routed by Host header — no new DNS record
+    │    third-party   self-hosted software you use — catalog in apps/services.md
     │    node_exporter scraped by Alloy over the LAN
     │
     └─ home-assistant VM · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
@@ -54,7 +55,7 @@ Proxmox VE · pve.thefipster.de · i5-12500HL · 12 threads · 64 GB · hypervis
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
 | **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Kuma, deliberately, so an Authentik outage stays visible. |
-| **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. |
+| **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
 | **home-assistant VM** | Home Assistant OS | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
 Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
@@ -119,7 +120,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (backup, CI hardening; monitoring is done)
+│   └── roadmap/                  What's next (backup, CI hardening, apps VM logs)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
 │   ├── init-host.sh              Clock-step policy + guest agent (both Ubuntu VMs)
 │   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
@@ -159,6 +160,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │       └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
 ├── apps/                        Apps VM (Coolify) — no compose, by design
 │   ├── README.md                 What lives here and what deliberately doesn't
+│   ├── services.md               Catalog: third-party apps this VM runs
 │   └── .env.example              netcup names Coolify's own proxy needs
 └── home-assistant/              HA VM (Home Assistant OS) — no compose, no script
     ├── README.md                 Why an appliance has neither
@@ -264,6 +266,8 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
 | CI: container scanning + SBOM | ⬜ planned — [roadmap](docs/roadmap/ci-supply-chain.md) |
 | Coolify install (apps VM) | 📄 guide ready, not yet built — [guide](docs/coolify-setup.md) |
+| Third-party apps on the apps VM | 📄 catalog written, nothing deployed — [catalog](apps/services.md) |
+| Container logs from the apps VM | ⬜ planned — [roadmap](docs/roadmap/apps-vm-logs.md) |
 | home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](docs/home-assistant-setup.md) |
 | Monitoring the apps + HA VMs | 📄 config shipped; targets red until those VMs exist |
 | Sizing for the target hardware (12 threads / 64 GB / 4 pools) | 📄 documented — [spec](docs/superpowers/specs/2026-07-31-hardware-specs-design.md) |

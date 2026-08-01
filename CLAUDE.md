@@ -23,9 +23,14 @@ service name and nesting them would add a `../` to every cross-guide link:
 - **infra VM** — Traefik + Authentik + Forgejo + Dockge + monitoring
   (the stacks in `infra/`). The only machine whose services this repo declares.
 - **apps VM** — Coolify (self-hosted PaaS). Coolify owns its own Docker
-  and manages apps through its UI, so `apps/` holds **no compose file** — only a
-  README and a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
-  needs. App definitions live in Coolify's database, not this repo.
+  and manages apps through its UI, so `apps/` holds **no compose file** — a
+  README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
+  needs, and `services.md`, a **catalog** of the third-party software this VM
+  runs. App definitions live in Coolify's database, not this repo; the
+  third-party compose files live in a Forgejo repo, so the catalog records what
+  runs and why, never how. It deliberately adds no rows to the three `docs/`
+  registries — those cover infra VM services, whose implementation is clickwork
+  with no other home.
 - **home-assistant VM** — Home Assistant OS, Supervisor included, so
   add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
