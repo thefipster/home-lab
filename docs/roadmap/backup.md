@@ -24,7 +24,7 @@ that make it openable.
 | Forgejo data | `/opt/forgejo/forgejo` | Git repos, LFS, attachments, **container-registry blobs**, `app.ini`, SSH host keys, the instance's internal/JWT secrets. The repos are pull-mirrors of GitHub, so those come back — the **registry does not**, and it is what the apps VM pulls from. |
 | Forgejo DB | `/opt/forgejo/postgres` | Users, the Authentik OIDC source, issues/PRs, Actions history, and **package metadata** — registry blobs without it are unaddressable garbage. |
 | Authentik DB | `/opt/authentik/postgres` | Every application, provider, flow, policy, group and user. This is the entire body of clickwork that `sso-applications.md` describes; the registry records the *values*, not the objects. |
-| Authentik media/templates/certs | `/opt/authentik/media`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
+| Authentik data/templates/certs | `/opt/authentik/data`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
 | Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The guide's monitor inventory makes it *re-creatable*, by hand, one form at a time. |
 | Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
 | All `.env` files | `infra/{traefik,authentik,forgejo,monitoring}/.env`, `/opt/stacks/dockge/.env` | netcup API credentials, three Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
@@ -59,8 +59,6 @@ is a backup nobody keeps running.
   value that justifies the bytes.
 - **Alloy** `/opt/monitoring/alloy` — WAL and log positions. Self-healing; a
   restore would only replay stale offsets.
-- **Authentik redis** `/opt/authentik/redis` — cache and sessions. Losing it
-  logs everyone out. That is the whole consequence.
 - **Docker images and layers** — pullable, and CI rebuilds what it built.
 - **The repo checkout at `~/home-lab`** — it's a clone; `git clone` restores
   it. Only its untracked `.env` files matter, and those are Tier 1 above.

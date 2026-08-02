@@ -11,7 +11,7 @@ UX in the .NET world, ingests OTLP, and is a single low-maintenance container.
 If the only goal were "read my Blazor app's Serilog output", Seq would win.
 
 It loses on the actual first requirement: **the logs that exist today are not
-.NET logs.** Traefik, Authentik, Forgejo, Dockge, Postgres and Redis are
+.NET logs.** Traefik, Authentik, Forgejo, Dockge and Postgres are
 heterogeneous container stdout — and the same services all expose
 **Prometheus metrics endpoints** that Seq can't do anything with. The Grafana
 stack covers logs *and* metrics *and* dashboards/alerts with one agent:

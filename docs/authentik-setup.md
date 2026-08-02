@@ -40,7 +40,7 @@ cd ~/home-lab
 scripts/init-authentik.sh
 ```
 
-It creates `/opt/authentik/{postgres,redis,media,certs,templates}`, generates
+It creates `/opt/authentik/{postgres,data,certs,templates}`, generates
 `AUTHENTIK_SECRET_KEY`, `PG_PASS` and `AUTHENTIK_BOOTSTRAP_PASSWORD` into
 `infra/authentik/.env`, and symlinks the stack into `/opt/stacks`.
 
@@ -226,7 +226,12 @@ user (step 5).
 |------|-------|
 | Compose project (this repo) | `infra/authentik/` |
 | Secrets | `infra/authentik/.env` — gitignored, VM-only |
-| Persistent data | `/opt/authentik/{postgres,redis,media,certs,templates}` |
+| Persistent data | `/opt/authentik/{postgres,data,certs,templates}` |
+
+`data` is the file-storage mount (uploaded icons, branding and flow
+backgrounds under `data/media`, served at the `/files` prefix). There is no
+`redis` directory: Authentik uses Postgres for caching, background tasks and
+the embedded outpost's sessions, so the stack runs no Redis container.
 
 Keep `.env`: `AUTHENTIK_SECRET_KEY` is **not recoverable**, and losing it
 invalidates all sessions and encrypted secrets.

@@ -1,8 +1,13 @@
 # Authentik — SSO identity provider for the INFRA VM.
 #
-# server + worker + a DEDICATED postgres/redis (not shared with Forgejo, so the
-# stack backs up and version-pins independently). Routed by Traefik at
+# server + worker + a DEDICATED postgres (not shared with Forgejo, so the stack
+# backs up and version-pins independently). Routed by Traefik at
 # auth.thefipster.de under the one wildcard cert (no per-router TLS labels).
+#
+# There is NO redis service, and that is not an omission: Authentik dropped its
+# Redis dependency entirely in 2025.10 (cache, tasks, the embedded outpost's
+# session store and websockets all moved to Postgres). Adding one back would
+# give the stack a container nothing connects to.
 #
 # This stack also declares — as labels on the `server` container — the pieces
 # that let OTHER stacks use Authentik for forward-auth:
@@ -34,28 +39,12 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine            # major pin
-    restart: unless-stopped
-    command: --save 60 1 --loglevel warning
-    volumes:
-      - /opt/authentik/redis:/data
-    networks:
-      - authentik-net
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   server:
-    image: ghcr.io/goauthentik/server:2025.6   # major.minor pin — breaking DB
+    image: ghcr.io/goauthentik/server:2026.5   # major.minor pin — breaking DB
     restart: unless-stopped                     # migrations between minors
     command: server
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
@@ -63,14 +52,19 @@ services:
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
-      AUTHENTIK_REDIS__HOST: redis
       # akadmin is created on FIRST boot from these. Keep it as break-glass.
       # Set on BOTH server and worker — the WORKER applies the blueprint that
       # actually creates akadmin (see the worker's env below).
       AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
       AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-}
     volumes:
-      - /opt/authentik/media:/media
+      # /data, NOT /media. 2025.12 reworked file storage: uploads (app icons,
+      # branding, flow backgrounds) live under /data/media and are served at
+      # the /files prefix. The image ships /data/media as a symlink to /media
+      # for compatibility; bind-mounting /data replaces it with the real thing,
+      # which is what upstream's own compose does. Mount BOTH containers the
+      # same way — the worker writes here too.
+      - /opt/authentik/data:/data
       - /opt/authentik/templates:/templates
       - /opt/authentik/certs:/certs
     labels:
@@ -114,7 +108,7 @@ services:
           - authentik-server
 
   worker:
-    image: ghcr.io/goauthentik/server:2025.6
+    image: ghcr.io/goauthentik/server:2026.5   # must match `server` exactly
     restart: unless-stopped
     command: worker
     # No docker.sock mount: the embedded outpost runs in `server`, so the worker
@@ -122,22 +116,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
       AUTHENTIK_POSTGRESQL__HOST: db
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?set PG_PASS in .env}
-      AUTHENTIK_REDIS__HOST: redis
       # Blueprints — including the one that CREATES akadmin on first boot —
       # are applied by the WORKER, not the server. Without these here, akadmin
       # is created with NO usable password and every login fails.
       AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD:?set AUTHENTIK_BOOTSTRAP_PASSWORD in .env}
       AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN:-}
     volumes:
-      - /opt/authentik/media:/media
+      - /opt/authentik/data:/data
       - /opt/authentik/templates:/templates
       - /opt/authentik/certs:/certs
     networks:

@@ -122,7 +122,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
 │   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (backup, CI hardening, Authentik bump)
+│   └── roadmap/                  What's next (backup, CI hardening, apps-VM logs)
 ├── scripts/                     Setup automation — flat; run on a VM, in this order
 │   ├── init-host.sh              Clock-step policy + guest agent (both Ubuntu VMs)
 │   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
@@ -141,7 +141,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   ├── .env.example          netcup API credentials template
 │   │   └── dynamic/ha.yaml       File-provider router for the HA VM (off-box)
 │   ├── authentik/
-│   │   ├── compose.yaml          Authentik SSO (server, worker, postgres, redis)
+│   │   ├── compose.yaml          Authentik SSO (server, worker, postgres)
 │   │   └── .env.example          secret-key / DB / bootstrap template
 │   ├── forgejo/
 │   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
@@ -262,7 +262,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Proxmox host + the infra and apps VMs | ✅ deployed |
 | DNS (UDR split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
-| Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2025.6`; moving off it is [planned](docs/roadmap/authentik-2026.md) |
+| Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2026.5`, [guide](docs/authentik-setup.md) |
 | Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |

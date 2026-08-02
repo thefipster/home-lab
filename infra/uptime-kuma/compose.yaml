@@ -46,7 +46,7 @@ services:
       # Alloy, unlike the rest of the monitoring tree.
       - /opt/uptime-kuma:/app/data
       # Docker API — this is what lets Kuma report the state of containers it
-      # shares NO network with (Authentik's db/redis/worker, Loki, Prometheus,
+      # shares NO network with (Authentik's db/worker, Loki, Prometheus,
       # Tempo). It is why this stack needs no network changes anywhere else.
       # The fourth socket mount in the lab, after Dockge, Traefik and Alloy,
       # and it carries the same caveat: `:ro` makes the MOUNT read-only, NOT

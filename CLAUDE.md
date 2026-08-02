@@ -278,10 +278,11 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
   `forgejo:11`) — a deliberate policy; keep it when bumping. Four exceptions,
-  each for a different reason: Authentik is pinned **major.minor** (`2025.6`)
-  because its minor releases ship breaking DB migrations — moving off that pin
-  is a planned piece of work with its own cost, not a routine bump
-  (`docs/roadmap/authentik-2026.md`); `grafana/grafana` is
+  each for a different reason: Authentik is pinned **major.minor** (`2026.5`)
+  because its minor releases ship breaking DB migrations — upstream requires
+  upgrades to step through **every** intermediate release, so a bump here is
+  never routine and the pin is what keeps that decision explicit;
+  `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
   `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`2.9.4`) are pinned to a
   **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify

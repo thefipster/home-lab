@@ -279,7 +279,7 @@ shown them Authentik first. Kuma's own authentication is what stands there
 instead.
 
 **Why the Docker socket instead of joining more networks.** The unexposed
-containers — Authentik's database, Redis and worker, plus Loki, Prometheus and
+containers — Authentik's database and worker, plus Loki, Prometheus and
 Tempo — sit on private compose networks Kuma is not on. Asking the Docker API
 sidesteps that entirely, so **no existing stack changed** to make this work:
 `monitoring-net` and `authentik-net` are still internal and
