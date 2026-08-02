@@ -241,6 +241,23 @@ buildx. A plain `node` image fails; the shipped workflow uses
 `ghcr.io/catthehacker/ubuntu:act-22.04`, which has both. The first run pulls it
 (~1.5 GB) onto the host daemon and caches it.
 
+**A workflow refuses to start and reports a schema error.** Forgejo and the
+runner both validate workflow YAML against a schema before a job runs, so a
+typo that used to fail *inside* the run (`ruins-on:` for `runs-on:`, a
+misspelled context like `${{ badcontext.FORGEJO_REPOSITORY }}`) now stops it
+from starting at all. The error shows in the Actions tab and on the file's page
+in the repo. Check a repo's workflows without dispatching anything:
+
+```bash
+docker compose run --rm --entrypoint forgejo-runner runner \
+  validate --repository https://git.thefipster.de/<owner>/<repo>
+```
+
+It clones the repo and prints one line per workflow. The clone is anonymous, so
+for a private mirror put a token in the URL
+(`https://<user>:<token>@git.thefipster.de/...`). Fix the file in **GitHub** —
+the Forgejo copy is a read-only mirror — and re-sync.
+
 **SSO signs you into a *new* account instead of the admin.** The emails don't
 match. Account linking matches by email only — fix the address on either side
 and delete the stray user.
