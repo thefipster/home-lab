@@ -250,8 +250,9 @@ jobs:
     if: ${{ inputs.build_site == true || inputs.build_site == 'true' }}
     container:
       # The runner's own default job image (config.yml), so it is already on
-      # the host daemon. Astro needs Node 18.20+/20.3+.
-      image: code.forgejo.org/oci/node:20-bookworm
+      # the host daemon. Node 24 is the current LTS (Node 20 went EOL
+      # 2026-04-30); keep this tag and config.yml's label in step.
+      image: code.forgejo.org/oci/node:24-bookworm
     # PLACEHOLDER: the Astro project's directory. Every step below runs in it.
     defaults:
       run:

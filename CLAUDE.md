@@ -11,6 +11,20 @@ stacks, bash setup scripts, and Markdown guides that reproduce the lab. Most
 Windows). Treat changes here as documentation + declarative config: correctness
 is verified by reading, not by executing locally.
 
+**There is no live installation, and the repo is treated as unpublished.** It
+describes a lab that gets built from scratch, so a change never has to carry
+existing state forward: **no migration paths, no upgrade procedures, no
+compatibility shims, no deprecation windows.** An image bump is edited in place
+and the old version leaves no trace — you rewrite the config the new version
+wants and delete what it dropped, rather than documenting how to get from one
+to the other. When upstream ships a breaking change, the question to answer is
+"what does a fresh bring-up on the new version look like?", never "how does an
+existing deployment get there?". The one thing that still matters is that the
+result is **internally consistent**: a version number appears in a compose file
+and often also in a comment, an init script and a guide, and all of them move
+together. This is the same rule the [docs layout](#docs-layout) states for
+guides, applied to the whole repo.
+
 ## Topology (why things are split the way they are)
 
 One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
@@ -276,7 +290,7 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 ## Conventions & gotchas that aren't obvious from a single file
 
-- **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:16-alpine`,
+- **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:18-alpine`,
   `forgejo:15`) — a deliberate policy; keep it when bumping. Four exceptions,
   each for a different reason: Authentik is pinned **major.minor** (`2026.5`)
   because its minor releases ship breaking DB migrations — upstream requires
@@ -284,7 +298,7 @@ the single source of truth; Dockge only drives start/stop/logs.
   never routine and the pin is what keeps that decision explicit;
   `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
-  `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`2.9.4`) are pinned to a
+  `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`3.0.2`) are pinned to a
   **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify
   against the registry before assuming a coarser tag exists.
 - **Which major is a separate question from how coarse the pin is, and Forgejo
@@ -298,6 +312,37 @@ the single source of truth; Dockge only drives start/stop/logs.
   Forgejo 13 and runner 8 both began rejecting Actions workflows that fail a
   YAML schema check, so a pair straddling those versions disagrees about what a
   valid workflow is.
+- **The runner's default job image is a Node LTS, and it is written down
+  twice.** `infra/forgejo/config.yml`'s `docker://…/node:24-bookworm` label and
+  the Astro job's `container.image` in `build-and-push.yml` name the same tag on
+  purpose — the workflow picks the image the runner has already pulled. Bump
+  them together, and pick an **LTS** line (`24-bookworm` today; 20 went EOL
+  2026-04-30): a non-LTS Node major loses support inside a year, which is
+  shorter than the interval between bumps here. The other two toolchain jobs
+  set their own images and are unaffected.
+- **The three Postgres services set `PGDATA` explicitly**, which no other stack
+  needs to do. Postgres 18's official image made its default PGDATA
+  version-specific (`/var/lib/postgresql/18/docker`) and moved the declared
+  `VOLUME` up to `/var/lib/postgresql`; left alone, a bind mount at
+  `/var/lib/postgresql/data` would no longer be where the server writes.
+  `PGDATA: /var/lib/postgresql/data` pins it back, so `/opt/<stack>/postgres`
+  keeps holding PGDATA directly — one flat path across all three stacks, all
+  the guides, and the backup roadmap. It also makes a future major bump fail
+  **loudly** ("database files are incompatible with server") rather than
+  silently initializing an empty `19/` beside the old data. All three consumers
+  are in range for 18 (Forgejo ≥ 14, Authentik 14–18, Grafana ≥ 12) even though
+  Authentik's own upstream compose still ships 16.
+- **Tempo 3.x is monolithic mode, and that is what makes it Kafka-free.** 3.0
+  replaced ingesters and the compactor with live-store / block-builder /
+  backend-scheduler, and grew a Kafka-backed write path — but only in
+  **microservices** mode. Monolithic (`-target=all`, the image default, so
+  `compose.yaml` passes no target flag) pushes in-process and needs nothing
+  extra; the local filesystem backend is still supported there. The visible
+  consequence in config is that `compactor:` is gone and retention is set
+  **twice**, on `backend_scheduler.provider.compaction.compaction` and
+  `backend_worker.compaction` — matching upstream's own 3.0 examples. Do not
+  re-add a `compactor:` block, and note 3.0 also removed the
+  `scalable-single-binary` target.
 - **`.env` is gitignored**; every stack whose `.env` holds hand-filled values
   ships a `.env.example` (Dockge's `.env` is machine-generated by its init
   script, so it ships none; Uptime Kuma has no `.env` at all). Secrets

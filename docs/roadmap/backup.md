@@ -159,7 +159,7 @@ a rethink.
 ### Why dumps, not raw directory copies, for the databases
 
 Three Postgres instances (`authentik`, `forgejo`, `grafana` — all
-`postgres:16-alpine`) and one SQLite (Kuma). Copying a live `PGDATA` yields a
+`postgres:18-alpine`) and one SQLite (Kuma). Copying a live `PGDATA` yields a
 torn snapshot; stopping three stacks nightly is downtime this lab has no
 reason to take. `pg_dump` runs against a **live** database — the same argument
 [monitoring's phase-1 spec](../superpowers/specs/2026-07-26-monitoring-phase1-design.md)

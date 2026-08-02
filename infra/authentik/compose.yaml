@@ -23,12 +23,17 @@ name: authentik
 
 services:
   db:
-    image: postgres:16-alpine        # major pin, same policy as the Forgejo DB
+    image: postgres:18-alpine        # major pin, same policy as the Forgejo DB
     restart: unless-stopped
     environment:
       POSTGRES_USER: authentik
       POSTGRES_PASSWORD: ${PG_PASS:?set PG_PASS in .env}
       POSTGRES_DB: authentik
+      # See infra/forgejo/compose.yaml: Postgres 18 made the image's default
+      # PGDATA version-specific. Pinned back to the flat path so
+      # /opt/authentik/postgres holds PGDATA directly. Upstream's own compose
+      # still ships 16; Authentik supports 14–18, so 18 is in range.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       - /opt/authentik/postgres:/var/lib/postgresql/data
     networks:

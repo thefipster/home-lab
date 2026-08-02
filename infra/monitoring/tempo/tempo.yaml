@@ -1,4 +1,10 @@
-# Tempo — single-binary trace storage, filesystem-backed, 7-day retention.
+# Tempo — monolithic trace storage, filesystem-backed, 7-day retention.
+#
+# Monolithic is Tempo 3.x's `-target=all`, which is the image's default, so the
+# compose passes no target flag. It is also the mode that needs NO Kafka: the
+# distributor hands spans to the in-process live-store directly. (3.0 dropped
+# the `scalable-single-binary` target; microservices mode is the one that grew
+# a queue.)
 #
 # Sized for a one-person lab: no clustering, no object storage. Receives traces
 # from Alloy over OTLP gRPC on 4317; Grafana queries the API on 3200. Nothing
@@ -25,10 +31,22 @@ storage:
     wal:
       path: /var/tempo/wal
 
-compactor:
+# Tempo 3.0 removed the `compactor:` block. Compaction and retention are now
+# jobs: the backend-scheduler creates them, the backend-worker runs them, and
+# BOTH need the retention value (upstream's own 3.0 examples set it twice —
+# note the doubled `compaction:` key under the scheduler's provider, which is
+# the config schema, not a typo). In monolithic mode both run in-process.
+#
+# 7 days — shorter than logs (14d) and metrics (15d): traces are far bulkier
+# per unit of insight.
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 168h
+
+backend_worker:
   compaction:
-    # 7 days — shorter than logs (14d) and metrics (15d): traces are far
-    # bulkier per unit of insight.
     block_retention: 168h
 
 # Don't phone home from a private lab (matches Loki's setting).
