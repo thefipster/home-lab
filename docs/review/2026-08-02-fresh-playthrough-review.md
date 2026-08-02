@@ -23,6 +23,14 @@ repo as written. **Confirmed, with nuance** — real issue, but the fix touches
 a design decision. **Observation** — flow friction or wording; no broken
 behaviour.
 
+> **Status (2026-08-02, same day):** findings 2–8, 10 and 11 are landed, plus
+> the renewal-race paragraph from finding 9. **Finding 1 — both halves — is
+> left open by the owner's decision:** the backup layer it contradicts is not
+> implemented yet, and the contradictions will be cleaned up when that work
+> happens. The backup-related remainder of finding 9 (the deploy gate, the
+> apps-VM backup owner, the tier-3 note, the external deadman) stays open with
+> it, for the same reason.
+
 ---
 
 ## 1. The apps VM's storage story contradicts itself in four documents — the most serious item

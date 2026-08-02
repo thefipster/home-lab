@@ -308,7 +308,7 @@ Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
 (`Gateway`, `Identity`, `Git`, `Stack management`, `Observability`,
 `App platform`, `Home automation`, `Hypervisor storage`) makes the status page
-collapse to eight rows that expand on demand, instead of twenty-three flat
+collapse to eight rows that expand on demand, instead of twenty-two flat
 entries.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups

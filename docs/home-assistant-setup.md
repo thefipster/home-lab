@@ -31,11 +31,13 @@ cd /var/lib/vz/template/iso
 ```
 
 ```bash
-wget https://github.com/home-assistant/operating-system/releases/latest/download/haos_ova-16.2.qcow2.xz
+wget https://github.com/home-assistant/operating-system/releases/download/16.2/haos_ova-16.2.qcow2.xz
 ```
 
-Check the release page for the current version number and substitute it. Then
-decompress:
+Check the release page for the current version number and substitute it in
+**both** places — the URL pins the version twice so the command keeps working
+verbatim after upstream's next release, rather than pointing `latest/` at an
+asset name that no longer exists in it. Then decompress:
 
 ```bash
 xz -d haos_ova-*.qcow2.xz
@@ -57,6 +59,20 @@ xz -d haos_ova-*.qcow2.xz
 - **Network:** VirtIO, bridge `vmbr0`.
 
 Do not start it yet.
+
+**Then set the CPU weight — the wizard has no field for it.** The table gives
+this VM `cpuunits` **200**: the 4:1 weight over the apps VM that keeps a
+runaway Coolify build from making the lights laggy. Skipping this leaves the
+default weight of 100, and nothing later would notice. From the host shell you
+are already in:
+
+```bash
+qm set 103 --cpuunits 200
+```
+
+```bash
+qm config 103 | grep cpuunits
+```
 
 ### 3. Import the HAOS disk
 
@@ -184,7 +200,11 @@ nano ~/home-lab/infra/monitoring/.env
 Set `HA_PROMETHEUS_TOKEN=` to the token, then restart the collector:
 
 ```bash
-cd ~/home-lab/infra/monitoring && docker compose up -d alloy
+cd ~/home-lab/infra/monitoring
+```
+
+```bash
+docker compose up -d alloy
 ```
 
 Confirm the target is up and the `ServiceDown` alert for it clears —

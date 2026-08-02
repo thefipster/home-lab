@@ -183,7 +183,9 @@ services:
   # ---------------------------------------------------------------------------
   alloy:
     # FULL PATCH pin, deviating from the repo's major-only policy because Alloy
-    # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18.
+    # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18. Written down
+    # TWICE: docs/grafana-setup.md's troubleshooting `fmt` command names the
+    # same tag — bump them together.
     image: grafana/alloy:v1.18.0
     restart: unless-stopped
     # The unix exporter's uname collector reads the CONTAINER's UTS hostname

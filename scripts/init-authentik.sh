@@ -4,8 +4,9 @@
 #
 # Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Create the persistent data tree under /opt/authentik.
-#   2. Seed infra/authentik/.env from .env.example; auto-generate the two
-#      secrets (AUTHENTIK_SECRET_KEY, PG_PASS) if they are still blank.
+#   2. Seed infra/authentik/.env from .env.example; auto-generate the three
+#      secrets (AUTHENTIK_SECRET_KEY, PG_PASS, AUTHENTIK_BOOTSTRAP_PASSWORD)
+#      if they are still blank.
 #   3. Ensure the shared `proxy` network exists.
 #   4. Symlink the stack into /opt/stacks so Dockge can manage it.
 #

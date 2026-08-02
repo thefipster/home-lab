@@ -11,7 +11,9 @@
 #   UI: https://dockge.thefipster.de   (via the Traefik stack — see infra/traefik)
 #   Build order: Traefik and Authentik must be up FIRST — the router below is
 #   gated by authentik@docker, so without them it won't load at all. Drive
-#   stacks from the CLI until then (or temporarily publish 5001 to debug).
+#   stacks from the CLI until then. Do NOT publish a port to get an early
+#   view — that was considered and rejected (it leaves an un-gated LAN path);
+#   the break-glass is commenting the middlewares label below.
 #   Authentik is only the OUTER gate: Dockge keeps its own local login/admin
 #   underneath (created on first visit) — Authentik users don't exist in it.
 
