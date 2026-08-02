@@ -26,10 +26,10 @@ UniFi Dream Router · DHCP + split-horizon DNS
                             LAN · one flat /24
                                     │
 Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 64 GB · hypervisor only, no Docker
-    │  rpool  2×500 GB NVMe mirror  → Proxmox + VM root disks
-    │  backup 2×1 TB  SATA mirror  → vzdump whole-VM archives
-    │  data   2×500 GB SATA mirror  → the apps VM's second disk
-    │  usb    1×500 GB USB  NVMe    → restic container backups (offsite-capable)
+    │  rpool     2×500 GB NVMe mirror  → Proxmox + VM root disks
+    │  backup    2×1 TB  SATA mirror   → vzdump whole-VM archives
+    │  data      2×500 GB SATA mirror  → the apps VM's second disk
+    │  usbbackup 1×500 GB USB  NVMe    → restic container backups (offsite-capable)
     │
     ├─ infra VM · 12 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate

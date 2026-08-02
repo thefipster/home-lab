@@ -204,6 +204,16 @@ not Coolify. The infra VM's diagnosis applies verbatim —
 [traefik-setup.md](traefik-setup.md#troubleshooting). Remember the two proxies
 issue independently: a working cert on the infra VM says nothing about this one.
 
+**A renewal failed once, months in, then retried clean.** The two proxies renew
+the same `*.thefipster.de` name independently, and every renewal writes a TXT
+record at the **same** `_acme-challenge.thefipster.de` FQDN — the exact place
+netcup's non-atomic zone updates race, and the reason neither certificate
+carries an apex SAN. The renewals sit roughly 60 days apart each, so an overlap
+is improbable; when the windows do collide, one side fails validation looking
+like netcup flakiness, retries later, and self-heals. Nothing to fix — this
+note exists so a rare paired failure gets connected to the *other* VM's renewal
+instead of being chased as an outage.
+
 **An app 404s at its hostname.** The wildcard sends every unlisted name here, so
 a 404 means Coolify has no app matching that `Host` header — not a DNS or TLS
 fault. Note the mirror-image failure on the infra VM: a *missing* exact record

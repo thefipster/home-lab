@@ -82,7 +82,8 @@ will not accept as a hostname. It ships as the placeholder `<infra-vm-ip>` and i
 filled in on the machine, derived from
 `getent hosts ha.thefipster.de` rather than read off the router. Install-time
 addresses in `proxmox-setup.md` (the Proxmox installer wants a static IP typed in)
-and HA's pre-DNS onboarding URL are the remaining irreducible ones. Anything else
+are the remaining irreducible ones — HA's onboarding happens *after* its DNS
+records exist, by name. Anything else
 should be a name.
 
 Three DNS facts are counter-intuitive and all are deliberate:
@@ -215,7 +216,8 @@ section, for the reasons under [Docs layout](#docs-layout).
    nothing Docker owns); order relative to `init-host.sh` is not — apt does
    TLS, so it wants the clock fix first.
 4. `scripts/init-traefik.sh` — creates the `proxy` network + ACME dir, seeds
-   `.env` from `.env.example`. The entrypoint-level `tls.domains` makes
+   `.env` from `.env.example`, symlinks the stack into `/opt/stacks`. The
+   entrypoint-level `tls.domains` makes
    Traefik request the wildcard cert at startup — no router needed.
 5. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
    into `.env`. Authentik is the first *routed* stack and must run before the

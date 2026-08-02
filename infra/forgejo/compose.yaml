@@ -93,7 +93,7 @@ services:
       FORGEJO__oauth2_client__ACCOUNT_LINKING: "auto"
     volumes:
       # Forgejo's state (repos, config, avatars…). Runs as UID/GID 1000, so
-      # this dir must be chown'd to 1000:1000 — see the README setup step.
+      # this dir must be chown'd to 1000:1000 — scripts/init-forgejo.sh does it.
       - /opt/forgejo/forgejo:/data
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
@@ -109,8 +109,8 @@ services:
       - proxy
 
   # ---------------------------------------------------------------------------
-  # The Forgejo Actions runner. It must be REGISTERED once (see README) before
-  # it will pick up jobs. It runs job containers on the HOST Docker daemon via
+  # The Forgejo Actions runner. It must be REGISTERED once (see
+  # docs/forgejo-setup.md, step 4) before it will pick up jobs. It runs job containers on the HOST Docker daemon via
   # the mounted socket — simple, and builds reuse the host's image/layer cache.
   #
   # Trust tradeoff: mounting the socket gives jobs root-equivalent control of

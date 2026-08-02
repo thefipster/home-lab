@@ -174,15 +174,16 @@ logs into the registry, builds and pushes. The runner is `capacity: 1`, so the
 jobs you leave ticked run one after another.
 
 Then check the image landed: the owner's **Packages** tab should list a
-container package with `latest` and a SHA tag. Or pull it from any LAN machine
-with no daemon configuration at all:
+container package — named `<repo>/web` by the shipped template — with `latest`
+and a SHA tag. Or pull it from any LAN machine with no daemon configuration at
+all. The path follows the `tags:` you set in step 7; as shipped that is:
 
 ```bash
 docker login git.thefipster.de
 ```
 
 ```bash
-docker pull git.thefipster.de/<owner>/<repo>:latest
+docker pull git.thefipster.de/<owner>/<repo>/web:latest
 ```
 
 ### Checklist

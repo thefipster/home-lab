@@ -40,6 +40,13 @@ local wildcard can't shadow any real service.
   (select host) → Settings → **Fixed IP Address*** — the reservation targets
   are in the registry: [dns-records.md](dns-records.md).
 
+> **Arriving here from
+> [proxmox-setup.md Part 6](proxmox-setup.md#part-6--give-the-vms-their-addresses-on-the-router)?**
+> Then the reservations and records already exist — this guide was the how-to
+> open beside that step, and there is nothing left to add. Skip to
+> [Verify at all three layers](#verify-at-all-three-layers); the sections in
+> between are the reference for the next time a record is needed.
+
 ## Add the wildcard record (UniFi UI)
 
 Current UniFi Network path (v9.x / 2026):
