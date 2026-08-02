@@ -13,7 +13,7 @@ runner:
   # Labels advertised to Forgejo. `docker` is the one your workflow's
   # `runs-on: docker` matches. The image after :// is the default job image.
   labels:
-    - "docker:docker://code.forgejo.org/oci/node:20-bookworm"
+    - "docker:docker://code.forgejo.org/oci/node:24-bookworm"
 
 cache:
   enabled: true

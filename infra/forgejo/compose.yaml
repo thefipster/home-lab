@@ -5,7 +5,7 @@ services:
   # Postgres backing Forgejo, with a dedicated `forgejo` database.
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: forgejo
@@ -14,6 +14,13 @@ services:
       # deployment .env must hold that value (or rotate it via ALTER USER).
       POSTGRES_PASSWORD: ${FORGEJO_DB_PASSWORD:?set FORGEJO_DB_PASSWORD in .env — run scripts/init-forgejo.sh}
       POSTGRES_DB: forgejo
+      # Postgres 18 made the image's default PGDATA version-specific
+      # (/var/lib/postgresql/18/docker) and moved the VOLUME up to
+      # /var/lib/postgresql. Pinning it back to the flat path keeps
+      # /opt/forgejo/postgres holding PGDATA directly — and makes a future
+      # major bump fail LOUDLY ("database files are incompatible with server")
+      # instead of silently initializing an empty 19/ dir beside the old data.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       # Bind mount under /opt so the DB files are easy to find and back up.
       - /opt/forgejo/postgres:/var/lib/postgresql/data
