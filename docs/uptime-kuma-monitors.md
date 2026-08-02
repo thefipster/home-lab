@@ -88,12 +88,15 @@ below traverses it, so a Traefik failure turns most of this registry red at once
 | Auth Backend | Docker | `authentik-server-1` |
 | Auth Worker  | Docker | `authentik-worker-1` |
 | Auth Storage | Docker | `authentik-db-1` |
-| Auth Caching | Docker | `authentik-redis-1` |
 
-All four containers are listed because Authentik is the one stack whose partial
+All three containers are listed because Authentik is the one stack whose partial
 failures are silent: `Auth Backend` can serve a login page while `Auth Worker` is
-dead and nothing sends email or runs a flow, and `Auth Caching` dying breaks
-sessions without touching the front page.
+dead and nothing sends email or runs a flow.
+
+There is **no cache monitor**, and that is a deliberate non-row rather than a
+gap: Authentik has run without Redis since its 2025.10 release — caching,
+background tasks and the embedded outpost's sessions all live in Postgres — so
+`Auth Storage` already covers what a `authentik-redis-1` monitor used to.
 
 ## Git — forgejo
 

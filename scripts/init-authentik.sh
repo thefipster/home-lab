@@ -34,12 +34,15 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 echo "==> Creating persistent data tree under /opt/authentik"
-run_root mkdir -p /opt/authentik/postgres /opt/authentik/redis \
-  /opt/authentik/media /opt/authentik/certs /opt/authentik/templates
+# `data` is the file-storage mount Authentik has expected since 2025.12 (it
+# replaced `media`, which now lives inside it as data/media and is served at
+# the /files prefix). No `redis` dir — Authentik dropped Redis in 2025.10.
+run_root mkdir -p /opt/authentik/postgres /opt/authentik/data/media \
+  /opt/authentik/certs /opt/authentik/templates
 # server + worker run as UID/GID 1000 (non-root image) and must be able to
-# write these mounts — the tenant_files migration creates /media/public on
-# boot and crash-loops on a root-owned dir. Postgres/redis manage their own.
-run_root chown -R 1000:1000 /opt/authentik/media /opt/authentik/certs \
+# write these mounts — both create subdirectories under /data on boot and
+# crash-loop on a root-owned dir. Postgres manages its own.
+run_root chown -R 1000:1000 /opt/authentik/data /opt/authentik/certs \
   /opt/authentik/templates
 
 if [ ! -f "$ENV_FILE" ]; then
