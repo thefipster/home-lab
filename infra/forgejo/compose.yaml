@@ -31,7 +31,13 @@ services:
   # reached via Traefik at https://git.thefipster.de.
   # ---------------------------------------------------------------------------
   forgejo:
-    image: codeberg.org/forgejo/forgejo:11
+    # Pinned to the LTS track, NOT to the latest stable major. Forgejo's
+    # non-LTS majors carry a ~3-month support window (16 is dated 2026-10-29)
+    # while 15 runs to 2027-07-15. This lab is bumped when someone sits down to
+    # bump it, not on a release cadence, so the number here will normally LAG
+    # the newest release — that is the policy, not neglect. Check which major
+    # is LTS at https://forgejo.org/releases/ before raising it.
+    image: codeberg.org/forgejo/forgejo:15
     restart: unless-stopped
     depends_on:
       db:
@@ -106,7 +112,14 @@ services:
   # switch to an isolated runner for that.
   # ---------------------------------------------------------------------------
   runner:
-    image: code.forgejo.org/forgejo/runner:6
+    # The runner has no LTS track, so this one follows the newest major — and
+    # it must move whenever the server does. Forgejo 13 began validating
+    # Actions workflows against a YAML schema server-side and runner 8 began
+    # doing the same before starting a job; a runner from before that gate
+    # paired with a server from after it disagree about what a valid workflow
+    # is. Runner 12 additionally needs a `git` binary to fetch remote actions,
+    # which this image ships.
+    image: code.forgejo.org/forgejo/runner:12
     restart: unless-stopped
     depends_on:
       - forgejo
