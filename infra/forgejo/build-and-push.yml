@@ -1,22 +1,70 @@
 # =============================================================================
 # build-and-push.yml
 #
-# Place this in your BLAZOR REPO at: .forgejo/workflows/build-and-push.yml
+# Place this in your VERDURE REPO at: .forgejo/workflows/build-and-push.yml
 #
 # Because you chose GitHub-primary + Forgejo pull-mirror, a normal `on: push`
 # will NOT fire (mirrors don't emit push events). Builds are therefore
 # MANUAL-ONLY: after the mirror has synced, trigger the workflow from the
-# repo's Actions tab (workflow_dispatch). Every run builds and pushes.
+# repo's Actions tab (workflow_dispatch).
+#
+# Verdure is three toolchains, so this is three jobs — `container:` is a
+# per-job setting, so .NET, PlatformIO and Node cannot share one. Each job is
+# gated by its own dispatch input: the runner is `capacity: 1` (see
+# infra/forgejo/config.yml), so everything you leave unticked is wall-clock
+# you keep.
+#
+# Where each job's output ends up:
+#   web       OCI image  -> container registry, git.thefipster.de/<repo>/web
+#   firmware  *.bin      -> run artifact + generic package `verdure-firmware`
+#   site      dist.tar.gz-> run artifact + generic package `verdure-site`
+#
+# Paths, PlatformIO environments and the Astro directory below are
+# PLACEHOLDERS — every one of them is marked, and they are the only things you
+# should need to change to make this run against the real repo.
 # =============================================================================
 
 name: Build and Push (manual)
 
 on:
-  workflow_dispatch: {}   # mirrors never fire `push` — this is the only trigger
+  workflow_dispatch:
+    # Booleans, all default-on: a bare dispatch still builds everything, the
+    # way this workflow used to. Untick to iterate on one framework.
+    inputs:
+      build_web:
+        description: "Build + push the Blazor web image"
+        type: boolean
+        default: true
+      build_firmware:
+        description: "Build the PlatformIO firmware(s)"
+        type: boolean
+        default: true
+      build_site:
+        description: "Build the Astro site"
+        type: boolean
+        default: true
+
+# One place to change the host and the account, rather than the six string
+# literals these replace.
+env:
+  FORGEJO_HOST: git.thefipster.de
+  # The Forgejo account the registry pushes authenticate as. Its token lives in
+  # the repo's secrets as REGISTRY_TOKEN and needs `write:package` — the SAME
+  # scope covers the container registry and the generic registry, so the two
+  # non-Docker jobs below need no secret of their own.
+  REGISTRY_USER: felix
 
 jobs:
-  build:
+  # ===========================================================================
+  # 1. Blazor Server -> container image
+  # ===========================================================================
+  build-web:
     runs-on: docker
+    # A `type: boolean` input can reach the runner as the STRING "false", and a
+    # non-empty string is truthy — `if: inputs.build_web` would then run this
+    # job with the box unticked. Compare against both forms explicitly. Same
+    # guard on all three jobs.
+    if: ${{ inputs.build_web == true || inputs.build_web == 'true' }}
     container:
       # This job runs Node actions (checkout, login, build-push) AND shells out
       # to the `docker` CLI. The plain `node` image has Node but no docker
@@ -42,8 +90,8 @@ jobs:
       - name: Log in to Forgejo registry
         uses: https://code.forgejo.org/docker/login-action@v3
         with:
-          registry: git.thefipster.de
-          username: felix
+          registry: ${{ env.FORGEJO_HOST }}
+          username: ${{ env.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Set up Docker Buildx
@@ -61,6 +109,193 @@ jobs:
           file: ./src/dotnet/Fip.Verdure.Web/Dockerfile
           push: true
           tags: |
-            git.thefipster.de/${{ github.repository }}/web:latest
-            git.thefipster.de/${{ github.repository }}/web:${{ github.sha }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/web:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/web:${{ github.sha }}
 
+  # ===========================================================================
+  # 2. PlatformIO -> firmware.bin (+ filesystem image)
+  #
+  # A MATRIX, not a job per board: adding a third project is ONE ENTRY in the
+  # list below and nothing else in this file changes. The runner is capacity: 1
+  # so the legs run serially, but they stay independent — fail-fast is off, so
+  # a board that won't compile doesn't cancel the others.
+  # ===========================================================================
+  build-firmware:
+    runs-on: docker
+    if: ${{ inputs.build_firmware == true || inputs.build_firmware == 'true' }}
+    container:
+      # PlatformIO publishes NO official Docker image — the ones on Docker Hub
+      # are all community builds. Upstream's own documented CI recipe is a pip
+      # install, so that is what this does. Pinned major.minor because the bare
+      # `python:3` tag moves across minor releases.
+      image: python:3.12-bookworm
+    strategy:
+      fail-fast: false
+      matrix:
+        # ---- PLACEHOLDERS: one entry per PlatformIO project ----------------
+        #   name        artifact/package prefix, must be unique
+        #   dir         directory holding that project's platformio.ini
+        #   pio_env     the [env:...] section to build
+        #   filesystem  "littlefs" or "spiffs" to also build a filesystem
+        #               image; "" to skip that step entirely
+        project:
+          - name: atmos
+            dir: src/platformio/atmos
+            pio_env: esp32dev
+            filesystem: littlefs
+          - name: sensor
+            dir: src/platformio/sensor
+            pio_env: esp32-c3-devkitm-1
+            filesystem: ""
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------------------------------------------
+      # PlatformIO downloads a full cross-toolchain (hundreds of MB) into
+      # ~/.platformio on first use. Caching it is the difference between a
+      # two-minute and a ten-minute run. The runner already has `cache:
+      # enabled: true` in config.yml; this is what finally uses it.
+      # Keyed on platformio.ini so a changed platform/lib_deps busts it.
+      # ---------------------------------------------------------------------
+      - name: Cache PlatformIO toolchain
+        uses: https://code.forgejo.org/actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.project.name }}-${{ hashFiles(format('{0}/platformio.ini', matrix.project.dir)) }}
+          restore-keys: |
+            pio-${{ matrix.project.name }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      # ---------------------------------------------------------------------
+      # `pio run` writes into <dir>/.pio/build/<env>/. Two invocations because
+      # the filesystem image is a separate target (`buildfs`) — it is NOT
+      # produced by a plain build.
+      # ---------------------------------------------------------------------
+      - name: Build firmware
+        run: pio run -d "${{ matrix.project.dir }}" -e "${{ matrix.project.pio_env }}"
+
+      - name: Build filesystem image
+        if: ${{ matrix.project.filesystem != '' }}
+        run: pio run -d "${{ matrix.project.dir }}" -e "${{ matrix.project.pio_env }}" -t buildfs
+
+      # ---------------------------------------------------------------------
+      # Collect into one flat dir, prefixed by project name so two boards'
+      # outputs never collide once they land in the same package version.
+      # ---------------------------------------------------------------------
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          BUILD_DIR="${{ matrix.project.dir }}/.pio/build/${{ matrix.project.pio_env }}"
+          mkdir -p dist-firmware
+          cp "$BUILD_DIR/firmware.bin" "dist-firmware/${{ matrix.project.name }}-firmware.bin"
+          if [ -n "${{ matrix.project.filesystem }}" ]; then
+            cp "$BUILD_DIR/${{ matrix.project.filesystem }}.bin" \
+               "dist-firmware/${{ matrix.project.name }}-${{ matrix.project.filesystem }}.bin"
+          fi
+          ls -l dist-firmware
+
+      # ---------------------------------------------------------------------
+      # STORAGE, part 1 — the run artifact. Browsable from this run's page in
+      # the Actions tab, and it expires on its own. `forgejo/upload-artifact`
+      # rather than `actions/upload-artifact`: the upstream v4 only speaks to
+      # GitHub's own backend, so Forgejo maintains this fork.
+      # Retention is explicit; the instance default is 90 days.
+      # ---------------------------------------------------------------------
+      - name: Upload artifact
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.project.name }}
+          path: dist-firmware/
+          retention-days: 30
+
+      # ---------------------------------------------------------------------
+      # STORAGE, part 2 — the generic package registry: the same Packages tab
+      # as the container images, but permanent and versioned. There is no
+      # action for it, it is a plain HTTP PUT.
+      #
+      # Two things to know:
+      #   * Generic packages are OWNER-scoped, not repo-scoped — hence the
+      #     `verdure-` prefix, or another repo's `firmware` would collide.
+      #   * A PUT over an existing filename returns 409. Re-dispatching the
+      #     same commit is normal here (workflow_dispatch is the only trigger),
+      #     so delete first and ignore the delete failing on a fresh version.
+      # ---------------------------------------------------------------------
+      - name: Publish to generic package registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${{ env.FORGEJO_HOST }}/api/packages/${{ github.repository_owner }}/generic"
+          VERSION="$(echo "${{ github.sha }}" | cut -c1-7)"
+          for f in dist-firmware/*; do
+            url="$BASE/verdure-firmware/$VERSION/$(basename "$f")"
+            curl -sS --user "${{ env.REGISTRY_USER }}:$TOKEN" -X DELETE "$url" || true
+            curl -sS --fail-with-body --user "${{ env.REGISTRY_USER }}:$TOKEN" \
+                 --upload-file "$f" "$url"
+            echo "published $url"
+          done
+
+  # ===========================================================================
+  # 3. Astro -> static dist/, archived
+  # ===========================================================================
+  build-site:
+    runs-on: docker
+    if: ${{ inputs.build_site == true || inputs.build_site == 'true' }}
+    container:
+      # The runner's own default job image (config.yml), so it is already on
+      # the host daemon. Astro needs Node 18.20+/20.3+.
+      image: code.forgejo.org/oci/node:20-bookworm
+    # PLACEHOLDER: the Astro project's directory. Every step below runs in it.
+    defaults:
+      run:
+        working-directory: src/astro
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # `npm ci` needs a committed package-lock.json and installs exactly it —
+      # `npm install` would drift the build from the lockfile.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # ---------------------------------------------------------------------
+      # `-C dist .` archives the CONTENTS of dist/, not a `dist/` top-level
+      # directory — so unpacking gives you the site root directly.
+      # ---------------------------------------------------------------------
+      - name: Archive dist
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Upload artifact
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          # `path` is NOT affected by `defaults.run.working-directory` — that
+          # only applies to `run:` steps — so this path is repo-relative.
+          name: site
+          path: src/astro/dist.tar.gz
+          retention-days: 30
+
+      # Same delete-then-put as the firmware job; see the comment there.
+      - name: Publish to generic package registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${{ env.FORGEJO_HOST }}/api/packages/${{ github.repository_owner }}/generic"
+          VERSION="$(echo "${{ github.sha }}" | cut -c1-7)"
+          url="$BASE/verdure-site/$VERSION/dist.tar.gz"
+          curl -sS --user "${{ env.REGISTRY_USER }}:$TOKEN" -X DELETE "$url" || true
+          curl -sS --fail-with-body --user "${{ env.REGISTRY_USER }}:$TOKEN" \
+               --upload-file dist.tar.gz "$url"
+          echo "published $url"

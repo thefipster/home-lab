@@ -156,13 +156,22 @@ in. In your app repo on GitHub, add:
   [`infra/forgejo/build-and-push.yml`](../infra/forgejo/build-and-push.yml)
   here — adjust its `context:` / `file:` / `tags:` to your layout.
 
+That template carries three jobs, one per toolchain: the Blazor image, a
+**matrix** of PlatformIO projects (add a board by adding one entry to the
+matrix), and the Astro site. Delete the jobs you don't need; the paths and
+PlatformIO environments in it are marked placeholders. The two non-Docker jobs
+publish to the **generic package registry** with the same `REGISTRY_TOKEN` as
+the image push — no second secret.
+
 Push, then wait for the mirror interval (or **Settings → Mirror Settings →
 Synchronize Now** in Forgejo).
 
 ### 8. Run a build and verify the image
 
-In the repo's **Actions** tab → select the workflow → **Run workflow**. Every
-run checks out the mirrored HEAD, logs into the registry, builds and pushes.
+In the repo's **Actions** tab → select the workflow → **Run workflow**. Each
+job has a tick-box, all on by default; every run checks out the mirrored HEAD,
+logs into the registry, builds and pushes. The runner is `capacity: 1`, so the
+jobs you leave ticked run one after another.
 
 Then check the image landed: the owner's **Packages** tab should list a
 container package with `latest` and a SHA tag. Or pull it from any LAN machine

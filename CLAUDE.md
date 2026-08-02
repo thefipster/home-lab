@@ -356,9 +356,28 @@ the single source of truth; Dockge only drives start/stop/logs.
   or notification policy — alerts are UI-only and send nothing outward.
 - **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
   `on: push` does not fire — the workflow's only trigger is
-  `workflow_dispatch`, and every manual run builds and pushes (see
-  `infra/forgejo/build-and-push.yml`, which is a template that lives in the
-  *app* repo at `.forgejo/workflows/`, not on the infra VM).
+  `workflow_dispatch` (see `infra/forgejo/build-and-push.yml`, which is a
+  template that lives in the *app* repo at `.forgejo/workflows/`, not on the
+  infra VM). It has **three jobs, one per toolchain** — `container:` is
+  per-job, so Blazor, PlatformIO and Astro cannot share one — each gated by a
+  default-on boolean dispatch input, because the runner is `capacity: 1` and
+  an unticked job is wall-clock saved. Those `if:` guards compare against
+  `true` **and** `'true'` on purpose: a `type: boolean` input can arrive as
+  the string `"false"`, which is truthy, so a bare `if: inputs.x` would run
+  the job anyway.
+- **Two kinds of build output, two registries.** Images go to the container
+  registry; the PlatformIO `.bin`s and the Astro `dist.tar.gz` go to **both**
+  a run artifact (`forgejo/upload-artifact@v4` — the upstream v4 only speaks
+  to GitHub's backend; expires, browsable from the run page) and the
+  **generic package registry** (`PUT /api/packages/{owner}/generic/…` —
+  permanent, same Packages tab as the images). One `REGISTRY_TOKEN` covers
+  both registries; `write:package` is the only scope. Two gotchas the
+  workflow already handles: generic packages are **owner-scoped**, hence the
+  `verdure-` name prefix, and a PUT over an existing filename **409s**, so
+  every publish deletes first — re-dispatching one commit is normal when
+  dispatch is the only trigger. Nothing on the infra VM stores these
+  specially: artifacts live under Forgejo's `APP_DATA_PATH`, already inside
+  the `/opt/forgejo/forgejo` bind mount.
 - **Line endings:** `.gitattributes` forces LF repo-wide, and `*.sh` **must**
   stay LF even on Windows (CRLF breaks shebangs). Don't let an editor rewrite
   them to CRLF.
