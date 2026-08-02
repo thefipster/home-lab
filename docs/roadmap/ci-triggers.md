@@ -46,7 +46,12 @@ own toolchain container):
 |-----|---------|---------------|--------|
 | `web-v1.2.3` | Blazor web app | act image + buildx | container image `web` |
 | `showcase-v3.4.2` | Astro site | node → static build → nginx image | container image `showcase` |
-| `atmos-v2.1.3` | PlatformIO | platformio/platformio-core | `firmware.bin` + `littlefs.bin` |
+| `atmos-v2.1.3` | PlatformIO | `python:3.12-bookworm` + `pip install platformio` | `firmware.bin` + `littlefs.bin` |
+
+> This row used to name `platformio/platformio-core`. **That image does not
+> exist** — PlatformIO publishes no official Docker image, only community
+> builds, and upstream's own documented CI recipe is the pip install. The
+> manual template already builds this way, over a matrix of projects.
 
 One reconciler workflow, per-prefix jobs (`if:` on the parsed prefix) or
 reusable workflows once it grows. The **atmos** outputs aren't images —
@@ -86,8 +91,12 @@ not a tag event. The commit SHA still travels as the
    check.
 3. **Nightly job** — revision-label comparison, `:nightly` image, test gate
    from [ci-testing.md](ci-testing.md) in front.
-4. **`showcase` and `atmos` recipes** — nginx image; PlatformIO → generic
-   package registry.
+4. **`showcase` and `atmos` recipes** — the *build* halves already exist in
+   the manual template (`infra/forgejo/build-and-push.yml`): a PlatformIO
+   matrix and an Astro job, both publishing to the generic package registry
+   under a SHA version. What's left here is the reconciler wiring — version
+   from the **tag** instead of the SHA, ledger-check the package API before
+   building, and the nginx image for `showcase`.
 5. **Retire "manual-only"** — once this lands, update CLAUDE.md, the
    forgejo-setup guide (Parts C/E) and the workflow template header; the
    nightly also becomes the natural vehicle for the re-scan gap in
