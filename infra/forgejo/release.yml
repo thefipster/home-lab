@@ -192,3 +192,63 @@ jobs:
           }
           NODE
           cat "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # blazor — Blazor Server -> container image on four tags.
+  #
+  # No highest-version guard on the rolling tags: a dispatched release always
+  # builds the tag you just cut, so latest/X.Y/X are correct by construction.
+  # Deliberately re-releasing an OLD patch would move `latest` backwards.
+  # ===========================================================================
+  blazor:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.blazor_any == 'true' }}
+    container:
+      # Node actions AND the docker CLI in one image — the plain node image has
+      # no docker binary and login-action fails with "docker: not found".
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.blazor) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      # `github.sha` is the DISPATCHED ref's commit (the default branch), not
+      # the tag's. Resolve the real one after checkout or every image claims to
+      # have been built from main.
+      - name: Resolve revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Forgejo registry
+        uses: https://code.forgejo.org/docker/login-action@v3
+        with:
+          registry: ${{ env.FORGEJO_HOST }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://code.forgejo.org/docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: https://code.forgejo.org/docker/build-push-action@v6
+        with:
+          context: ${{ matrix.dir }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.version }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.minor }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.major }}
+          # The commit travels as a label instead of a fifth tag — traceability
+          # without tag spam.
+          labels: |
+            org.opencontainers.image.version=${{ matrix.version }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
