@@ -147,7 +147,8 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
 │   │   ├── .env.example          DB password / DOCKER_GID template
 │   │   ├── config.yml            Runner config
-│   │   └── build-and-push.yml    CI workflow template (goes in your app repo)
+│   │   ├── build-and-push.yml    CI dev-build template (goes in your app repo)
+│   │   └── release.yml           CI release template (goes in your app repo)
 │   ├── dockge/
 │   │   └── compose.yaml          Dockge (compose management UI)
 │   ├── monitoring/
