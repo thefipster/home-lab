@@ -356,3 +356,85 @@ jobs:
                  --upload-file "${{ matrix.dir }}/dist.tar.gz" "$url"
             echo "published $url"
           done
+
+  # ===========================================================================
+  # firmware — atmos / terra / flux. One matrix, not a job each: the three are
+  # the same recipe in a different directory. Adding a fourth board is one row
+  # in the plan job's COMPONENTS table and nothing here.
+  #
+  # No docker in this job at all — a .bin is not a container image, so these go
+  # to the generic package registry only.
+  # ===========================================================================
+  firmware:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.firmware_any == 'true' }}
+    container:
+      # PlatformIO publishes NO official Docker image — the Docker Hub ones are
+      # community builds. Upstream's own documented CI recipe is a pip install.
+      # Pinned major.minor because the bare `python:3` tag moves.
+      image: python:3.12-bookworm
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.firmware) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      # PlatformIO downloads a full cross-toolchain (hundreds of MB) on first
+      # use. Keyed on platformio.ini so a changed platform/lib_deps busts it.
+      - name: Cache PlatformIO toolchain
+        uses: https://code.forgejo.org/actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.component }}-${{ hashFiles(format('{0}/platformio.ini', matrix.dir)) }}
+          restore-keys: |
+            pio-${{ matrix.component }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -d "${{ matrix.dir }}" -e "${{ matrix.pio_env }}"
+
+      # A separate target — `buildfs` is NOT produced by a plain build.
+      - name: Build filesystem image
+        if: ${{ matrix.filesystem != '' }}
+        run: pio run -d "${{ matrix.dir }}" -e "${{ matrix.pio_env }}" -t buildfs
+
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          BUILD_DIR="${{ matrix.dir }}/.pio/build/${{ matrix.pio_env }}"
+          rm -rf dist-firmware && mkdir -p dist-firmware
+          cp "$BUILD_DIR/firmware.bin" "dist-firmware/${{ matrix.component }}-firmware.bin"
+          if [ -n "${{ matrix.filesystem }}" ]; then
+            cp "$BUILD_DIR/${{ matrix.filesystem }}.bin" \
+               "dist-firmware/${{ matrix.component }}-${{ matrix.filesystem }}.bin"
+          fi
+          ls -l dist-firmware
+
+      # Same delete-then-PUT as showcase, and the same reason: 409 on overwrite,
+      # owner-scoped names. `latest` is a second version, rewritten each release,
+      # so a device updater has a stable URL.
+      - name: Publish to generic registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${FORGEJO_HOST}/api/packages/${{ github.repository_owner }}/generic/verdure-${{ matrix.component }}"
+          for v in "${{ matrix.version }}" latest; do
+            for f in dist-firmware/*; do
+              url="$BASE/$v/$(basename "$f")"
+              curl -sS --user "${REGISTRY_USER}:$TOKEN" -X DELETE "$url" || true
+              curl -sS --fail-with-body --user "${REGISTRY_USER}:$TOKEN" \
+                   --upload-file "$f" "$url"
+              echo "published $url"
+            done
+          done
