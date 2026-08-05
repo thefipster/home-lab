@@ -221,13 +221,13 @@ pool and not a Proxmox storage.
 ### Cap the ZFS ARC
 
 ZFS caches in RAM, and its cache is not free memory — it competes with the VMs.
-Historically the limit defaults to **half of RAM**, which here would be 32 GB
-against the 48 GB the three VMs want. Recent installers write a 10% limit for new
+Historically the limit defaults to **half of RAM**, which here would be 48 GB
+against the 64 GB the three VMs want. Recent installers write a 10% limit for new
 installations, but that is a reason to *check* the value rather than assume it.
-Set it explicitly to 8 GB:
+Set it explicitly to 16 GB:
 
 ```bash
-echo "options zfs zfs_arc_max=8589934592" > /etc/modprobe.d/99-zfs-arc.conf
+echo "options zfs zfs_arc_max=17179869184" > /etc/modprobe.d/99-zfs-arc.conf
 ```
 
 ```bash
@@ -235,7 +235,7 @@ update-initramfs -u -k all
 ```
 
 It takes effect on the reboot below. Verify afterwards — the value should be
-`8589934592`, not `0` and not half your RAM:
+`17179869184`, not `0` and not half your RAM:
 
 ```bash
 cat /sys/module/zfs/parameters/zfs_arc_max
@@ -280,7 +280,7 @@ Suggested specs for all three — the reasoning is in
 | Cores | 12 | 12 | 12 |
 | CPU type | `host` | `host` | `host` |
 | `cpuunits` | 100 (default) | 50 | 200 |
-| Memory | 16384 MB | 24576 MB | 8192 MB |
+| Memory | 24576 MB | 32768 MB | 8192 MB |
 | Ballooning | off | off | off |
 | Root disk | 150 GB on `local-zfs` | 80 GB on `local-zfs` | 64 GB on `local-zfs` |
 | Second disk | — | **300 GB on `data`**, `backup=0` | — |
@@ -658,7 +658,7 @@ worth blocking on.
 
 ## Why these sizes
 
-The host is an Intel **`i5-10600K`** (Comet Lake) with **12 threads**, **64 GB
+The host is an Intel **`i5-10600K`** (Comet Lake) with **12 threads**, **96 GB
 of RAM**, and **seven drives** — six internal, paired into three mirrors, plus
 one external.
 
@@ -678,35 +678,47 @@ apps 4:1, which means a runaway Coolify build cannot make your lights laggy.
 Nothing is capped: `cpulimit` stays `0` everywhere, so any VM can still use the
 whole box when the others are idle.
 
-**Ballooning is off** because 16 + 24 + 8 = 48 GB against 64 GB physical. The
+**Ballooning is off** because 24 + 32 + 8 = 64 GB against 96 GB physical. The
 balloon driver earns its keep when the sum of configured maxima *exceeds*
 physical RAM; here it does not, so the only thing it could ever do is reclaim
 memory from a VM in the middle of a compile.
 
-What the leftover buys is **the ZFS ARC**, and that is the one number this
-hardware changed. Mirrors mean ZFS, ZFS caches in RAM, and its cache is not
-spare capacity — it competes with the guests. Left alone it has historically
-taken half of RAM, which would be 32 GB against the 48 GB the VMs want. Capped at
-8 GB in [Part 3](#part-3--post-install-housekeeping), the arithmetic is
-48 + 8 + the hypervisor ≈ 60 of 64 GB. There is no longer a free growth pool:
-raising a VM's memory later means taking it from the cache, deliberately, rather
-than finding it lying around.
+What the leftover buys is **the ZFS ARC**, and then a genuine reserve. Mirrors
+mean ZFS, ZFS caches in RAM, and its cache is not spare capacity — it competes
+with the guests. Left alone it has historically taken half of RAM, which would be
+48 GB against the 64 GB the VMs want. Capped at 16 GB in
+[Part 3](#part-3--post-install-housekeeping), the arithmetic is
+64 + 16 + the hypervisor ≈ 84 of 96 GB, leaving roughly **12 GB unallocated on
+purpose**. That reserve is what makes a future "give X more memory" an edit and a
+reboot rather than a trade against the cache or against another guest — and the
+ARC cap is a floor set for the VMs' benefit, not a ceiling ZFS is straining
+against, so spending part of the reserve there later is equally fair game.
 
 Per-VM, the numbers and why:
 
-- **infra 16 GB.** The Forgejo Actions runner *compiles*, beside six monitoring
-  containers, Authentik, two Postgres instances, Traefik and Dockge.
+- **infra 24 GB.** The Forgejo Actions runner *compiles*, beside six monitoring
+  containers, Authentik, two Postgres instances, Traefik and Dockge. It is also
+  the machine with the worst failure mode: an OOM kill here takes SSO and
+  routing down with the thing that would have shown you why.
 - **infra 150 GB.** Prometheus 15 d, Loki 14 d, Tempo 7 d, Docker image layers,
   and Forgejo's container registry, which today gains an image per CI run.
   Registry retention is owned by the CI roadmap rather than by a disk size, so
   150 GB buys comfortable time rather than absorbing growth forever.
-- **apps 24 GB, and 80 + 300 GB across two pools.** This is where real user
-  workloads live. The **root** disk carries the OS and Coolify itself — its
-  installer demands 30 GB free before it will run, so 80 GB is roomy — while app
-  volumes, databases, build cache and image layers go on the `data` mirror,
-  because that is the part that grows without asking.
-- **home-assistant 8 GB / 64 GB.** HAOS idles near 2 GB; the spike is ESPHome
-  firmware builds and add-ons. Its own default disk is 32 GB, and the recorder
+- **apps 32 GB, and 80 + 300 GB across two pools.** This is where real user
+  workloads live, and the largest allocation on the box for that reason — though
+  it is also the least evidenced one, since the VM has run nothing measurable
+  yet. It is the first line to trim back if the reserve is ever wanted
+  elsewhere, and the number to decide by measurement rather than argument:
+  `node_memory_MemAvailable_bytes{instance="apps"}` is already scraped. The
+  **root** disk carries the OS and Coolify itself — its installer demands 30 GB
+  free before it will run, so 80 GB is roomy — while app volumes, databases,
+  build cache and image layers go on the `data` mirror, because that is the part
+  that grows without asking.
+- **home-assistant 8 GB / 64 GB.** The smallest allocation on the box, and
+  deliberately so even with a reserve sitting free. HAOS idles near 2 GB; its
+  spike is ESPHome firmware builds and add-ons, which are CPU- and disk-bound —
+  and with ballooning off, memory handed to this VM is pinned out of the host
+  whether it is used or not. Its own default disk is 32 GB, and the recorder
   database plus build caches make 64 GB comfortable.
 
 ### Why the drives are split three ways

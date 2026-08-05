@@ -31,7 +31,7 @@ Proxmox host, and then verify each capability in turn.
 > `infra/monitoring/.env`. Never set `GF_AUTH_DISABLE_LOGIN_FORM`.
 
 > **RAM:** this adds six containers to a VM already running Traefik, Authentik,
-> Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 16 GB for
+> Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 24 GB for
 > exactly this reason; at 4 GB an OOM kill would most likely take Authentik
 > with it.
 

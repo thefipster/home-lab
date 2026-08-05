@@ -25,13 +25,13 @@ UniFi Dream Router · DHCP + split-horizon DNS
                                     │
                             LAN · one flat /24
                                     │
-Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 64 GB · hypervisor only, no Docker
+Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hypervisor only, no Docker
     │  rpool     2×500 GB NVMe mirror  → Proxmox + VM root disks
     │  backup    2×1 TB  SATA mirror   → vzdump whole-VM archives
     │  data      2×500 GB SATA mirror  → the apps VM's second disk
     │  usbbackup 1×500 GB USB  NVMe    → restic container backups (offsite-capable)
     │
-    ├─ infra VM · 12 vCPU · 16 GB · 150 GB · Ubuntu Server 26.04
+    ├─ infra VM · 12 vCPU · 24 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
     │    Authentik     SSO / identity provider (OIDC + forward-auth)
     │    Forgejo       git · CI · container registry
@@ -39,7 +39,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 64 GB · hyperviso
     │    Grafana       metrics · logs · traces (Prometheus · Loki · Tempo · Alloy)
     │    Uptime Kuma   black-box status + every notification the lab sends
     │
-    ├─ apps VM · 12 vCPU · 24 GB · 80 GB + 300 GB on data · Ubuntu Server 26.04
+    ├─ apps VM · 12 vCPU · 32 GB · 80 GB + 300 GB on data · Ubuntu Server 26.04
     │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
     │    your apps     *.thefipster.de, routed by Host header — no new DNS record
     │    third-party   self-hosted software you use — catalog in apps/services.md
@@ -279,7 +279,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Container logs from the apps VM | ⬜ planned — [roadmap](docs/roadmap/apps-vm-logs.md) |
 | home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](docs/home-assistant-setup.md) |
 | Monitoring the apps + HA VMs | 📄 config shipped; targets red until those VMs exist |
-| Sizing for the target hardware (12 threads / 64 GB / 4 pools) | 📄 documented — [spec](docs/superpowers/specs/2026-07-31-hardware-specs-design.md) |
+| Sizing for the target hardware (12 threads / 96 GB / 4 pools) | 📄 documented — [Why these sizes](docs/proxmox-setup.md#why-these-sizes) |
 
 `✅` runs today · `📄` written and reviewed, waiting on hardware or a build step ·
 `⬜` not started. The three `📄` rows above are why the guides can describe
