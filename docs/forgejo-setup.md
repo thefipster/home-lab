@@ -152,39 +152,95 @@ copy is a read-only mirror, so commit them to **GitHub** and let them mirror
 in. In your app repo on GitHub, add:
 
 - a `Dockerfile` for the app, and
-- `.forgejo/workflows/build-and-push.yml`, from
-  [`infra/forgejo/build-and-push.yml`](../infra/forgejo/build-and-push.yml)
-  here — adjust its `context:` / `file:` / `tags:` to your layout.
+- both workflow templates under `.forgejo/workflows/`, from
+  [`infra/forgejo/build-and-push.yml`](../infra/forgejo/build-and-push.yml) and
+  [`infra/forgejo/release.yml`](../infra/forgejo/release.yml) here.
 
-That template carries three jobs, one per toolchain: the Blazor image, a
-**matrix** of PlatformIO projects (add a board by adding one entry to the
-matrix), and the Astro site. Delete the jobs you don't need; the paths and
-PlatformIO environments in it are marked placeholders. The two non-Docker jobs
-publish to the **generic package registry** with the same `REGISTRY_TOKEN` as
-the image push — no second secret.
+The two do different jobs:
+
+| Template | Builds | Tags images |
+|---|---|---|
+| `build-and-push.yml` | whatever the mirror last synced | by commit SHA — a **dev** build |
+| `release.yml` | a `<component>-v<semver>` git tag you name | `latest`, `1.2.3`, `1.2`, `1` — a **release** |
+
+Both carry three jobs, one per toolchain, because `container:` is a per-job
+setting and .NET, PlatformIO and Node cannot share one. Both include a
+**matrix** of PlatformIO projects: in the dev builder that is the `project:`
+list, in the release workflow the `COMPONENTS` table in its `plan` job. Adding
+a board is one entry in each. Every repo path and PlatformIO environment in
+both files is a marked placeholder — those are the only edits you should need.
+
+Then create **two access tokens** under the Forgejo account at **Settings →
+Applications → Manage Access Tokens → Generate Token**, and add each to the app
+repo's **Settings → Actions → Secrets**:
+
+| Secret | Scope | Used by |
+|---|---|---|
+| `REGISTRY_TOKEN` | `write:package` | both workflows, for the container **and** generic registries |
+| `FORGEJO_API_TOKEN` | `write:repository` | `release.yml` only, to trigger the mirror sync |
+
+One scope covers both registries, so the non-Docker jobs need no token of their
+own. Keep the two separate: `REGISTRY_TOKEN` is handed to third-party actions
+(`docker/login-action`), so it stays minimal.
 
 Push, then wait for the mirror interval (or **Settings → Mirror Settings →
 Synchronize Now** in Forgejo).
 
-### 8. Run a build and verify the image
+### 8. Run a dev build and verify the image
 
-In the repo's **Actions** tab → select the workflow → **Run workflow**. Each
-job has a tick-box, all on by default; every run checks out the mirrored HEAD,
-logs into the registry, builds and pushes. The runner is `capacity: 1`, so the
-jobs you leave ticked run one after another.
+In the repo's **Actions** tab → **Build and Push (manual)** → **Run workflow**.
+Each job has a tick-box, all on by default; every run checks out the mirrored
+HEAD, logs into the registry, builds and pushes. The runner is `capacity: 1`, so
+the jobs you leave ticked run one after another.
 
 Then check the image landed: the owner's **Packages** tab should list a
-container package — named `<repo>/web` by the shipped template — with `latest`
-and a SHA tag. Or pull it from any LAN machine with no daemon configuration at
-all. The path follows the `tags:` you set in step 7; as shipped that is:
+container package — named `<repo>/blazor` by the shipped template — with
+`latest` and a SHA tag. Or pull it from any LAN machine with no daemon
+configuration at all. The path follows the `tags:` you set in step 7; as shipped
+that is:
 
 ```bash
 docker login git.thefipster.de
 ```
 
 ```bash
-docker pull git.thefipster.de/<owner>/<repo>/web:latest
+docker pull git.thefipster.de/<owner>/<repo>/blazor:latest
 ```
+
+### 9. Cut a release
+
+A release is a git **tag**, and the tag prefix picks the build recipe. Tag on
+**GitHub** — the Forgejo copy is a read-only mirror — using
+`<component>-v<semver>`, where the component is one of `blazor`, `showcase`,
+`atmos`, `terra` or `flux`. Write the release notes there too.
+
+Then, in Forgejo: **Actions → Release → Run workflow**, and type the tags you
+just pushed, space-separated:
+
+```text
+blazor-v1.2.3 atmos-v0.4.1
+```
+
+There is **no need to synchronize the mirror first**, and no need to wait for
+the mirror interval. The run's first job POSTs the sync itself and then polls
+until those exact tags arrive, so a dispatch seconds after tagging still builds
+the right commits. A tag that never shows up fails the run by name after ten
+minutes rather than silently building something older.
+
+**Verify** in the owner's **Packages** tab:
+
+- `<repo>/blazor` carries four tags — `latest`, `1.2.3`, `1.2` and `1`
+- `verdure-atmos` has two versions — `0.4.1` and `latest`, each holding the
+  `.bin` files
+
+```bash
+docker pull git.thefipster.de/<owner>/<repo>/blazor:1.2
+```
+
+> The rolling tags assume you are releasing the newest version. Re-dispatching
+> an **older** tag republishes it and moves `latest`, `1.2` and `1` backwards —
+> there is no guard against it, because a hand-cut release is always the newest
+> one.
 
 ### Checklist
 
@@ -193,6 +249,9 @@ docker pull git.thefipster.de/<owner>/<repo>/web:latest
 - [ ] **Sign in with authentik** lands in the existing admin account
 - [ ] Local password login still works (break-glass)
 - [ ] A manual workflow run completes and pushes an image
+- [ ] A release dispatch publishes an image tagged `latest`, `X.Y.Z`, `X.Y` and `X`
+- [ ] The release run's mirror sync succeeds (a `write:repository` token, not
+      the registry one)
 - [ ] `docker login git.thefipster.de` succeeds from a machine with **zero**
       Docker daemon configuration
 
@@ -259,6 +318,16 @@ for a private mirror put a token in the URL
 (`https://<user>:<token>@git.thefipster.de/...`). Fix the file in **GitHub** —
 the Forgejo copy is a read-only mirror — and re-sync.
 
+**A release run times out waiting for a tag.** The mirror sync is queued, not
+synchronous, and the run polls for ten minutes before giving up. Confirm the tag
+exists on GitHub and is spelled exactly as dispatched, then check **Settings →
+Mirror Settings** in Forgejo. A 403 from the sync step itself means
+`FORGEJO_API_TOKEN` lacks `write:repository`.
+
+**A generic package upload returns 409.** A PUT over an existing filename
+conflicts. Both workflows delete before uploading, so a 409 means the *delete*
+failed — almost always a `REGISTRY_TOKEN` without `write:package`.
+
 **SSO signs you into a *new* account instead of the admin.** The emails don't
 match. Account linking matches by email only — fix the address on either side
 and delete the stray user.
@@ -323,10 +392,24 @@ publicly trusted, nothing needs special configuration. It must match `ROOT_URL`
 in the compose file, and it does.
 
 **CI is manual-only, on purpose.** GitHub is primary and Forgejo pull-mirrors
-it. Mirrors update Git data without firing `push` events, so the workflow's
-only trigger is `workflow_dispatch`. There is no change detection — a run with
-no new commits simply rebuilds the same code, so trigger it when something
-changed.
+it. Mirrors update Git data without firing `push` events, and the lab is
+LAN-only so GitHub cannot call in either — no event-driven design is possible.
+Both workflows are therefore `workflow_dispatch`-only, and they split the work:
+
+- **`build-and-push.yml`** rebuilds the mirrored HEAD and tags by commit SHA.
+  There is no change detection — a run with no new commits simply rebuilds the
+  same code, so trigger it when something changed.
+- **`release.yml`** takes the release tags as its input, POSTs `mirror-sync`
+  itself, and waits for exactly those refs before building. A dispatched run can
+  therefore check out a tag that did not exist when it started: the dispatch
+  pins only *which workflow file* runs, not what it fetches.
+
+A scheduled reconciler — cron, list the tags, ask the registry what is already
+built, build the difference — was designed and **rejected**. Every part of it
+existed to reconcile drift between git and the registry, and tagging is already
+a deliberate manual act: dispatching the build in the same sitting means drift
+never accumulates. The reasoning is in
+[the design spec](superpowers/specs/2026-08-05-forgejo-release-workflow-design.md).
 
 **`/metrics` is open on the LAN.** `FORGEJO__metrics__ENABLED` serves metrics
 on port 3000 — the same port Traefik publishes — so

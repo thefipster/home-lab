@@ -314,14 +314,16 @@ the single source of truth; Dockge only drives start/stop/logs.
   Forgejo 13 and runner 8 both began rejecting Actions workflows that fail a
   YAML schema check, so a pair straddling those versions disagrees about what a
   valid workflow is.
-- **The runner's default job image is a Node LTS, and it is written down
-  twice.** `infra/forgejo/config.yml`'s `docker://…/node:24-bookworm` label and
+- **The runner's default job image is a Node LTS, and it is written down three
+  times.** `infra/forgejo/config.yml`'s `docker://…/node:24-bookworm` label and
   the Astro job's `container.image` in `build-and-push.yml` name the same tag on
-  purpose — the workflow picks the image the runner has already pulled. Bump
-  them together, and pick an **LTS** line (`24-bookworm` today; 20 went EOL
-  2026-04-30): a non-LTS Node major loses support inside a year, which is
-  shorter than the interval between bumps here. The other two toolchain jobs
-  set their own images and are unaffected.
+  purpose — the workflow picks the image the runner has already pulled — and
+  `release.yml`'s `showcase` job pins the same major through `setup-node`
+  (it runs on the `act` image, which it needs for the docker CLI, so it cannot
+  inherit the runner default). Bump all three together, and pick an **LTS**
+  line (`24-bookworm` today; 20 went EOL 2026-04-30): a non-LTS Node major
+  loses support inside a year, which is shorter than the interval between bumps
+  here. The other toolchain jobs set their own images and are unaffected.
 - **The three Postgres services set `PGDATA` explicitly**, which no other stack
   needs to do. Postgres 18's official image made its default PGDATA
   version-specific (`/var/lib/postgresql/18/docker`) and moved the declared
@@ -413,30 +415,65 @@ the single source of truth; Dockge only drives start/stop/logs.
   build: monitoring comes up on the infra VM before either machine exists. Left
   live rather than commented out, because `rules.yaml` provisions no contact point
   or notification policy — alerts are UI-only and send nothing outward.
-- **CI is manual-only.** GitHub is primary and Forgejo pull-mirrors it, so
-  `on: push` does not fire — the workflow's only trigger is
-  `workflow_dispatch` (see `infra/forgejo/build-and-push.yml`, which is a
-  template that lives in the *app* repo at `.forgejo/workflows/`, not on the
-  infra VM). It has **three jobs, one per toolchain** — `container:` is
-  per-job, so Blazor, PlatformIO and Astro cannot share one — each gated by a
-  default-on boolean dispatch input, because the runner is `capacity: 1` and
-  an unticked job is wall-clock saved. Those `if:` guards compare against
-  `true` **and** `'true'` on purpose: a `type: boolean` input can arrive as
-  the string `"false"`, which is truthy, so a bare `if: inputs.x` would run
-  the job anyway.
+- **CI is manual-only, and it is two workflows.** GitHub is primary and Forgejo
+  pull-mirrors it, so `on: push` does not fire; the lab is LAN-only, so GitHub
+  cannot call in either. Nothing event-driven is possible, and both templates
+  are `workflow_dispatch`-only. Both live in the *app* repo at
+  `.forgejo/workflows/`, not on the infra VM, and both carry **three jobs, one
+  per toolchain** — `container:` is per-job, so Blazor, PlatformIO and Astro
+  cannot share one.
+  - `infra/forgejo/build-and-push.yml` — the **dev** builder: rebuilds the
+    mirrored HEAD, tags images by commit SHA, keeps browsable run artifacts.
+    Each job is gated by a default-on boolean input, because the runner is
+    `capacity: 1` and an unticked job is wall-clock saved. Those `if:` guards
+    compare against `true` **and** `'true'` on purpose: a `type: boolean` input
+    can arrive as the string `"false"`, which is truthy, so a bare
+    `if: inputs.x` would run the job anyway.
+  - `infra/forgejo/release.yml` — the **release** builder: its input is the
+    release tags. A `plan` job validates them, POSTs `mirror-sync`, polls
+    `git ls-remote` until those exact refs land, then emits one matrix per
+    toolchain. A dispatched run can therefore build a tag that did not exist
+    when it started — the dispatch pins only which file runs. Build jobs are
+    gated on `needs.plan.outputs.<x>_any == 'true'` so an empty matrix never
+    runs.
+  **Five components across the three toolchains** — `blazor`, `showcase`,
+  `atmos`, `terra`, `flux` — tagged `<component>-v<semver>`. The three
+  PlatformIO ones are the same recipe in a different directory, so they are a
+  matrix, never a job each; adding a board is one row in `release.yml`'s
+  `COMPONENTS` table and one in the dev builder's `project:` list.
+  A **scheduled reconciler** (cron + registry-as-ledger + a rolling-tag guard)
+  was designed and **rejected**: all of it reconciles drift, and dispatching by
+  hand right after tagging means drift never accumulates. Don't re-propose it —
+  see `docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md`.
 - **Two kinds of build output, two registries.** Images go to the container
-  registry; the PlatformIO `.bin`s and the Astro `dist.tar.gz` go to **both**
-  a run artifact (`forgejo/upload-artifact@v4` — the upstream v4 only speaks
-  to GitHub's backend; expires, browsable from the run page) and the
+  registry; the PlatformIO `.bin`s and the Astro `dist.tar.gz` go to the
   **generic package registry** (`PUT /api/packages/{owner}/generic/…` —
-  permanent, same Packages tab as the images). One `REGISTRY_TOKEN` covers
-  both registries; `write:package` is the only scope. Two gotchas the
-  workflow already handles: generic packages are **owner-scoped**, hence the
-  `verdure-` name prefix, and a PUT over an existing filename **409s**, so
-  every publish deletes first — re-dispatching one commit is normal when
-  dispatch is the only trigger. Nothing on the infra VM stores these
-  specially: artifacts live under Forgejo's `APP_DATA_PATH`, already inside
-  the `/opt/forgejo/forgejo` bind mount.
+  permanent, same Packages tab as the images), and in the *dev* builder also to
+  a run artifact (`forgejo/upload-artifact@v4` — the upstream v4 only speaks to
+  GitHub's backend; expires, browsable from the run page). `release.yml`
+  publishes **no run artifacts**: a release's generic-registry copy is
+  permanent and versioned, which is the point; browsable throwaways are what
+  the dev builder is for. Two gotchas both workflows handle: generic packages
+  are **owner-scoped**, hence the `verdure-` name prefix, and a PUT over an
+  existing filename **409s**, so every publish deletes first — re-dispatching
+  is normal when dispatch is the only trigger, and the delete is what makes it
+  idempotent. Nothing on the infra VM stores these specially: artifacts live
+  under Forgejo's `APP_DATA_PATH`, already inside the `/opt/forgejo/forgejo`
+  bind mount.
+- **A release publishes exactly four image tags and no SHA tag.** `latest`,
+  `X.Y.Z`, `X.Y`, `X`; the commit travels as the
+  `org.opencontainers.image.revision` label instead — traceability without tag
+  spam. That label must come from `git rev-parse HEAD` **after** checking out
+  the tag, not from `github.sha`, which on a dispatch is the default branch's
+  commit. There is deliberately **no highest-version guard**: a hand-cut
+  release is always the newest, so re-running an old tag moving `latest`
+  backwards is accepted. `showcase` publishes to **both** registries from one
+  `npm run build` — its Dockerfile is a `COPY dist/` two-liner, not
+  multi-stage, so a `capacity: 1` runner does not compile the site twice.
+  Generic packages have no rolling tags, so `latest` is a second **version**
+  whose files are rewritten each release. The dev builder's firmware stays in
+  one `verdure-firmware` package on purpose — its versions are commit SHAs and
+  must not mix into the per-component release packages.
 - **Line endings:** `.gitattributes` forces LF repo-wide, and `*.sh` **must**
   stay LF even on Windows (CRLF breaks shebangs). Don't let an editor rewrite
   them to CRLF.

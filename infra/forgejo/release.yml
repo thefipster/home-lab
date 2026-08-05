@@ -1,0 +1,440 @@
+# =============================================================================
+# release.yml
+#
+# Place this in your VERDURE REPO at: .forgejo/workflows/release.yml
+#
+# The TAG-DRIVEN counterpart to build-and-push.yml. That file builds whatever
+# the mirror last synced and tags images by commit SHA — a dev build. This one
+# builds a RELEASE: you name the git tags, it publishes versioned artifacts.
+#
+# Releases are cut by hand as `<component>-v<semver>` tags on GitHub, so the
+# build is dispatched by hand too, in the same sitting. That is deliberate:
+# Forgejo pull-mirrors fire no Actions events, and the LAN is unreachable from
+# GitHub, so nothing can trigger this automatically. Polling on a schedule was
+# designed and rejected — see
+# docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md.
+#
+# A dispatched run may check out a ref that did not exist when it started: the
+# dispatch pins only WHICH FILE runs (from the default branch). So step one is
+# to sync the mirror, and step two is to wait for the tags to land.
+#
+# Components and what a tag publishes:
+#   blazor-v1.2.3    -> image  <repo>/blazor      :latest :1.2.3 :1.2 :1
+#   showcase-v1.2.3  -> image  <repo>/showcase    :latest :1.2.3 :1.2 :1
+#                    +  generic verdure-showcase/{1.2.3,latest}/dist.tar.gz
+#   atmos-v1.2.3     -> generic verdure-atmos/{1.2.3,latest}/*.bin
+#   terra-v1.2.3     -> generic verdure-terra/{1.2.3,latest}/*.bin
+#   flux-v1.2.3      -> generic verdure-flux/{1.2.3,latest}/*.bin
+#
+# The per-component paths in the `plan` job's COMPONENTS table are the ONLY
+# things you should need to change to run this against the real repo. They are
+# marked PLACEHOLDER.
+# =============================================================================
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Release tags, space-separated (e.g. blazor-v1.2.3 atmos-v0.4.1)"
+        required: true
+        type: string
+
+env:
+  FORGEJO_HOST: git.thefipster.de
+  # The Forgejo account both tokens belong to. REGISTRY_TOKEN (write:package)
+  # pushes; FORGEJO_API_TOKEN (write:repository) only triggers the mirror sync.
+  # Two tokens so the one handed to third-party actions stays minimal.
+  REGISTRY_USER: felix
+
+jobs:
+  # ===========================================================================
+  # plan — the only job that thinks. Validate, sync, wait, fan out.
+  # ===========================================================================
+  plan:
+    runs-on: docker
+    outputs:
+      blazor: ${{ steps.plan.outputs.blazor }}
+      blazor_any: ${{ steps.plan.outputs.blazor_any }}
+      showcase: ${{ steps.plan.outputs.showcase }}
+      showcase_any: ${{ steps.plan.outputs.showcase_any }}
+      firmware: ${{ steps.plan.outputs.firmware }}
+      firmware_any: ${{ steps.plan.outputs.firmware_any }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # Fail on a typo HERE, before any toolchain container starts. $TAGS is
+      # read from the environment, never interpolated into the script text —
+      # a ${{ }} substitution inside a run block would let dispatch input run
+      # as shell.
+      # -----------------------------------------------------------------------
+      - name: Validate tags
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          test -n "${TAGS// /}" || { echo "::error::no tags given"; exit 1; }
+          for t in $TAGS; do
+            if ! printf '%s' "$t" | grep -Eq '^(atmos|terra|flux|blazor|showcase)-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$t' is not <component>-v<major>.<minor>.<patch>"
+              exit 1
+            fi
+            echo "ok: $t"
+          done
+
+      # -----------------------------------------------------------------------
+      # mirror-sync is ASYNCHRONOUS: it queues the pull and returns 200. The
+      # wait is the next step.
+      # -----------------------------------------------------------------------
+      - name: Sync the mirror
+        env:
+          API_TOKEN: ${{ secrets.FORGEJO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body -X POST \
+            -H "Authorization: token $API_TOKEN" \
+            "https://${FORGEJO_HOST}/api/v1/repos/${{ github.repository }}/mirror-sync"
+          echo "mirror sync queued"
+
+      # -----------------------------------------------------------------------
+      # Because the run knows exactly which refs it needs, this is a
+      # deterministic wait rather than a sleep-and-hope. A tag that never
+      # arrives fails the run by name.
+      # -----------------------------------------------------------------------
+      - name: Wait for the tags to arrive
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 600))
+          for t in $TAGS; do
+            until git ls-remote --exit-code --tags origin "refs/tags/$t" >/dev/null 2>&1; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::timed out waiting for tag '$t' to reach the mirror"
+                exit 1
+              fi
+              echo "waiting for $t ..."
+              sleep 15
+            done
+            echo "found: $t"
+          done
+          git fetch --tags --force
+
+      # -----------------------------------------------------------------------
+      # One node script, because the default job image guarantees node and
+      # nothing else (no jq, no python). Emits one JSON matrix per toolchain
+      # plus an `_any` flag, so a toolchain with nothing in this release skips
+      # its job instead of running an empty matrix.
+      # -----------------------------------------------------------------------
+      - name: Plan builds
+        id: plan
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          node >> "$GITHUB_OUTPUT" <<'NODE'
+          // ---- PLACEHOLDERS: one row per component, the only edit you need --
+          //   kind        which build job handles it
+          //   dir         directory holding the project (docker build context,
+          //               npm working directory, or platformio.ini location)
+          //   dockerfile  repo-relative Dockerfile path (image kinds only)
+          //   pio_env     the [env:...] section to build (firmware only)
+          //   filesystem  "littlefs"/"spiffs" to also build a filesystem image,
+          //               "" to skip that step (firmware only)
+          const COMPONENTS = {
+            blazor:   { kind: 'blazor',   dir: 'src/dotnet',
+                        dockerfile: 'src/dotnet/Fip.Verdure.Web/Dockerfile' },
+            showcase: { kind: 'showcase', dir: 'src/astro',
+                        dockerfile: 'src/astro/Dockerfile' },
+            atmos:    { kind: 'firmware', dir: 'src/platformio/atmos',
+                        pio_env: 'esp32dev',           filesystem: 'littlefs' },
+            terra:    { kind: 'firmware', dir: 'src/platformio/terra',
+                        pio_env: 'esp32-c3-devkitm-1', filesystem: '' },
+            flux:     { kind: 'firmware', dir: 'src/platformio/flux',
+                        pio_env: 'esp32-c3-devkitm-1', filesystem: '' },
+          };
+
+          const buckets = { blazor: [], showcase: [], firmware: [] };
+          const tags = (process.env.TAGS || '').trim().split(/\s+/).filter(Boolean);
+
+          for (const tag of tags) {
+            const m = /^([a-z]+)-v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+            if (!m) throw new Error(`unparseable tag: ${tag}`);
+            const [, name, maj, min, patch] = m;
+            const c = COMPONENTS[name];
+            if (!c) throw new Error(`no COMPONENTS row for: ${name}`);
+            const common = {
+              tag,
+              version: `${maj}.${min}.${patch}`,
+              major: maj,
+              minor: `${maj}.${min}`,
+              dir: c.dir,
+            };
+            if (c.kind === 'firmware') {
+              buckets.firmware.push({
+                ...common,
+                component: name,
+                pio_env: c.pio_env,
+                filesystem: c.filesystem,
+              });
+            } else {
+              buckets[c.kind].push({ ...common, dockerfile: c.dockerfile });
+            }
+          }
+
+          for (const [k, v] of Object.entries(buckets)) {
+            console.log(`${k}=${JSON.stringify(v)}`);
+            console.log(`${k}_any=${v.length > 0}`);
+          }
+          NODE
+          cat "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # blazor — Blazor Server -> container image on four tags.
+  #
+  # No highest-version guard on the rolling tags: a dispatched release always
+  # builds the tag you just cut, so latest/X.Y/X are correct by construction.
+  # Deliberately re-releasing an OLD patch would move `latest` backwards.
+  # ===========================================================================
+  blazor:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.blazor_any == 'true' }}
+    container:
+      # Node actions AND the docker CLI in one image — the plain node image has
+      # no docker binary and login-action fails with "docker: not found".
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.blazor) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      # `github.sha` is the DISPATCHED ref's commit (the default branch), not
+      # the tag's. Resolve the real one after checkout or every image claims to
+      # have been built from main.
+      - name: Resolve revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Forgejo registry
+        uses: https://code.forgejo.org/docker/login-action@v3
+        with:
+          registry: ${{ env.FORGEJO_HOST }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://code.forgejo.org/docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: https://code.forgejo.org/docker/build-push-action@v6
+        with:
+          context: ${{ matrix.dir }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.version }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.minor }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ matrix.major }}
+          # The commit travels as a label instead of a fifth tag — traceability
+          # without tag spam.
+          labels: |
+            org.opencontainers.image.version=${{ matrix.version }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+  # ===========================================================================
+  # showcase — Astro -> BOTH outputs from ONE build:
+  #   * dist.tar.gz in the generic registry, for classic "upload and unzip"
+  #     web hosting;
+  #   * an nginx image, so Coolify can deploy it like any other service.
+  #
+  # Its Dockerfile is a `COPY dist/ /usr/share/nginx/html` two-liner consuming
+  # the dist/ this job just produced — NOT multi-stage. Multi-stage would
+  # compile the site a second time on a capacity: 1 runner. The trade-off is
+  # that the Dockerfile is not standalone-buildable.
+  # ===========================================================================
+  showcase:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.showcase_any == 'true' }}
+    container:
+      # Needs npm AND the docker CLI, so the act image rather than the node
+      # one. Its bundled node is for the actions runtime; the site build pins
+      # its own version in the next step.
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.showcase) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      - name: Resolve revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # THIRD place Node 24 is written down (with config.yml's runner label and
+      # build-and-push.yml's Astro job). Keep all three in step, and keep it an
+      # LTS line — Node 20 went EOL 2026-04-30.
+      - name: Set up Node
+        uses: https://code.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # `npm ci` needs a committed package-lock.json and installs exactly it —
+      # `npm install` would drift the release from the lockfile.
+      - name: Build site
+        working-directory: ${{ matrix.dir }}
+        run: |
+          npm ci
+          npm run build
+
+      # `-C dist .` archives the CONTENTS of dist/, so unpacking gives the site
+      # root directly rather than a dist/ wrapper.
+      - name: Archive dist
+        working-directory: ${{ matrix.dir }}
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Log in to Forgejo registry
+        uses: https://code.forgejo.org/docker/login-action@v3
+        with:
+          registry: ${{ env.FORGEJO_HOST }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://code.forgejo.org/docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: https://code.forgejo.org/docker/build-push-action@v6
+        with:
+          context: ${{ matrix.dir }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.version }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.minor }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.major }}
+          labels: |
+            org.opencontainers.image.version=${{ matrix.version }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+      # -----------------------------------------------------------------------
+      # The generic registry has no rolling-tag concept, so "latest" is a second
+      # VERSION whose files are rewritten each release. There is no action for
+      # this registry — it is a plain HTTP PUT, and a PUT over an existing
+      # filename returns 409, so delete first. That also makes re-dispatching
+      # the same tag idempotent rather than an error.
+      # Generic packages are OWNER-scoped, hence the `verdure-` prefix.
+      # -----------------------------------------------------------------------
+      - name: Publish archive to generic registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${FORGEJO_HOST}/api/packages/${{ github.repository_owner }}/generic/verdure-showcase"
+          for v in "${{ matrix.version }}" latest; do
+            url="$BASE/$v/dist.tar.gz"
+            curl -sS --user "${REGISTRY_USER}:$TOKEN" -X DELETE "$url" || true
+            curl -sS --fail-with-body --user "${REGISTRY_USER}:$TOKEN" \
+                 --upload-file "${{ matrix.dir }}/dist.tar.gz" "$url"
+            echo "published $url"
+          done
+
+  # ===========================================================================
+  # firmware — atmos / terra / flux. One matrix, not a job each: the three are
+  # the same recipe in a different directory. Adding a fourth board is one row
+  # in the plan job's COMPONENTS table and nothing here.
+  #
+  # No docker in this job at all — a .bin is not a container image, so these go
+  # to the generic package registry only.
+  # ===========================================================================
+  firmware:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.firmware_any == 'true' }}
+    container:
+      # PlatformIO publishes NO official Docker image — the Docker Hub ones are
+      # community builds. Upstream's own documented CI recipe is a pip install.
+      # Pinned major.minor because the bare `python:3` tag moves.
+      image: python:3.12-bookworm
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.firmware) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      # PlatformIO downloads a full cross-toolchain (hundreds of MB) on first
+      # use. Keyed on platformio.ini so a changed platform/lib_deps busts it.
+      - name: Cache PlatformIO toolchain
+        uses: https://code.forgejo.org/actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.component }}-${{ hashFiles(format('{0}/platformio.ini', matrix.dir)) }}
+          restore-keys: |
+            pio-${{ matrix.component }}-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -d "${{ matrix.dir }}" -e "${{ matrix.pio_env }}"
+
+      # A separate target — `buildfs` is NOT produced by a plain build.
+      - name: Build filesystem image
+        if: ${{ matrix.filesystem != '' }}
+        run: pio run -d "${{ matrix.dir }}" -e "${{ matrix.pio_env }}" -t buildfs
+
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          BUILD_DIR="${{ matrix.dir }}/.pio/build/${{ matrix.pio_env }}"
+          rm -rf dist-firmware && mkdir -p dist-firmware
+          cp "$BUILD_DIR/firmware.bin" "dist-firmware/${{ matrix.component }}-firmware.bin"
+          if [ -n "${{ matrix.filesystem }}" ]; then
+            cp "$BUILD_DIR/${{ matrix.filesystem }}.bin" \
+               "dist-firmware/${{ matrix.component }}-${{ matrix.filesystem }}.bin"
+          fi
+          ls -l dist-firmware
+
+      # Same delete-then-PUT as showcase, and the same reason: 409 on overwrite,
+      # owner-scoped names. `latest` is a second version, rewritten each release,
+      # so a device updater has a stable URL.
+      - name: Publish to generic registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${FORGEJO_HOST}/api/packages/${{ github.repository_owner }}/generic/verdure-${{ matrix.component }}"
+          for v in "${{ matrix.version }}" latest; do
+            for f in dist-firmware/*; do
+              url="$BASE/$v/$(basename "$f")"
+              curl -sS --user "${REGISTRY_USER}:$TOKEN" -X DELETE "$url" || true
+              curl -sS --fail-with-body --user "${REGISTRY_USER}:$TOKEN" \
+                   --upload-file "$f" "$url"
+              echo "published $url"
+            done
+          done
