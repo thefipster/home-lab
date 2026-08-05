@@ -252,3 +252,107 @@ jobs:
           labels: |
             org.opencontainers.image.version=${{ matrix.version }}
             org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+  # ===========================================================================
+  # showcase — Astro -> BOTH outputs from ONE build:
+  #   * dist.tar.gz in the generic registry, for classic "upload and unzip"
+  #     web hosting;
+  #   * an nginx image, so Coolify can deploy it like any other service.
+  #
+  # Its Dockerfile is a `COPY dist/ /usr/share/nginx/html` two-liner consuming
+  # the dist/ this job just produced — NOT multi-stage. Multi-stage would
+  # compile the site a second time on a capacity: 1 runner. The trade-off is
+  # that the Dockerfile is not standalone-buildable.
+  # ===========================================================================
+  showcase:
+    runs-on: docker
+    needs: plan
+    if: ${{ needs.plan.outputs.showcase_any == 'true' }}
+    container:
+      # Needs npm AND the docker CLI, so the act image rather than the node
+      # one. Its bundled node is for the actions runtime; the site build pins
+      # its own version in the next step.
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.showcase) }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 0
+
+      - name: Resolve revision
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # THIRD place Node 24 is written down (with config.yml's runner label and
+      # build-and-push.yml's Astro job). Keep all three in step, and keep it an
+      # LTS line — Node 20 went EOL 2026-04-30.
+      - name: Set up Node
+        uses: https://code.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # `npm ci` needs a committed package-lock.json and installs exactly it —
+      # `npm install` would drift the release from the lockfile.
+      - name: Build site
+        working-directory: ${{ matrix.dir }}
+        run: |
+          npm ci
+          npm run build
+
+      # `-C dist .` archives the CONTENTS of dist/, so unpacking gives the site
+      # root directly rather than a dist/ wrapper.
+      - name: Archive dist
+        working-directory: ${{ matrix.dir }}
+        run: tar -czf dist.tar.gz -C dist .
+
+      - name: Log in to Forgejo registry
+        uses: https://code.forgejo.org/docker/login-action@v3
+        with:
+          registry: ${{ env.FORGEJO_HOST }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: https://code.forgejo.org/docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: https://code.forgejo.org/docker/build-push-action@v6
+        with:
+          context: ${{ matrix.dir }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.version }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.minor }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/showcase:${{ matrix.major }}
+          labels: |
+            org.opencontainers.image.version=${{ matrix.version }}
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
+
+      # -----------------------------------------------------------------------
+      # The generic registry has no rolling-tag concept, so "latest" is a second
+      # VERSION whose files are rewritten each release. There is no action for
+      # this registry — it is a plain HTTP PUT, and a PUT over an existing
+      # filename returns 409, so delete first. That also makes re-dispatching
+      # the same tag idempotent rather than an error.
+      # Generic packages are OWNER-scoped, hence the `verdure-` prefix.
+      # -----------------------------------------------------------------------
+      - name: Publish archive to generic registry
+        env:
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE="https://${FORGEJO_HOST}/api/packages/${{ github.repository_owner }}/generic/verdure-showcase"
+          for v in "${{ matrix.version }}" latest; do
+            url="$BASE/$v/dist.tar.gz"
+            curl -sS --user "${REGISTRY_USER}:$TOKEN" -X DELETE "$url" || true
+            curl -sS --fail-with-body --user "${REGISTRY_USER}:$TOKEN" \
+                 --upload-file "${{ matrix.dir }}/dist.tar.gz" "$url"
+            echo "published $url"
+          done
