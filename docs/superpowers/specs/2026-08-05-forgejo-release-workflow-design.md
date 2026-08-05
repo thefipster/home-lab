@@ -261,3 +261,9 @@ confirmed on the first real dispatch:
    step-level skips.
 3. **Registry push from a mirrored repo's Actions** — near-certain, since
    `build-and-push.yml` already does exactly this today.
+4. **`code.forgejo.org/actions/setup-node@v4` exists.** The `showcase` job runs
+   on the `act` image (it needs the docker CLI) and so cannot inherit the
+   runner's default Node image; it pins Node 24 through `setup-node` instead.
+   If Forgejo does not mirror that action, the fallback is to drop the step and
+   accept whatever Node the `act` image ships — check the version it lands on,
+   because an EOL major is the reason the pin is there.
