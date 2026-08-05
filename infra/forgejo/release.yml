@@ -1,0 +1,194 @@
+# =============================================================================
+# release.yml
+#
+# Place this in your VERDURE REPO at: .forgejo/workflows/release.yml
+#
+# The TAG-DRIVEN counterpart to build-and-push.yml. That file builds whatever
+# the mirror last synced and tags images by commit SHA — a dev build. This one
+# builds a RELEASE: you name the git tags, it publishes versioned artifacts.
+#
+# Releases are cut by hand as `<component>-v<semver>` tags on GitHub, so the
+# build is dispatched by hand too, in the same sitting. That is deliberate:
+# Forgejo pull-mirrors fire no Actions events, and the LAN is unreachable from
+# GitHub, so nothing can trigger this automatically. Polling on a schedule was
+# designed and rejected — see
+# docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md.
+#
+# A dispatched run may check out a ref that did not exist when it started: the
+# dispatch pins only WHICH FILE runs (from the default branch). So step one is
+# to sync the mirror, and step two is to wait for the tags to land.
+#
+# Components and what a tag publishes:
+#   blazor-v1.2.3    -> image  <repo>/blazor      :latest :1.2.3 :1.2 :1
+#   showcase-v1.2.3  -> image  <repo>/showcase    :latest :1.2.3 :1.2 :1
+#                    +  generic verdure-showcase/{1.2.3,latest}/dist.tar.gz
+#   atmos-v1.2.3     -> generic verdure-atmos/{1.2.3,latest}/*.bin
+#   terra-v1.2.3     -> generic verdure-terra/{1.2.3,latest}/*.bin
+#   flux-v1.2.3      -> generic verdure-flux/{1.2.3,latest}/*.bin
+#
+# The per-component paths in the `plan` job's COMPONENTS table are the ONLY
+# things you should need to change to run this against the real repo. They are
+# marked PLACEHOLDER.
+# =============================================================================
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Release tags, space-separated (e.g. blazor-v1.2.3 atmos-v0.4.1)"
+        required: true
+        type: string
+
+env:
+  FORGEJO_HOST: git.thefipster.de
+  # The Forgejo account both tokens belong to. REGISTRY_TOKEN (write:package)
+  # pushes; FORGEJO_API_TOKEN (write:repository) only triggers the mirror sync.
+  # Two tokens so the one handed to third-party actions stays minimal.
+  REGISTRY_USER: felix
+
+jobs:
+  # ===========================================================================
+  # plan — the only job that thinks. Validate, sync, wait, fan out.
+  # ===========================================================================
+  plan:
+    runs-on: docker
+    outputs:
+      blazor: ${{ steps.plan.outputs.blazor }}
+      blazor_any: ${{ steps.plan.outputs.blazor_any }}
+      showcase: ${{ steps.plan.outputs.showcase }}
+      showcase_any: ${{ steps.plan.outputs.showcase_any }}
+      firmware: ${{ steps.plan.outputs.firmware }}
+      firmware_any: ${{ steps.plan.outputs.firmware_any }}
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # Fail on a typo HERE, before any toolchain container starts. $TAGS is
+      # read from the environment, never interpolated into the script text —
+      # a ${{ }} substitution inside a run block would let dispatch input run
+      # as shell.
+      # -----------------------------------------------------------------------
+      - name: Validate tags
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          test -n "${TAGS// /}" || { echo "::error::no tags given"; exit 1; }
+          for t in $TAGS; do
+            if ! printf '%s' "$t" | grep -Eq '^(atmos|terra|flux|blazor|showcase)-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$t' is not <component>-v<major>.<minor>.<patch>"
+              exit 1
+            fi
+            echo "ok: $t"
+          done
+
+      # -----------------------------------------------------------------------
+      # mirror-sync is ASYNCHRONOUS: it queues the pull and returns 200. The
+      # wait is the next step.
+      # -----------------------------------------------------------------------
+      - name: Sync the mirror
+        env:
+          API_TOKEN: ${{ secrets.FORGEJO_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sS --fail-with-body -X POST \
+            -H "Authorization: token $API_TOKEN" \
+            "https://${FORGEJO_HOST}/api/v1/repos/${{ github.repository }}/mirror-sync"
+          echo "mirror sync queued"
+
+      # -----------------------------------------------------------------------
+      # Because the run knows exactly which refs it needs, this is a
+      # deterministic wait rather than a sleep-and-hope. A tag that never
+      # arrives fails the run by name.
+      # -----------------------------------------------------------------------
+      - name: Wait for the tags to arrive
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 600))
+          for t in $TAGS; do
+            until git ls-remote --exit-code --tags origin "refs/tags/$t" >/dev/null 2>&1; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "::error::timed out waiting for tag '$t' to reach the mirror"
+                exit 1
+              fi
+              echo "waiting for $t ..."
+              sleep 15
+            done
+            echo "found: $t"
+          done
+          git fetch --tags --force
+
+      # -----------------------------------------------------------------------
+      # One node script, because the default job image guarantees node and
+      # nothing else (no jq, no python). Emits one JSON matrix per toolchain
+      # plus an `_any` flag, so a toolchain with nothing in this release skips
+      # its job instead of running an empty matrix.
+      # -----------------------------------------------------------------------
+      - name: Plan builds
+        id: plan
+        env:
+          TAGS: ${{ inputs.tags }}
+        run: |
+          node >> "$GITHUB_OUTPUT" <<'NODE'
+          // ---- PLACEHOLDERS: one row per component, the only edit you need --
+          //   kind        which build job handles it
+          //   dir         directory holding the project (docker build context,
+          //               npm working directory, or platformio.ini location)
+          //   dockerfile  repo-relative Dockerfile path (image kinds only)
+          //   pio_env     the [env:...] section to build (firmware only)
+          //   filesystem  "littlefs"/"spiffs" to also build a filesystem image,
+          //               "" to skip that step (firmware only)
+          const COMPONENTS = {
+            blazor:   { kind: 'blazor',   dir: 'src/dotnet',
+                        dockerfile: 'src/dotnet/Fip.Verdure.Web/Dockerfile' },
+            showcase: { kind: 'showcase', dir: 'src/astro',
+                        dockerfile: 'src/astro/Dockerfile' },
+            atmos:    { kind: 'firmware', dir: 'src/platformio/atmos',
+                        pio_env: 'esp32dev',           filesystem: 'littlefs' },
+            terra:    { kind: 'firmware', dir: 'src/platformio/terra',
+                        pio_env: 'esp32-c3-devkitm-1', filesystem: '' },
+            flux:     { kind: 'firmware', dir: 'src/platformio/flux',
+                        pio_env: 'esp32-c3-devkitm-1', filesystem: '' },
+          };
+
+          const buckets = { blazor: [], showcase: [], firmware: [] };
+          const tags = (process.env.TAGS || '').trim().split(/\s+/).filter(Boolean);
+
+          for (const tag of tags) {
+            const m = /^([a-z]+)-v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+            if (!m) throw new Error(`unparseable tag: ${tag}`);
+            const [, name, maj, min, patch] = m;
+            const c = COMPONENTS[name];
+            if (!c) throw new Error(`no COMPONENTS row for: ${name}`);
+            const common = {
+              tag,
+              version: `${maj}.${min}.${patch}`,
+              major: maj,
+              minor: `${maj}.${min}`,
+              dir: c.dir,
+            };
+            if (c.kind === 'firmware') {
+              buckets.firmware.push({
+                ...common,
+                component: name,
+                pio_env: c.pio_env,
+                filesystem: c.filesystem,
+              });
+            } else {
+              buckets[c.kind].push({ ...common, dockerfile: c.dockerfile });
+            }
+          }
+
+          for (const [k, v] of Object.entries(buckets)) {
+            console.log(`${k}=${JSON.stringify(v)}`);
+            console.log(`${k}_any=${v.length > 0}`);
+          }
+          NODE
+          cat "$GITHUB_OUTPUT"
