@@ -3,6 +3,10 @@
 #
 # Place this in your VERDURE REPO at: .forgejo/workflows/build-and-push.yml
 #
+# This is the DEV builder: it builds whatever the mirror last synced and tags
+# images by commit SHA. For a versioned release from a git tag, use
+# release.yml instead.
+#
 # Because you chose GitHub-primary + Forgejo pull-mirror, a normal `on: push`
 # will NOT fire (mirrors don't emit push events). Builds are therefore
 # MANUAL-ONLY: after the mirror has synced, trigger the workflow from the
@@ -15,9 +19,14 @@
 # you keep.
 #
 # Where each job's output ends up:
-#   web       OCI image  -> container registry, git.thefipster.de/<repo>/web
+#   blazor    OCI image  -> container registry, git.thefipster.de/<repo>/blazor
 #   firmware  *.bin      -> run artifact + generic package `verdure-firmware`
-#   site      dist.tar.gz-> run artifact + generic package `verdure-site`
+#   showcase  dist.tar.gz-> run artifact + generic package `verdure-showcase`
+#
+# `verdure-firmware` is ONE package for all three boards, deliberately: these
+# versions are commit SHAs, and they must not land inside the per-component
+# `verdure-atmos` / `verdure-terra` / `verdure-flux` packages, where
+# release.yml publishes semver versions and `latest`.
 #
 # Paths, PlatformIO environments and the Astro directory below are
 # PLACEHOLDERS — every one of them is marked, and they are the only things you
@@ -31,16 +40,16 @@ on:
     # Booleans, all default-on: a bare dispatch still builds everything, the
     # way this workflow used to. Untick to iterate on one framework.
     inputs:
-      build_web:
-        description: "Build + push the Blazor web image"
+      build_blazor:
+        description: "Build + push the Blazor image"
         type: boolean
         default: true
       build_firmware:
         description: "Build the PlatformIO firmware(s)"
         type: boolean
         default: true
-      build_site:
-        description: "Build the Astro site"
+      build_showcase:
+        description: "Build the Astro showcase site"
         type: boolean
         default: true
 
@@ -58,13 +67,13 @@ jobs:
   # ===========================================================================
   # 1. Blazor Server -> container image
   # ===========================================================================
-  build-web:
+  build-blazor:
     runs-on: docker
     # A `type: boolean` input can reach the runner as the STRING "false", and a
-    # non-empty string is truthy — `if: inputs.build_web` would then run this
+    # non-empty string is truthy — `if: inputs.build_blazor` would then run this
     # job with the box unticked. Compare against both forms explicitly. Same
     # guard on all three jobs.
-    if: ${{ inputs.build_web == true || inputs.build_web == 'true' }}
+    if: ${{ inputs.build_blazor == true || inputs.build_blazor == 'true' }}
     container:
       # This job runs Node actions (checkout, login, build-push) AND shells out
       # to the `docker` CLI. The plain `node` image has Node but no docker
@@ -109,8 +118,8 @@ jobs:
           file: ./src/dotnet/Fip.Verdure.Web/Dockerfile
           push: true
           tags: |
-            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/web:latest
-            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/web:${{ github.sha }}
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:latest
+            ${{ env.FORGEJO_HOST }}/${{ github.repository }}/blazor:${{ github.sha }}
 
   # ===========================================================================
   # 2. PlatformIO -> firmware.bin (+ filesystem image)
@@ -143,8 +152,12 @@ jobs:
             dir: src/platformio/atmos
             pio_env: esp32dev
             filesystem: littlefs
-          - name: sensor
-            dir: src/platformio/sensor
+          - name: terra
+            dir: src/platformio/terra
+            pio_env: esp32-c3-devkitm-1
+            filesystem: ""
+          - name: flux
+            dir: src/platformio/flux
             pio_env: esp32-c3-devkitm-1
             filesystem: ""
     steps:
@@ -245,9 +258,9 @@ jobs:
   # ===========================================================================
   # 3. Astro -> static dist/, archived
   # ===========================================================================
-  build-site:
+  build-showcase:
     runs-on: docker
-    if: ${{ inputs.build_site == true || inputs.build_site == 'true' }}
+    if: ${{ inputs.build_showcase == true || inputs.build_showcase == 'true' }}
     container:
       # The runner's own default job image (config.yml), so it is already on
       # the host daemon. Node 24 is the current LTS (Node 20 went EOL
@@ -283,7 +296,7 @@ jobs:
         with:
           # `path` is NOT affected by `defaults.run.working-directory` — that
           # only applies to `run:` steps — so this path is repo-relative.
-          name: site
+          name: showcase
           path: src/astro/dist.tar.gz
           retention-days: 30
 
@@ -295,7 +308,7 @@ jobs:
           set -euo pipefail
           BASE="https://${{ env.FORGEJO_HOST }}/api/packages/${{ github.repository_owner }}/generic"
           VERSION="$(echo "${{ github.sha }}" | cut -c1-7)"
-          url="$BASE/verdure-site/$VERSION/dist.tar.gz"
+          url="$BASE/verdure-showcase/$VERSION/dist.tar.gz"
           curl -sS --user "${{ env.REGISTRY_USER }}:$TOKEN" -X DELETE "$url" || true
           curl -sS --fail-with-body --user "${{ env.REGISTRY_USER }}:$TOKEN" \
                --upload-file dist.tar.gz "$url"
