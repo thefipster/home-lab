@@ -1,0 +1,118 @@
+# Paperless-ngx — document management / searchable archive
+# Upstream reference:
+#   https://github.com/paperless-ngx/paperless-ngx/blob/main/docker/compose/docker-compose.postgres.yml
+#
+# PDFs and images only. Upstream's postgres-tika variant adds gotenberg + tika to
+# ingest Office files and .eml mail; this lab converts those to PDF beforehand, so
+# both are deliberately absent — see the README.
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_PAPERLESS_8000 -> generates the domain and points the proxy at port 8000
+#   ${SERVICE_REALBASE64_64_*} -> 64 random bytes, base64 encoded
+#   ${SERVICE_PASSWORD_*}      -> generated once, then stored in the resource's env editor
+#
+# State lives in bind mounts under /data/paperless on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk,
+# and this is the one tier-1 stack here — the paper originals are gone.
+
+services:
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - SERVICE_URL_PAPERLESS_8000
+      # Sets ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS behind Coolify's proxy. Needs the scheme:
+      # without it, logging in over https fails CSRF validation. Not derived from
+      # SERVICE_URL_/SERVICE_FQDN_ because their scheme handling is version-dependent.
+      - PAPERLESS_URL=${PUBLIC_URL:-https://paperless.thefipster.de}
+      - PAPERLESS_SECRET_KEY=${SERVICE_REALBASE64_64_PAPERLESS}
+      - PAPERLESS_TIME_ZONE=${TZ:-Europe/Berlin}
+      # ISO 639-2 codes. deu/eng/ita/spa/fra are installed in the image by default;
+      # anything else also needs PAPERLESS_OCR_LANGUAGES.
+      - PAPERLESS_OCR_LANGUAGE=${PAPERLESS_OCR_LANGUAGE:-deu+eng}
+      # Owner of files written into the consume/export directories on the host.
+      - USERMAP_UID=${PUID:-1000}
+      - USERMAP_GID=${PGID:-1000}
+      # Seeded on first start against an empty database.
+      - PAPERLESS_ADMIN_USER=${PAPERLESS_ADMIN_USER:-admin}
+      - PAPERLESS_ADMIN_MAIL=${PAPERLESS_ADMIN_MAIL:-admin@example.com}
+      - PAPERLESS_ADMIN_PASSWORD=${SERVICE_PASSWORD_ADMIN}
+      - PAPERLESS_REDIS=redis://broker:6379
+      - PAPERLESS_DBENGINE=postgresql
+      - PAPERLESS_DBHOST=db
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_DBUSER=paperless
+      - PAPERLESS_DBPASS=${SERVICE_PASSWORD_POSTGRES}
+      # --- SSO (OIDC via Authentik) ---
+      # PAPERLESS_APPS is the switch: django-allauth only reads the provider block
+      # below once its app is in INSTALLED_APPS, so the JSON sitting here with blank
+      # credentials is inert. Set OIDC_ENABLED_APP once the Authentik provider
+      # exists — see the README. The JSON lives in the compose rather than being
+      # pasted into Coolify's UI so it stays reviewable in a diff.
+      - PAPERLESS_APPS=${OIDC_ENABLED_APP:-}
+      - 'PAPERLESS_SOCIALACCOUNT_PROVIDERS={"openid_connect":{"OAUTH_PKCE_ENABLED":true,"SCOPE":["openid","profile","email"],"APPS":[{"provider_id":"authentik","name":"Authentik","client_id":"${OIDC_CLIENT_ID:-}","secret":"${OIDC_CLIENT_SECRET:-}","settings":{"server_url":"https://auth.thefipster.de/application/o/paperless/.well-known/openid-configuration","fetch_userinfo":true}}]}}'
+      # Create the Paperless user on first SSO login instead of stopping at a signup
+      # form — the same call Forgejo's ENABLE_AUTO_REGISTRATION makes. New accounts
+      # start with no document permissions until granted.
+      - PAPERLESS_SOCIAL_AUTO_SIGNUP=${PAPERLESS_SOCIAL_AUTO_SIGNUP:-true}
+      # Local login stays enabled — break-glass, matching Forgejo and Grafana.
+      - PAPERLESS_DISABLE_REGULAR_LOGIN=false
+      - PAPERLESS_REDIRECT_LOGIN_TO_SSO=false
+      # OCR is CPU-hungry; keep it bounded on a single node.
+      - PAPERLESS_TASK_WORKERS=${PAPERLESS_TASK_WORKERS:-2}
+      - PAPERLESS_WEBSERVER_WORKERS=${PAPERLESS_WEBSERVER_WORKERS:-2}
+    volumes:
+      - /data/paperless/data:/usr/src/paperless/data
+      - /data/paperless/media:/usr/src/paperless/media
+      # Drop files into consume/ from a scanner or SMB share; document_exporter
+      # writes into export/. Both are reachable from the host by design.
+      - /data/paperless/consume:/usr/src/paperless/consume
+      - /data/paperless/export:/usr/src/paperless/export
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - PGUSER=paperless
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      # Postgres 18's image defaults PGDATA to a version-specific path
+      # (/var/lib/postgresql/18/docker). Pinning it back keeps the bind mount
+      # holding PGDATA directly, and makes a future major bump fail loudly
+      # instead of initialising an empty 19/ beside the old data.
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - /data/paperless/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  broker:
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    volumes:
+      - /data/paperless/redis:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

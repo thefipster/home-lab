@@ -11,9 +11,11 @@ add its section here first.**
 
 **Scope: the infra VM only.** The apps VM's deployed services also join
 Authentik by OIDC, but their Authentik rows live beside the services
-themselves — [apps/services.md](../apps/services.md) is their catalog, and the
-per-app directories in Forgejo hold the how. Their absence here is deliberate,
-not a gap.
+themselves — [apps/services.md](../apps/services.md) is their catalog, and each
+app's own Forgejo repository holds the how, in its README's **SSO (OIDC via
+Authentik)** section. Their absence here is deliberate, not a gap: each of those
+application slugs is baked into a discovery URL in its own compose file, so the
+values belong next to the file that depends on them.
 
 Services join by one of two patterns, never both on one service (the repo
 convention):
