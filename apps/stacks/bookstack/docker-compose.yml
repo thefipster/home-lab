@@ -1,0 +1,71 @@
+# BookStack — self-hosted wiki / documentation platform
+# Upstream references:
+#   https://docs.linuxserver.io/images/docker-bookstack/
+#   https://www.bookstackapp.com/docs/admin/installation/
+# BookStack has no official image; LinuxServer.io is the setup its own docs point at.
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_BOOKSTACK_80   -> generates the domain and points the proxy at port 80
+#   ${SERVICE_REALBASE64_32_*} -> 32 random bytes, base64 encoded (Laravel APP_KEY format)
+#   ${SERVICE_PASSWORD_*}      -> generated once, then stored in the resource's env editor
+#
+# State lives in bind mounts under /data/bookstack on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk.
+
+services:
+  bookstack:
+    image: lscr.io/linuxserver/bookstack:26.05.3
+    restart: unless-stopped
+    expose:
+      - "80"
+    environment:
+      - SERVICE_URL_BOOKSTACK_80
+      # Must match the external URL exactly, scheme included, or logins, redirects and
+      # images break. Not derived from SERVICE_URL_/SERVICE_FQDN_: whether those carry a
+      # scheme has changed between Coolify versions.
+      - APP_URL=${PUBLIC_URL:-https://wiki.thefipster.de}
+      # Laravel session/encryption key. Changing it makes existing encrypted data unreadable.
+      - APP_KEY=base64:${SERVICE_REALBASE64_32_BOOKSTACK}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Berlin}
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - DB_DATABASE=bookstack
+      - DB_USERNAME=bookstack
+      - DB_PASSWORD=${SERVICE_PASSWORD_MARIADB}
+    volumes:
+      - /data/bookstack/config:/config
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:80/status"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11.8
+    restart: unless-stopped
+    # BookStack expects utf8mb4 throughout; the defaults differ per MariaDB build.
+    command: >-
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    environment:
+      - MARIADB_ROOT_PASSWORD=${SERVICE_PASSWORD_MARIADBROOT}
+      - MARIADB_DATABASE=bookstack
+      - MARIADB_USER=bookstack
+      - MARIADB_PASSWORD=${SERVICE_PASSWORD_MARIADB}
+      - TZ=${TZ:-Europe/Berlin}
+    volumes:
+      - /data/bookstack/mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

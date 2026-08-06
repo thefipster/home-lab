@@ -1,0 +1,80 @@
+# Mealie — recipe manager & meal planner
+# Upstream reference: https://docs.mealie.io/documentation/getting-started/installation/postgres/
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_MEALIE_9000 -> generates the domain and points the proxy at port 9000
+#   ${SERVICE_PASSWORD_*}   -> generated once, then stored in the resource's env editor
+#
+# State lives in bind mounts under /data/mealie on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk.
+
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:v3.22.0
+    restart: unless-stopped
+    expose:
+      - "9000"
+    environment:
+      - SERVICE_URL_MEALIE_9000
+      # Must match the domain configured under Coolify -> Domains, scheme included.
+      # Not derived from SERVICE_URL_/SERVICE_FQDN_: whether those carry a scheme has
+      # changed between Coolify versions, and a scheme-less BASE_URL breaks invite links.
+      - BASE_URL=${PUBLIC_URL:-https://mealie.thefipster.de}
+      - ALLOW_SIGNUP=${ALLOW_SIGNUP:-false}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Berlin}
+      # Single-node home lab: one worker is plenty and keeps idle RAM low.
+      - MAX_WORKERS=${MAX_WORKERS:-1}
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-1}
+      # First-run admin account. Change the password immediately after logging in.
+      - DEFAULT_EMAIL=${DEFAULT_EMAIL:-changeme@example.com}
+      - DEFAULT_GROUP=${DEFAULT_GROUP:-Home}
+      - DEFAULT_HOUSEHOLD=${DEFAULT_HOUSEHOLD:-Family}
+      - DB_ENGINE=postgres
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=mealie
+      - POSTGRES_USER=mealie
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - /data/mealie/data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 1000M
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    # 18, matching every other Postgres in the lab, rather than the 17 Mealie's own
+    # example compose still ships. Nothing here depends on a version-specific feature.
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=mealie
+      - POSTGRES_USER=mealie
+      - PGUSER=mealie
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      # Postgres 18's image defaults PGDATA to a version-specific path
+      # (/var/lib/postgresql/18/docker). Pinning it back keeps the bind mount
+      # holding PGDATA directly, and makes a future major bump fail loudly
+      # instead of initialising an empty 19/ beside the old data.
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - /data/mealie/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mealie -d mealie"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

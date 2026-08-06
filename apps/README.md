@@ -15,8 +15,8 @@ not here. Mirroring them into the repo would create a second source of truth tha
 silently drifts from the one actually deploying things.
 
 That holds for third-party software too — Paperless, Vaultwarden and the rest
-are Coolify resources deployed from their own Forgejo repo, not stacks declared
-here. What this directory adds for them is a **catalog**:
+are Coolify resources deployed from **one Forgejo repository each**, not stacks
+declared here. What this directory adds for them is a **catalog**:
 [services.md](services.md) records what runs and why that one, and points at the
 repo holding the compose.
 
@@ -24,8 +24,9 @@ What that leaves in this directory:
 
 | File | Purpose |
 |------|---------|
-| `services.md` | the catalog of **third-party** applications this VM runs as Coolify resources — what runs and why that one. Their compose files live in the Forgejo repo `self-hosted-services`, so this stays a pointer, not a second source of truth. |
+| `services.md` | the catalog of **third-party** applications this VM runs as Coolify resources — what runs and why that one. Each one's compose lives in its own Forgejo repo, so this stays a pointer, not a second source of truth. |
 | `.env.example` | the three `NETCUP_*` names Coolify's bundled proxy needs for its own DNS-01 wildcard. Copied to `.env` by the init script. The **values** are entered in Coolify's UI — the file exists so the requirement is visible in the repo instead of only inside Coolify. |
+| `stacks/` | **staging only**, and temporary. Stacks are drafted here, then pushed to their own Forgejo repo and **deleted from this directory** — see [stacks/README.md](stacks/README.md). A stack still sitting here is one that has not been split out yet, not an exception to the rule above. |
 
 ## Scripts that run on this machine
 

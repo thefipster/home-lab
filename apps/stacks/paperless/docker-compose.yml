@@ -1,0 +1,120 @@
+# Paperless-ngx — document management / searchable archive
+# Upstream reference:
+#   https://github.com/paperless-ngx/paperless-ngx/blob/main/docker/compose/docker-compose.postgres-tika.yml
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_PAPERLESS_8000 -> generates the domain and points the proxy at port 8000
+#   ${SERVICE_REALBASE64_64_*} -> 64 random bytes, base64 encoded
+#   ${SERVICE_PASSWORD_*}      -> generated once, then stored in the resource's env editor
+#
+# State lives in bind mounts under /data/paperless on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk,
+# and this is the one tier-1 stack here — the paper originals are gone.
+
+services:
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - SERVICE_URL_PAPERLESS_8000
+      # Sets ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS behind Coolify's proxy. Needs the scheme:
+      # without it, logging in over https fails CSRF validation. Not derived from
+      # SERVICE_URL_/SERVICE_FQDN_ because their scheme handling is version-dependent.
+      - PAPERLESS_URL=${PUBLIC_URL:-https://paperless.thefipster.de}
+      - PAPERLESS_SECRET_KEY=${SERVICE_REALBASE64_64_PAPERLESS}
+      - PAPERLESS_TIME_ZONE=${TZ:-Europe/Berlin}
+      # ISO 639-2 codes. deu/eng/ita/spa/fra are installed in the image by default;
+      # anything else also needs PAPERLESS_OCR_LANGUAGES.
+      - PAPERLESS_OCR_LANGUAGE=${PAPERLESS_OCR_LANGUAGE:-deu+eng}
+      # Owner of files written into the consume/export directories on the host.
+      - USERMAP_UID=${PUID:-1000}
+      - USERMAP_GID=${PGID:-1000}
+      # Seeded on first start against an empty database.
+      - PAPERLESS_ADMIN_USER=${PAPERLESS_ADMIN_USER:-admin}
+      - PAPERLESS_ADMIN_MAIL=${PAPERLESS_ADMIN_MAIL:-admin@example.com}
+      - PAPERLESS_ADMIN_PASSWORD=${SERVICE_PASSWORD_ADMIN}
+      - PAPERLESS_REDIS=redis://broker:6379
+      - PAPERLESS_DBENGINE=postgresql
+      - PAPERLESS_DBHOST=db
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_DBUSER=paperless
+      - PAPERLESS_DBPASS=${SERVICE_PASSWORD_POSTGRES}
+      # Office / e-mail document support via tika + gotenberg.
+      - PAPERLESS_TIKA_ENABLED=1
+      - PAPERLESS_TIKA_GOTENBERG_ENDPOINT=http://gotenberg:3000
+      - PAPERLESS_TIKA_ENDPOINT=http://tika:9998
+      # OCR is CPU-hungry; keep it bounded on a single node.
+      - PAPERLESS_TASK_WORKERS=${PAPERLESS_TASK_WORKERS:-2}
+      - PAPERLESS_WEBSERVER_WORKERS=${PAPERLESS_WEBSERVER_WORKERS:-2}
+    volumes:
+      - /data/paperless/data:/usr/src/paperless/data
+      - /data/paperless/media:/usr/src/paperless/media
+      # Drop files into consume/ from a scanner or SMB share; document_exporter
+      # writes into export/. Both are reachable from the host by design.
+      - /data/paperless/consume:/usr/src/paperless/consume
+      - /data/paperless/export:/usr/src/paperless/export
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+      gotenberg:
+        condition: service_started
+      tika:
+        condition: service_started
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - PGUSER=paperless
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      # Postgres 18's image defaults PGDATA to a version-specific path
+      # (/var/lib/postgresql/18/docker). Pinning it back keeps the bind mount
+      # holding PGDATA directly, and makes a future major bump fail loudly
+      # instead of initialising an empty 19/ beside the old data.
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - /data/paperless/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  broker:
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    volumes:
+      - /data/paperless/redis:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gotenberg:
+    image: gotenberg/gotenberg:8.34
+    restart: unless-stopped
+    # The chromium route converts .eml files. Block external content and scripting.
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+
+  tika:
+    image: apache/tika:3.3.1.0
+    restart: unless-stopped

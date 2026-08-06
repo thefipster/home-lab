@@ -1,0 +1,58 @@
+# LubeLogger — vehicle maintenance / fuel mileage tracker
+# Upstream reference: https://github.com/hargata/lubelog/blob/main/docker-compose.postgresql.yml
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_LUBELOGGER_8080 -> generates the domain and points the proxy at port 8080
+#   ${SERVICE_PASSWORD_*}       -> generated once, then stored in the resource's env editor
+#
+# LubeLogger needs no public-URL variable of its own, so there is no PUBLIC_URL here.
+# The domain is set once under Coolify -> Domains: https://lube.thefipster.de
+#
+# State lives in bind mounts under /data/lubelogger on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk.
+
+services:
+  lubelogger:
+    image: ghcr.io/hargata/lubelogger:v1.7.0
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      - SERVICE_URL_LUBELOGGER_8080
+      # Postgres backend. Without this LubeLogger falls back to its embedded file database.
+      - POSTGRES_CONNECTION=Host=postgres:5432;Username=lubelogger;Password=${SERVICE_PASSWORD_POSTGRES};Database=lubelogger;
+      # Drives number, currency and date formatting.
+      - LC_ALL=${LC_ALL:-de_DE.UTF-8}
+      - LANG=${LANG:-de_DE.UTF-8}
+      - TZ=${TZ:-Europe/Berlin}
+    volumes:
+      # Uploaded documents and images stay on disk even with the Postgres backend.
+      - /data/lubelogger/data:/App/data
+      - /data/lubelogger/keys:/root/.aspnet/DataProtection-Keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=lubelogger
+      - POSTGRES_USER=lubelogger
+      - PGUSER=lubelogger
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      # Postgres 18's image defaults PGDATA to a version-specific path
+      # (/var/lib/postgresql/18/docker). Pinning it back keeps the bind mount
+      # holding PGDATA directly, and makes a future major bump fail loudly
+      # instead of initialising an empty 19/ beside the old data.
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - /data/lubelogger/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lubelogger -d lubelogger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

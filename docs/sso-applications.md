@@ -11,8 +11,8 @@ add its section here first.**
 
 **Scope: the infra VM only.** The apps VM's deployed services also join
 Authentik by OIDC, but their Authentik rows live beside the services
-themselves — [apps/services.md](../apps/services.md) is their catalog, and the
-per-app directories in Forgejo hold the how. Their absence here is deliberate,
+themselves — [apps/services.md](../apps/services.md) is their catalog, and each
+app's own Forgejo repository holds the how. Their absence here is deliberate,
 not a gap.
 
 Services join by one of two patterns, never both on one service (the repo

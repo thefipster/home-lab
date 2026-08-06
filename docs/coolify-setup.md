@@ -227,12 +227,20 @@ there lands you on **this** box and produces the same 404.
 | Coolify itself | `/data/coolify/` — source of truth for everything it manages |
 | Coolify's compose | `/data/coolify/source/` — installed, not from this repo |
 | The proxy's compose | Coolify's own store, edited at *Servers → Proxy* — **not** in this repo |
-| App data + volumes | Docker volumes, managed by Coolify |
+| Third-party app data | `/data/<stack>/` — bind mounts declared in each app's own compose, **not** Docker volumes ([apps/services.md](../apps/services.md)) |
 | netcup credentials (recovery copy) | `apps/.env` — gitignored, VM-only |
 | Swap | `/swapfile`, with an `/etc/fstab` entry |
 
 `/data/coolify/` is the thing to back up. Nothing under it is reproducible from
 this repo, which is the trade Coolify asks for.
+
+**`/data/<stack>/` is the second thing to back up, and nothing does yet.** The
+third-party stacks bind-mount their state there rather than into Docker volumes —
+the apps-VM analogue of the infra VM's `/opt/<stack>` convention, and for the same
+reason: a backup job needs a path it can walk. That disk is excluded from whole-VM
+`vzdump` (`backup=0`) and the file-level layer is still roadmap, so treat
+everything under `/data` as unbacked. Directories are created by hand before a
+deploy; each stack's README carries the exact `mkdir`.
 
 ## How it works
 

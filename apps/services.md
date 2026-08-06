@@ -6,24 +6,34 @@ services the lab itself needs, and the rest of this VM runs applications built
 from your own source.
 
 **This file records what runs and why that one.** It deliberately records no
-compose file, no environment value and no image tag. Those live in the Forgejo
-repo **`self-hosted-services`**, one directory per application, which is what
-Coolify deploys from. Secrets and runtime state stay in Coolify, exactly as they
-do for every other resource on this machine.
+compose file, no environment value and no image tag. Those live in **one Forgejo
+repository per application**, which is what Coolify deploys from. Secrets and
+runtime state stay in Coolify, exactly as they do for every other resource on
+this machine.
 
 ## The catalog
 
-| Service | Host | What it is | Database | Also needs | SSO | Implementation |
-|---|---|---|---|---|---|---|
-| Paperless-ngx | `paperless.` | Scanned-document archive — OCR, tagging, full-text search | Postgres | Redis; optionally Gotenberg + Tika | OIDC | `paperless/` |
-| Vaultwarden | `vault.` | Bitwarden-compatible password manager | Postgres | — | **none, deliberate** | `vaultwarden/` |
-| Mealie | `mealie.` | Recipe manager — meal planning, shopping lists | Postgres | — | OIDC | `mealie/` |
-| LubeLogger | `lube.` | Vehicle maintenance and fuel-mileage log | Postgres | — | OIDC | `lubelogger/` |
-| BookStack | `wiki.` | Wiki and documentation | **MariaDB** | — | OIDC | `bookstack/` |
+| Service | Host | What it is | Database | Also needs | SSO | Repo | Data |
+|---|---|---|---|---|---|---|---|
+| Paperless-ngx | `paperless.` | Scanned-document archive — OCR, tagging, full-text search | Postgres | Valkey; optionally Gotenberg + Tika | OIDC | `paperless` | `/data/paperless` |
+| Vaultwarden | `vault.` | Bitwarden-compatible password manager | Postgres | — | **none, deliberate** | `vaultwarden` | `/data/vaultwarden` |
+| Mealie | `mealie.` | Recipe manager — meal planning, shopping lists | Postgres | — | OIDC | `mealie` | `/data/mealie` |
+| LubeLogger | `lube.` | Vehicle maintenance and fuel-mileage log | Postgres | — | OIDC | `lubelogger` | `/data/lubelogger` |
+| BookStack | `wiki.` | Wiki and documentation | **MariaDB** | — | OIDC | `bookstack` | `/data/bookstack` |
 
-Hosts are subdomains of `thefipster.de`. Implementation is a directory in
-`self-hosted-services` — that column is a directory name and nothing more, so
-this table does not rot every time an image is bumped.
+Hosts are subdomains of `thefipster.de`. Repo is a repository name under
+`git.thefipster.de/<owner>/` and nothing more, so this table does not rot every
+time an image is bumped.
+
+**Data is a bind mount under `/data/<stack>`**, never a named volume — `/data` is
+this VM's 300 GB second disk, the same one Coolify keeps its own store on
+([apps-vm-setup.md, step 4](../docs/apps-vm-setup.md#4-mount-the-data-disk)). It is
+the apps-VM analogue of the infra VM's `/opt/<stack>` convention, and it exists
+for the same reason: a backup job needs a path it can walk. The subdirectories
+under each of those paths are the app's business, recorded in its own repo.
+
+Stacks not yet split into their own repo are drafted in
+[stacks/](stacks/README.md) and deleted from there once pushed.
 
 Each application is put on **Postgres wherever it offers the choice**, matching
 the database Authentik, Forgejo and Grafana already run. Three of them
@@ -64,7 +74,7 @@ credentials needed to repair Authentik are inside it. Break-glass would mean
 SSH at precisely the moment you are already locked out.
 
 Vaultwarden also needs `SIGNUPS_ALLOWED=false` once the first account exists,
-and an argon2-hashed `ADMIN_TOKEN`. Both live in its Forgejo directory.
+and an argon2-hashed `ADMIN_TOKEN`. Both live in its Forgejo repo.
 
 ## What this machine gives them for free
 
@@ -105,8 +115,15 @@ where **tier 1 is irreplaceable**.
 | LubeLogger | 2 | Hand-entered service history — no upstream to re-fetch it from. |
 | BookStack | 2 | Authored, but small. |
 
-Whole-VM `vzdump` covers this machine today. File-level `restic` is the offsite
-path and is still roadmap.
+Every one of those lives under `/data/<stack>` on the second disk — which is
+**excluded from whole-VM `vzdump`** (`backup=0`,
+[proxmox-setup.md Part 5](../docs/proxmox-setup.md#part-5--create-the-vms)) and
+covered by nothing else until the file-level `restic` layer lands
+([roadmap/backup.md](../docs/roadmap/backup.md) names that gap and scopes it out).
+So the honest state today is: the apps VM's *root* disk is backed up and its
+**application data is not**. Paperless is tier 1 and ships its own
+`document_exporter`; run it by hand and copy `/data/paperless/export` off the box
+until phase 2 exists.
 
 ## Where the rest lives
 
@@ -114,16 +131,17 @@ This file is a pointer, not a registry. For any application above:
 
 | You want | Look in |
 |---|---|
-| compose, env template, image tag | `self-hosted-services/<dir>/` in Forgejo |
-| the OIDC client ID, secret, callback URL | `self-hosted-services/<dir>/` in Forgejo |
-| Uptime Kuma monitors for it | `self-hosted-services/<dir>/` in Forgejo |
+| compose, env template, image tag | `git.thefipster.de/<owner>/<repo>` |
+| the OIDC client ID, secret, callback URL | `git.thefipster.de/<owner>/<repo>` |
+| Uptime Kuma monitors for it | `git.thefipster.de/<owner>/<repo>` |
 | the running configuration and secrets | Coolify, on this VM |
+| the data on disk | `/data/<stack>` on this VM |
 
 The three registries in `docs/` cover **infra VM** services, where the
 implementation is clickwork with no other home — an Authentik application exists
 only in Authentik's database, a Kuma monitor only in Kuma's SQLite, so a file in
-this repo is the only durable record. These five have a git repository instead,
-which is where a reader already goes to change them. A second copy here would
+this repo is the only durable record. These five have a git repository each
+instead, which is where a reader already goes to change them. A second copy here would
 drift, and a drifted registry is worse than none because it reads as
 authoritative.
 
