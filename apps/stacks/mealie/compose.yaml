@@ -33,6 +33,28 @@ services:
       - DEFAULT_EMAIL=${DEFAULT_EMAIL:-changeme@example.com}
       - DEFAULT_GROUP=${DEFAULT_GROUP:-Home}
       - DEFAULT_HOUSEHOLD=${DEFAULT_HOUSEHOLD:-Family}
+      # --- SSO (OIDC via Authentik) ---
+      # Off until the Authentik provider exists; the stack deploys and runs fine
+      # before it, which is how it is meant to be verified first. Same shape as
+      # Grafana's GRAFANA_OIDC_ENABLED on the infra VM.
+      - OIDC_AUTH_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_CONFIGURATION_URL=https://auth.thefipster.de/application/o/mealie/.well-known/openid-configuration
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-Authentik}
+      # Only members of this Authentik group get in. Blank would admit every
+      # authenticated user, which the application's access binding already scopes.
+      - OIDC_USER_GROUP=${OIDC_USER_GROUP:-lab-users}
+      # Deliberately blank: no Authentik group grants Mealie admin. Promote the
+      # first account inside Mealie instead — one place, visible in its own UI.
+      - OIDC_ADMIN_GROUP=${OIDC_ADMIN_GROUP:-}
+      - OIDC_SIGNUP_ENABLED=${OIDC_SIGNUP_ENABLED:-true}
+      # Authentik's default email scope mapping emits email_verified: true. If a
+      # custom mapping ever drops it, every SSO login fails here rather than loudly.
+      - OIDC_REQUIRES_EMAIL_VERIFICATION=${OIDC_REQUIRES_EMAIL_VERIFICATION:-true}
+      # Local login stays enabled — break-glass when Authentik is down, matching
+      # Forgejo and Grafana. Do not set this false without a second way in.
+      - ALLOW_PASSWORD_LOGIN=${ALLOW_PASSWORD_LOGIN:-true}
       - DB_ENGINE=postgres
       - POSTGRES_SERVER=postgres
       - POSTGRES_PORT=5432

@@ -1,6 +1,10 @@
 # Paperless-ngx — document management / searchable archive
 # Upstream reference:
-#   https://github.com/paperless-ngx/paperless-ngx/blob/main/docker/compose/docker-compose.postgres-tika.yml
+#   https://github.com/paperless-ngx/paperless-ngx/blob/main/docker/compose/docker-compose.postgres.yml
+#
+# PDFs and images only. Upstream's postgres-tika variant adds gotenberg + tika to
+# ingest Office files and .eml mail; this lab converts those to PDF beforehand, so
+# both are deliberately absent — see the README.
 #
 # Deployed on Coolify as a "Docker Compose" resource from this repository.
 # Coolify magic variables used here:
@@ -43,10 +47,21 @@ services:
       - PAPERLESS_DBNAME=paperless
       - PAPERLESS_DBUSER=paperless
       - PAPERLESS_DBPASS=${SERVICE_PASSWORD_POSTGRES}
-      # Office / e-mail document support via tika + gotenberg.
-      - PAPERLESS_TIKA_ENABLED=1
-      - PAPERLESS_TIKA_GOTENBERG_ENDPOINT=http://gotenberg:3000
-      - PAPERLESS_TIKA_ENDPOINT=http://tika:9998
+      # --- SSO (OIDC via Authentik) ---
+      # PAPERLESS_APPS is the switch: django-allauth only reads the provider block
+      # below once its app is in INSTALLED_APPS, so the JSON sitting here with blank
+      # credentials is inert. Set OIDC_ENABLED_APP once the Authentik provider
+      # exists — see the README. The JSON lives in the compose rather than being
+      # pasted into Coolify's UI so it stays reviewable in a diff.
+      - PAPERLESS_APPS=${OIDC_ENABLED_APP:-}
+      - 'PAPERLESS_SOCIALACCOUNT_PROVIDERS={"openid_connect":{"OAUTH_PKCE_ENABLED":true,"SCOPE":["openid","profile","email"],"APPS":[{"provider_id":"authentik","name":"Authentik","client_id":"${OIDC_CLIENT_ID:-}","secret":"${OIDC_CLIENT_SECRET:-}","settings":{"server_url":"https://auth.thefipster.de/application/o/paperless/.well-known/openid-configuration","fetch_userinfo":true}}]}}'
+      # Create the Paperless user on first SSO login instead of stopping at a signup
+      # form — the same call Forgejo's ENABLE_AUTO_REGISTRATION makes. New accounts
+      # start with no document permissions until granted.
+      - PAPERLESS_SOCIAL_AUTO_SIGNUP=${PAPERLESS_SOCIAL_AUTO_SIGNUP:-true}
+      # Local login stays enabled — break-glass, matching Forgejo and Grafana.
+      - PAPERLESS_DISABLE_REGULAR_LOGIN=false
+      - PAPERLESS_REDIRECT_LOGIN_TO_SSO=false
       # OCR is CPU-hungry; keep it bounded on a single node.
       - PAPERLESS_TASK_WORKERS=${PAPERLESS_TASK_WORKERS:-2}
       - PAPERLESS_WEBSERVER_WORKERS=${PAPERLESS_WEBSERVER_WORKERS:-2}
@@ -68,10 +83,6 @@ services:
         condition: service_healthy
       broker:
         condition: service_healthy
-      gotenberg:
-        condition: service_started
-      tika:
-        condition: service_started
 
   db:
     image: postgres:18
@@ -105,16 +116,3 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  gotenberg:
-    image: gotenberg/gotenberg:8.34
-    restart: unless-stopped
-    # The chromium route converts .eml files. Block external content and scripting.
-    command:
-      - "gotenberg"
-      - "--chromium-disable-javascript=true"
-      - "--chromium-allow-list=file:///tmp/.*"
-
-  tika:
-    image: apache/tika:3.3.1.0
-    restart: unless-stopped

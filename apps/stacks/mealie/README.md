@@ -24,7 +24,7 @@ Runs on the **apps VM**, deployed by Coolify from this repository in Forgejo.
 
 2. New Resource → **Docker Compose** → point it at this repository
    (`https://git.thefipster.de/<owner>/mealie`).
-3. Compose file: `docker-compose.yml`.
+3. Compose file: `compose.yaml`.
 4. Set the domain under **Domains** to `https://mealie.thefipster.de`. It needs no DNS record —
    `*.thefipster.de` already resolves to this VM.
 5. Adjust `TZ`, `DEFAULT_EMAIL`, `DEFAULT_GROUP`, `DEFAULT_HOUSEHOLD` **before** the first deploy —
@@ -41,6 +41,85 @@ password-reset links point at the wrong host.
 - Log in with `DEFAULT_EMAIL` / `MyPassword` (Mealie's built-in default) and change the password
   right away.
 - `ALLOW_SIGNUP=false` is the default here. Add users through invite links instead.
+
+## SSO (OIDC via Authentik)
+
+Mealie has real OIDC support, so it joins Authentik by **OIDC** rather than proxy forward-auth —
+the lab convention for anything that can. Local login **stays enabled**
+(`ALLOW_PASSWORD_LOGIN=true`), which is the break-glass path when Authentik is down.
+
+Ships **off** (`OIDC_ENABLED=false`). The stack deploys and runs fine before SSO exists, which is
+how it is meant to be verified first — the same staging as Grafana on the infra VM.
+
+### Authentik side
+
+Admin UI → **Applications → Providers → Create**, type **OAuth2/OpenID Provider**:
+
+| Field | Value |
+|---|---|
+| Provider name | `mealie` |
+| Authorization flow | `default-provider-authorization-implicit-consent` |
+| Client type | **Confidential** |
+| Redirect URI (**Strict**) | `https://mealie.thefipster.de/login` |
+| Signing key | `authentik Self-signed Certificate` (default) |
+| Scopes | `openid`, `profile`, `email` — the defaults; no extra mapping needed |
+
+Then **Applications → Create**:
+
+| Field | Value |
+|---|---|
+| Name / slug | `Mealie` / `mealie` |
+| Provider | `mealie` |
+
+**The slug must be exactly `mealie`.** It is baked into `OIDC_CONFIGURATION_URL` in the compose
+file — Authentik's discovery document lives at `/application/o/<slug>/.well-known/…`, so a
+different slug 404s at login with nothing in Mealie's logs to explain it.
+
+Bind the application to the **`lab-users`** group. An application with no bindings admits every
+authenticated user; the moment it has one, everyone unmatched is denied.
+
+### Mealie side
+
+Set these in Coolify's environment editor, then redeploy:
+
+| Variable | Value |
+|---|---|
+| `OIDC_ENABLED` | `true` |
+| `OIDC_CLIENT_ID` | from the Authentik provider |
+| `OIDC_CLIENT_SECRET` | from the Authentik provider |
+
+Everything else is already in `compose.yaml`. Two defaults worth knowing:
+
+- **`OIDC_USER_GROUP=lab-users`** — Mealie checks the `groups` claim itself, on top of Authentik's
+  binding. Authentik's default `profile` scope emits that claim; a trimmed-down custom mapping
+  would not, and every login would then be rejected as "not in group".
+- **`OIDC_ADMIN_GROUP` is deliberately blank.** No Authentik group grants Mealie admin — promote
+  the first account inside Mealie, where its own UI shows who has it.
+
+`OIDC_REQUIRES_EMAIL_VERIFICATION` is `true` (Mealie's own default since 3.21). Authentik's
+default email mapping emits `email_verified: true`, so this works out of the box; if you ever
+replace that mapping, logins fail here first.
+
+Users are matched by **email** (`OIDC_USER_CLAIM=email`), so an Authentik user must carry the same
+address as the Mealie account it should link to — the same trap as Forgejo's account linking.
+
+## Uptime Kuma monitors
+
+Created by hand in Kuma on the infra VM, following the lab's `<Function> <Role>` naming:
+
+| Name | Type | Target |
+|---|---|---|
+| Recipes Web | HTTP(s) | `https://mealie.thefipster.de` |
+
+**No Docker monitor**, and that is a deliberate non-row rather than a gap: Kuma reads the *infra*
+VM's `docker.sock` and cannot see this machine's daemon at all. An HTTP check through Coolify's
+proxy is the only signal available for anything on the apps VM.
+
+**No Ping monitor either.** `Apps Host` in the lab's shared registry already pings this VM, below
+every app on it — a second one per stack would say the same thing four times.
+
+**No separate database monitor.** Mealie's healthcheck already gates on Postgres being healthy, so
+`Recipes Web` going red covers both.
 
 ## Optional: SMTP
 
@@ -73,5 +152,5 @@ that `/data` on this VM is excluded from whole-VM `vzdump` and is not covered by
 
 ## Upgrades
 
-Bump the image tag in `docker-compose.yml` and redeploy. Read the release notes first: Mealie
+Bump the image tag in `compose.yaml` and redeploy. Read the release notes first: Mealie
 occasionally ships migrations that are not reversible, so take a backup before a major bump.

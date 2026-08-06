@@ -16,7 +16,7 @@ in this repo.
 | [mealie](mealie/) | `mealie` | `mealie.thefipster.de` | 9000 | PostgreSQL 18 |
 | [lubelogger](lubelogger/) | `lubelogger` | `lube.thefipster.de` | 8080 | PostgreSQL 18 |
 | [bookstack](bookstack/) | `bookstack` | `wiki.thefipster.de` | 80 | MariaDB 11.8 |
-| [paperless](paperless/) | `paperless` | `paperless.thefipster.de` | 8000 | PostgreSQL 18, Valkey 9, Gotenberg, Tika |
+| [paperless](paperless/) | `paperless` | `paperless.thefipster.de` | 8000 | PostgreSQL 18, Valkey 9 |
 
 Domains match [apps/services.md](../services.md), which is the registry for them.
 
@@ -88,6 +88,29 @@ deployments and preview environments.
 **Healthchecks and `depends_on: condition: service_healthy`** on every database, so apps do not
 start against a database that is still initialising.
 
+**SSO by OIDC, staged off, local login kept.** Every stack here joins Authentik by **OIDC** — the
+lab convention for anything with real SSO support; forward-auth is only for UIs that have none.
+Each ships with SSO **off** and blank credentials, so the stack deploys and is verified before the
+Authentik provider exists, the same staging Grafana uses on the infra VM. Local login stays
+enabled everywhere as the break-glass path, with **one stated exception**: BookStack's
+`AUTH_METHOD` takes a single value, so `oidc` *replaces* its login form and the break-glass is
+flipping that variable back rather than a second login box.
+
+Each stack's README carries the exact Authentik provider and application values in an
+**SSO (OIDC via Authentik)** section. That is deliberate placement, not a missing registry row:
+[docs/sso-applications.md](../../docs/sso-applications.md) scopes itself to the **infra VM**,
+where the clickwork has no other home. These have a repo of their own, which is where a reader
+already goes to change them — and each of their application slugs is baked into a discovery URL in
+the compose file, so the two belong side by side.
+
+**Uptime Kuma monitors live in the same README.** One HTTP(s) monitor per stack, named
+`<Function> Web` after the lab's function-not-product convention. The apps VM gets **no Docker
+monitors at all** — Kuma reads the infra VM's `docker.sock` and cannot see this machine's daemon —
+and no per-stack Ping monitor, because `Apps Host` in
+[docs/uptime-kuma-monitors.md](../../docs/uptime-kuma-monitors.md) already covers the machine. Each
+README states those two absences so a thin monitor list reads as a decision rather than an
+oversight.
+
 **No relative links out of the stack directory.** Each README ends up in a standalone repo where
 `../../docs/…` resolves to nothing. Name the `home-lab` file in prose instead. That rule applies
 inside the stack directories only — this file stays here and may link freely.
@@ -99,8 +122,9 @@ Both are one variable each in the respective `.env.example`.
 
 ## Splitting into separate repositories
 
-Each directory is already repo-shaped — a `docker-compose.yml`, a `README.md`, an `.env.example`
-and a `.gitignore`. To break one out, create the repo in Forgejo first, then:
+Each directory is already repo-shaped — a `compose.yaml` (the repo-wide name, matching every stack
+in `infra/`), a `README.md`, an `.env.example` and a `.gitignore`. To break one out, create the
+repo in Forgejo first, then:
 
 ```bash
 cd mealie && git init -b main && git add . && git commit -m "Initial commit: Mealie stack for Coolify"
@@ -111,7 +135,7 @@ git remote add origin git@git.thefipster.de:<owner>/mealie.git && git push -u or
 ```
 
 Then in Coolify: New Resource → Docker Compose → select the repository → compose file
-`docker-compose.yml` → set the domain → deploy. Each stack's README carries the full sequence
+`compose.yaml` → set the domain → deploy. Each stack's README carries the full sequence
 including its host directories.
 
 **Once a stack is pushed, delete its directory here.** Two copies of a compose file is exactly the

@@ -15,7 +15,7 @@ this machine.
 
 | Service | Host | What it is | Database | Also needs | SSO | Repo | Data |
 |---|---|---|---|---|---|---|---|
-| Paperless-ngx | `paperless.` | Scanned-document archive — OCR, tagging, full-text search | Postgres | Valkey; optionally Gotenberg + Tika | OIDC | `paperless` | `/data/paperless` |
+| Paperless-ngx | `paperless.` | Scanned-document archive — OCR, tagging, full-text search. **PDFs and images only** | Postgres | Valkey | OIDC | `paperless` | `/data/paperless` |
 | Vaultwarden | `vault.` | Bitwarden-compatible password manager | Postgres | — | **none, deliberate** | `vaultwarden` | `/data/vaultwarden` |
 | Mealie | `mealie.` | Recipe manager — meal planning, shopping lists | Postgres | — | OIDC | `mealie` | `/data/mealie` |
 | LubeLogger | `lube.` | Vehicle maintenance and fuel-mileage log | Postgres | — | OIDC | `lubelogger` | `/data/lubelogger` |
@@ -60,6 +60,17 @@ container:
 
 BookStack is small (~256 MB), actively maintained, and its OIDC is free. One
 extra database is the cheaper price.
+
+**It costs a second thing worth naming: BookStack is the one service in the lab
+whose local login does not survive joining SSO.** `AUTH_METHOD` takes exactly one
+value, so `oidc` *replaces* the email/password form rather than sitting beside it
+— there is no configuration in which both work. Every other OIDC service here and
+on the infra VM keeps local login as the break-glass path
+([sso-applications.md](../docs/sso-applications.md) states that rule). BookStack's
+break-glass is instead setting `AUTH_METHOD` back to `standard` in Coolify and
+redeploying, which restores the original admin account untouched. That is a real
+downgrade — a redeploy instead of a login form — and it is the price of the row
+above, not an oversight. Its repo's README says so in place.
 
 ### Vaultwarden has no SSO, and it is the only one
 
@@ -132,8 +143,9 @@ This file is a pointer, not a registry. For any application above:
 | You want | Look in |
 |---|---|
 | compose, env template, image tag | `git.thefipster.de/<owner>/<repo>` |
-| the OIDC client ID, secret, callback URL | `git.thefipster.de/<owner>/<repo>` |
-| Uptime Kuma monitors for it | `git.thefipster.de/<owner>/<repo>` |
+| the Authentik provider/application values and callback URL | that repo's `README.md`, section **SSO (OIDC via Authentik)** |
+| the OIDC client ID and secret | Coolify's environment editor — generated per provider, never committed |
+| Uptime Kuma monitors for it | that repo's `README.md`, section **Uptime Kuma monitors** |
 | the running configuration and secrets | Coolify, on this VM |
 | the data on disk | `/data/<stack>` on this VM |
 

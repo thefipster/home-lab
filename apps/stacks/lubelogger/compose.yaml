@@ -23,6 +23,27 @@ services:
       - SERVICE_URL_LUBELOGGER_8080
       # Postgres backend. Without this LubeLogger falls back to its embedded file database.
       - POSTGRES_CONNECTION=Host=postgres:5432;Username=lubelogger;Password=${SERVICE_PASSWORD_POSTGRES};Database=lubelogger;
+      # --- SSO (OIDC via Authentik) ---
+      # LubeLogger has no enable flag: the login page grows an SSO button once
+      # ClientId/ClientSecret carry values, so blank keeps it inert. It also has no
+      # discovery support, hence the endpoints spelled out. Authentik's authorize/
+      # token/userinfo endpoints are global; only the issuer and end-session ones
+      # carry the application slug.
+      - OpenIDConfig__Name=${OIDC_PROVIDER_NAME:-Authentik}
+      - OpenIDConfig__ClientId=${OIDC_CLIENT_ID:-}
+      - OpenIDConfig__ClientSecret=${OIDC_CLIENT_SECRET:-}
+      - OpenIDConfig__AuthURL=https://auth.thefipster.de/application/o/authorize/
+      - OpenIDConfig__TokenURL=https://auth.thefipster.de/application/o/token/
+      - OpenIDConfig__UserInfoURL=https://auth.thefipster.de/application/o/userinfo/
+      - OpenIDConfig__LogOutURL=https://auth.thefipster.de/application/o/lubelogger/end-session/
+      # Must be HTTPS and match the Authentik redirect URI exactly.
+      - OpenIDConfig__RedirectURL=https://lube.thefipster.de/Login/RemoteAuth
+      - OpenIDConfig__Scope=${OIDC_SCOPE:-openid profile email}
+      - OpenIDConfig__ValidateState=true
+      - OpenIDConfig__UsePKCE=true
+      # Local login stays enabled — break-glass, matching every other OIDC service
+      # in the lab. LubeLogger matches the OIDC account to a local user by email.
+      - OpenIDConfig__DisableRegularLogin=false
       # Drives number, currency and date formatting.
       - LC_ALL=${LC_ALL:-de_DE.UTF-8}
       - LANG=${LANG:-de_DE.UTF-8}
