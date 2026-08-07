@@ -29,6 +29,24 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# Set the moment the live tree is renamed, and printed by the trap below on any
+# non-zero exit. The "your old data is at ..." line used to live only in the
+# success heredoc at the very bottom — which is the one path where nobody needs
+# it. An operator whose restore just died mid-way is the one who does.
+BACKED_UP_TO=""
+
+on_exit() {
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ -n "$BACKED_UP_TO" ]; then
+    echo >&2
+    echo "!! This restore FAILED after moving the live tree aside." >&2
+    echo "!! Your previous /opt/${STACK} is at ${BACKED_UP_TO}." >&2
+    echo "!! It was not deleted. Nothing is lost — put it back with:" >&2
+    echo "!!   rm -rf /opt/${STACK} && mv ${BACKED_UP_TO} /opt/${STACK}" >&2
+  fi
+}
+trap on_exit EXIT
+
 set -a
 # shellcheck source=/dev/null
 . "${REPO_ROOT}/infra/backup/.env"
@@ -77,15 +95,53 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 restic restore "$id" --target "$STAGE"
 
-# ---- 4. Move the live tree aside — never delete it -------------------------
+# ---- 4. Check the staged tree BEFORE touching anything live ----------------
+
+# Everything below this point is destructive, and every one of these four
+# sources is copied unconditionally once it starts. Check them here, while the
+# stack is merely stopped and /opt/<stack> is still where it belongs — the real
+# disaster case is a rebuilt VM whose checkout now sits at a different path, so
+# ${STAGE}${REPO_ROOT}/... simply is not there, and finding that out after the
+# rename leaves a half-populated stack and a renamed original.
+echo "==> Checking the staged snapshot is complete"
+missing=0
+for src in \
+  "${STAGE}/opt/${STACK}/data" \
+  "${STAGE}/opt/${STACK}/templates" \
+  "${STAGE}/opt/${STACK}/certs" \
+  "${STAGE}${REPO_ROOT}/infra/${STACK}/.env"
+do
+  if [ ! -e "$src" ]; then
+    echo "  ! missing from the snapshot: ${src}" >&2
+    missing=1
+  fi
+done
+
+if [ "$missing" -ne 0 ]; then
+  echo >&2
+  echo "Aborting BEFORE anything was moved — /opt/${STACK} is untouched and the" >&2
+  echo "stack is only stopped. Bring it back up with:" >&2
+  echo "  cd ${REPO_ROOT}/infra/${STACK} && docker compose up -d" >&2
+  echo >&2
+  echo "Then look at what the snapshot does contain:" >&2
+  echo "  ls -R ${STAGE}" >&2
+  echo >&2
+  echo "A missing .env usually means the checkout moved: the snapshot stores it" >&2
+  echo "under the ABSOLUTE path it had when it was taken, and this script looks" >&2
+  echo "for it under ${REPO_ROOT}. Copy it out of the staged tree by hand." >&2
+  exit 1
+fi
+
+# ---- 5. Move the live tree aside — never delete it -------------------------
 
 ts="$(date +%Y%m%d-%H%M%S)"
 if [ -d "/opt/${STACK}" ]; then
   echo "==> Moving /opt/${STACK} to /opt/${STACK}.bak-${ts}"
   mv "/opt/${STACK}" "/opt/${STACK}.bak-${ts}"
+  BACKED_UP_TO="/opt/${STACK}.bak-${ts}"
 fi
 
-# ---- 5. Put the files back -------------------------------------------------
+# ---- 6. Put the files back -------------------------------------------------
 
 echo "==> Restoring files"
 mkdir -p "/opt/${STACK}"
@@ -100,23 +156,57 @@ mkdir -p "/opt/${STACK}/postgres"
 echo "==> Restoring ${REPO_ROOT}/infra/${STACK}/.env"
 cp -a "${STAGE}${REPO_ROOT}/infra/${STACK}/.env" "${REPO_ROOT}/infra/${STACK}/.env"
 
-# ---- 6. Bring the database up, alone ---------------------------------------
+# ---- 7. Bring the database up, alone ---------------------------------------
 
 echo "==> Starting the database"
 ( cd "${REPO_ROOT}/infra/${STACK}" && docker compose up -d db )
 
+# PG_ISREADY IS NOT ENOUGH ON A FRESH CLUSTER, and this script always creates
+# one (postgres/ is left empty on purpose — see the header). The official
+# entrypoint runs `initdb`, then starts a TEMPORARY server to create the role
+# and database — `docker_temp_server_start` passes `-c listen_addresses=''`, so
+# it is reachable on the unix socket, which is exactly where `pg_isready` looks
+# when it runs inside the container. It answers "ready", the loop breaks, the
+# dump starts streaming, and then `docker_temp_server_stop` (`pg_ctl -m fast`)
+# cuts it off mid-load.
+#
+# So gate on the entrypoint's own marker first: it prints one of these two
+# lines AFTER the temporary server is stopped and immediately before it execs
+# the real one. Only then is pg_isready answering for the server that stays.
+ready=0
 echo -n "==> Waiting for Postgres"
 for _ in $(seq 1 60); do
-  if ( cd "${REPO_ROOT}/infra/${STACK}" \
-       && docker compose exec -T db pg_isready -U "${STACK}" >/dev/null 2>&1 ); then
-    echo " ready"
-    break
+  # Into a variable and matched with [[ == ]], not piped into grep: `grep -q`
+  # exits on the first match and would SIGPIPE `docker compose logs`, which
+  # under `set -o pipefail` turns a successful match into a failed pipeline.
+  logs="$( cd "${REPO_ROOT}/infra/${STACK}" && docker compose logs db 2>&1 )" || logs=""
+
+  if [[ "$logs" == *"init process complete"* \
+     || "$logs" == *"Skipping initialization"* ]]; then
+    if ( cd "${REPO_ROOT}/infra/${STACK}" \
+         && docker compose exec -T db pg_isready -U "${STACK}" >/dev/null 2>&1 ); then
+      ready=1
+      echo " ready"
+      break
+    fi
   fi
   echo -n "."
   sleep 2
 done
 
-# ---- 7. Load the dump ------------------------------------------------------
+# Falling out of the loop used to be silent, and the operator's first hint was
+# a raw psql connection error two lines later.
+if [ "$ready" -ne 1 ]; then
+  echo
+  echo "Postgres never became ready (waited 120s). NOTHING has been loaded." >&2
+  echo "The restored files are in place and your previous tree is untouched." >&2
+  echo "Read the database's log — a wrong password against a non-empty PGDATA" >&2
+  echo "and a failed initdb both show up here:" >&2
+  echo "  cd ${REPO_ROOT}/infra/${STACK} && docker compose logs db" >&2
+  exit 1
+fi
+
+# ---- 8. Load the dump ------------------------------------------------------
 
 dump="${STAGE}/opt/backup/dumps/${STACK}/${STACK}.sql"
 if [ ! -f "$dump" ]; then
@@ -125,11 +215,16 @@ if [ ! -f "$dump" ]; then
   exit 1
 fi
 
+# -v ON_ERROR_STOP=1 is what makes `set -e` mean anything here. psql's exit
+# status ignores SQL errors by default, so a dump that only half applied still
+# exits 0 and this script would print its success message over a half-restored
+# Authentik. With it, the first failing statement stops the load and fails.
 echo "==> Loading ${dump}"
 ( cd "${REPO_ROOT}/infra/${STACK}" \
-  && docker compose exec -T db psql -U "${STACK}" -d "${STACK}" ) < "$dump"
+  && docker compose exec -T db \
+       psql -v ON_ERROR_STOP=1 -U "${STACK}" -d "${STACK}" ) < "$dump"
 
-# ---- 8. Bring the rest up --------------------------------------------------
+# ---- 9. Bring the rest up --------------------------------------------------
 
 echo "==> Starting the rest of the stack"
 ( cd "${REPO_ROOT}/infra/${STACK}" && docker compose up -d )

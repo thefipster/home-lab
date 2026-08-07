@@ -73,16 +73,39 @@ for stack in "${stacks[@]}"; do
   rm -rf "$stage"
   mkdir -p "$stage"
 
+  degraded=0
   if ! BACKUP_STAGE="$stage" "$script"; then
     echo "  ! ${stack}: backup.sh failed" >&2
     failed+=("$stack")
+    degraded=1
+  fi
+
+  # A stack script that died partway may still have declared paths before it
+  # did — every infra/<stack>/backup.sh puts its file includes BEFORE the
+  # database dump for exactly this reason. Snapshot what it managed to declare.
+  #
+  # A DEGRADED snapshot — files present, dump missing — is worth far more than
+  # no snapshot at all: it still carries data/, certs/ and the .env holding
+  # AUTHENTIK_SECRET_KEY, none of which need the database, and it is the one
+  # situation the raw PGDATA in the include list exists for. The stack stays in
+  # `failed` either way, so the run still exits non-zero and still says nothing
+  # to Kuma. A degraded snapshot must never read as a good night.
+  if [ ! -s "${stage}/paths.txt" ]; then
+    echo "  ! ${stack}: no paths declared — nothing to snapshot" >&2
+    [ "$degraded" -eq 1 ] || failed+=("$stack")
     continue
+  fi
+
+  if [ "$degraded" -eq 1 ]; then
+    echo "  ! ${stack}: snapshotting DEGRADED — the paths declared before the failure" >&2
   fi
 
   echo "==> ${stack}: snapshot"
   if ! restic backup --tag "$stack" --files-from "${stage}/paths.txt"; then
     echo "  ! ${stack}: restic backup failed" >&2
-    failed+=("$stack")
+    # Guard: already counted above if the stack script failed too, and one
+    # stack must appear in the FAILED line once.
+    [ "$degraded" -eq 1 ] || failed+=("$stack")
     continue
   fi
 done

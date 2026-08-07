@@ -68,8 +68,10 @@ run_root chmod 700 "${BACKUP_ROOT}"
 echo "==> Seeding ${STACK_DIR}/.env"
 if [ ! -f "${STACK_DIR}/.env" ]; then
   cp "${STACK_DIR}/.env.example" "${STACK_DIR}/.env"
-  chmod 600 "${STACK_DIR}/.env"
 fi
+# Outside the branch on purpose: a hand-created .env would otherwise keep the
+# umask's 644 while the guide's layout table promises 600. chmod is idempotent.
+chmod 600 "${STACK_DIR}/.env"
 
 echo "==> Ensuring root has an SSH key for the backup repository"
 run_root mkdir -p /root/.ssh

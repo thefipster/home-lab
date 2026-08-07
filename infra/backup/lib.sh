@@ -8,6 +8,12 @@
 #   out  dump files in $BACKUP_STAGE, and one absolute path per line in
 #        $BACKUP_STAGE/paths.txt, which is the ONLY thing restic is given.
 #
+# paths.txt is written INCREMENTALLY, and that is load-bearing: a stack script
+# that aborts partway leaves everything it declared before the failure, and
+# run.sh snapshots that as a DEGRADED snapshot rather than skipping the stack.
+# Hence the rule every backup.sh follows — declare the file includes first, run
+# the dump last.
+#
 # Stack scripts are EXECUTED, not sourced, so one can be run on its own:
 #   sudo BACKUP_STAGE=/tmp/t REPO_ROOT="$PWD" infra/authentik/backup.sh
 # produces a directory you can look at — no repository, no password, no network.
