@@ -272,17 +272,34 @@ if it does not exist. Then it does two things that need you:
 **It prints the public key.** That is the one Part 1 wants in
 `/etc/ssh/authorized_keys/resticbackup`.
 
-**It records the Proxmox host key, and shows you the fingerprint.** A systemd
-timer cannot answer a trust-on-first-use prompt, so the key has to be accepted
-now, by a human — which only means anything if the fingerprint is compared.
-On the **Proxmox host**:
+**It records the Proxmox host key, and prints its fingerprint.** This is a
+*different* key from the one above, pointing the other way — and the two are
+easy to conflate, so:
+
+| Key | Lives on | Proves | Ends up in |
+|---|---|---|---|
+| `/root/.ssh/id_ed25519` | infra VM | the infra VM, **to** the host | `authorized_keys` (Part 1) |
+| `/etc/ssh/ssh_host_ed25519_key` | Proxmox host | the host, **to** the infra VM | `known_hosts` (here) |
+
+A systemd timer cannot answer a trust-on-first-use prompt, so the host key has
+to be accepted now. But `ssh-keyscan` believes whatever answers it — accepting
+that unverified is just trusting the network. So the script prints the
+fingerprint it *received*, and you check it against the real one. On the
+**Proxmox host**:
 
 ```bash
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 ```
 
-The two must match. If they do not, stop and remove the line the script appended
-to `/root/.ssh/known_hosts` before doing anything else.
+Compare that `SHA256:…` string with the one the script printed on the infra
+VM. If the script's output has scrolled away, re-print what actually landed:
+
+```bash
+sudo ssh-keygen -lF pve.thefipster.de
+```
+
+If they do not match, stop and remove the line the script appended to
+`/root/.ssh/known_hosts` before doing anything else.
 
 Then the script stops, because `RESTIC_PASSWORD` is empty. Generate one:
 
