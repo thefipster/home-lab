@@ -52,12 +52,12 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
 ```
 
-| Layer | Purpose |
-|-------|---------|
-| **Proxmox host** | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
-| **apps VM** | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
-| **home-assistant VM** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
+| Layer                 | Purpose |
+|-----------------------|---------|
+| **proxmox-host**      | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
+| **infra-vm**          | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
+| **apps-vm**           | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
+| **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
 Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
 of the three also refuses to share for its own reason — Coolify expects to own a
@@ -70,12 +70,12 @@ monitoring with it.
 
 Six internal drives paired into **three ZFS mirrors**, plus one external drive.
 
-| Pool | Devices | Proxmox storage | Holds |
-|------|---------|-----------------|-------|
+| Pool | Devices                 | Proxmox storage | Holds |
+|------|-------------------------|-----------------|-------|
 | `rpool` | 2 × 500 GB NVMe, mirror | installer-created (boot pool) | Proxmox itself + all three VM **root** disks |
-| `backup` | 2 × 1 TB SATA, mirror | *Directory* on `/backup`, `--is_mountpoint 1` | `vzdump` whole-VM archives — layer 1 |
+| `backup` | 2 × 1 TB SATA, mirror   | *Directory* on `/backup`, `--is_mountpoint 1` | `vzdump` whole-VM archives — layer 1 |
 | `data` | 2 × 500 GB SATA, mirror | `zfspool`, content `images,rootdir` | the apps VM's second disk (`/data`, 300 GB) |
-| `usbbackup` | 1 × 500 GB USB 3.1 NVMe | **none** — reached over SFTP, not by Proxmox | the `restic` repository — layer 2 |
+| `usbbackup` | 1 × 1 TB USB 3.1 NVMe   | **none** — reached over SFTP, not by Proxmox | the `restic` repository — layer 2 |
 
 The storage *types* are not interchangeable: a pool registered as `zfspool`
 accepts disk images only and cannot hold `vzdump` output, which is why the backup
