@@ -480,6 +480,14 @@ If you used the [raw PGDATA path](#last-resort-the-raw-pgdata) there is a third,
 schedule; the next restore overwrites the staging tree but never the `.bak-`
 ones, so they accumulate until you remove them.
 
+> **`/opt/backup/dumps/` is not cleanup material — leave it alone.** It is the
+> *backup's* staging directory, not the restore's, and `run.sh` wipes and
+> rebuilds it at the start of every run, so it holds last night's dump rather
+> than a growing pile. It is also deliberately left on disk between runs: the
+> 01:00 schedule sits an hour before the hypervisor's 02:00 `vzdump` so that
+> layer 1's whole-VM archive captures the current night's SQL. Deleting it by
+> hand costs you that and gains nothing — the next run recreates it anyway.
+
 ### The ordering trap
 
 **A restore obeys the build order, because the build order is a dependency
