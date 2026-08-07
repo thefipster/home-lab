@@ -51,8 +51,9 @@ Stated plainly, because the temptation is to read the above as broader than it
 is:
 
 - **Every other stack.** At the time of this drill only Authentik had a
-  `backup.sh`, and six remained. Uptime Kuma and monitoring both landed later
-  the same day and were drilled the same way — see the addenda — leaving four.
+  `backup.sh`, and six remained. Uptime Kuma, monitoring and Vaultwarden all
+  landed later the same day and were drilled the same way — see the addenda —
+  leaving three.
 - **A VM-rollback drill.** This was an in-place restore on a working VM. The
   phase-5 drill described in the roadmap rolls the infra VM back to a snapshot
   first, which is a materially harder test — it is also where the
@@ -209,10 +210,9 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Four `backup.sh` files**, Vaultwarden first — it is the stack whose loss is
-   unrecoverable by any other means, and it is one file. (Was six; Uptime Kuma
-   and monitoring both landed the same day — see the addenda below. The four
-   that remain carry no new decisions.)
+1. **Three `backup.sh` files** — Forgejo, Traefik, Dockge. (Was six. Uptime
+   Kuma, monitoring and Vaultwarden all landed and were drilled the same day —
+   see the addenda below. The three that remain carry no new decisions.)
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.
@@ -336,3 +336,60 @@ and datasources are **provisioned from this repo**, so they return on a
 completely empty database. Verifying against them proves the stack started, not
 that the restore worked. Only hand-made objects — users, tokens, preferences,
 browser-built dashboards — prove anything.
+
+---
+
+## Addendum: Vaultwarden wired and drilled — same day
+
+The stack the whole phase was prioritised for, and mechanically the plainest of
+the four remaining: single-argument `dump_postgres`, two includes,
+`include_env`. All of the care went into what the restore *checks* and what its
+result is allowed to claim.
+
+**`restore.sh` names `data/rsa_key.pem` in its own right**, rather than
+trusting that `data/` exists. That key signs every access token the server
+issues and the database holds what those tokens address, so a snapshot missing
+it produces a working server, an intact vault, and every client locked out with
+no way to prove anything. That has to abort before the tree is moved, not
+surface days later as clients mysteriously demanding fresh logins.
+
+**The `.env` is copied, never retyped**, and the script says so twice.
+`VAULTWARDEN_ADMIN_TOKEN` is an Argon2id PHC string that must keep its single
+quotes: Compose interpolates unquoted values, so every `$`-segment would be
+expanded away, leaving an `/admin` page that rejects the password which
+generated it while the container starts perfectly happily.
+
+### The drill
+
+A new item and an attachment on an existing item, both created after the
+backup — one marker per half of the vault, because this stack's state is split
+across the database and `data/` and the entire point of its backup shape is
+that the halves return together. Both were gone afterwards.
+
+**The check that matters passed: a client that was already paired logged in
+without re-authenticating.** That is the result this roadmap was written
+around. It proves `rsa_key.pem` and the database came back as a unit — and it
+is the only check that could. Opening the web vault in a fresh browser would
+have succeeded even if the key and the database had come from *different*
+snapshots, because the server would simply re-issue everything. It looks like
+the weakest check on the list and proves the most.
+
+The attachment was also confirmed gone from **disk**, not merely absent from
+the UI. Had the database rolled back while `data/` did not, the file would have
+remained as an orphan the interface cannot show — a state that reads as success
+from a browser.
+
+### What this closes
+
+The note at the top of `roadmap/backup.md` has been rewritten twice now. It
+began as "layer 1 covers the vault only coarsely", became "phase 2 exists and
+the vault has not joined it", and is now simply closed: the vault has a
+granular restore, an encrypted off-machine copy, and a recovery path that does
+not roll the entire VM back. What has **not** changed, and is stated in the
+same place, is that `RESTIC_PASSWORD` still cannot live only in the vault —
+because the vault is inside the backup.
+
+This was also the first use of
+[backup-restore-drill.md](../backup-restore-drill.md), written immediately
+before it. Nothing in the guide needed correcting, which after five defects
+found by execution earlier the same day is worth recording rather than assuming.

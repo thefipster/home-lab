@@ -407,11 +407,18 @@ reason.
    returned data from before it, which is what shows the script left the five
    Tier-3 directories alone rather than moving the whole tree.
 
+   **Vaultwarden** — a new item and an attachment added after the backup were
+   both gone afterwards, and **a client that was already paired logged in
+   without re-authenticating**. That last one is the result this whole roadmap
+   was written around: `rsa_key.pem` and the database came back as a unit, so
+   the vault has a granular restore that has actually been performed rather
+   than described. A fresh browser login would have proved none of it.
+
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the four unwired stacks,
+   Still unproven, and not to be claimed until it is: the three unwired stacks,
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
