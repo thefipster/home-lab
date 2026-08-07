@@ -31,10 +31,11 @@ Three things shape everything below:
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Authentik is the stack wired up end to end**, database dump, restore script
-  and all. The rest of the tier-1 table in
+- **Authentik and Uptime Kuma are wired up end to end**, database dump, restore
+  script and all — one Postgres stack and one SQLite stack, which between them
+  exercise every recipe there is. The rest of the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
-  follows the same recipe when each gets its file.
+  follows the same recipe when each gets its file, and needs no new machinery.
 
 ## Part 1 — The host side: a user, a chroot, and one sshd block
 
@@ -361,11 +362,12 @@ and may take a while:
 sudo infra/backup/run.sh
 ```
 
-Expect one `==> authentik: staging` / `==> authentik: snapshot` pair, then
-`==> forget + prune`, then `OK: authentik`. The staging step declares
-Authentik's directories and then runs `pg_dump` through the stack's own `db`
-container; the snapshot step hands restic the path list that step produced, and
-nothing else.
+Expect a `staging` / `snapshot` pair per wired stack — `authentik` and
+`uptime-kuma` today — then `==> forget + prune`, then a final
+`OK: authentik uptime-kuma`. Each staging step declares that stack's
+directories and runs its dump through the stack's **own** container: `pg_dump`
+in Authentik's `db`, `sqlite3` in Kuma's single service. The snapshot step
+hands restic the path list that step produced, and nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
 > has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
@@ -405,8 +407,8 @@ Sunday at 03:00.
 - [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
-- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik`
-- [ ] One snapshot tagged `authentik` is listed
+- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik uptime-kuma`
+- [ ] A snapshot is listed for each tag — `authentik` and `uptime-kuma`
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
 - [ ] `RESTIC_PASSWORD` is written down **outside the lab**, not only in
@@ -433,6 +435,15 @@ about to need is actually in there**, moves the live `/opt/authentik` aside to
 `templates/` and `certs/` back, replaces `infra/authentik/.env`, starts the
 database alone, loads `authentik.sql` into it, and brings the rest of the stack
 up. It prints its own verification list at the end.
+
+**Kuma restores the same way**, with `sudo infra/uptime-kuma/restore.sh`, and
+the shape is deliberately identical — same prompt, same staged restore, same
+check-before-move, same `.bak-<timestamp>`. The two differences are both
+consequences of SQLite: there is no cluster to re-initialise, so instead of
+leaving `postgres/` empty it restores the whole data directory and then
+**deletes the `kuma.db` triplet** before rebuilding the database from the dump;
+and it warns you at the prompt that while Kuma is down nothing is watching the
+lab. See [Why Kuma dumps instead of copying](#why-kuma-dumps-instead-of-copying).
 
 > **The check comes before the move, and that ordering is the whole point.**
 > `data/`, `templates/`, `certs/`, the `.env` and the SQL dump are all verified
@@ -787,6 +798,40 @@ must never be mistaken for a good one by the next run, or by a restore.
 uses the database's own client, so the dump tool always matches the server
 version. Nothing on the VM needs a `postgresql-client` package, and a Postgres
 major bump cannot leave a stale client behind.
+
+### Why Kuma dumps instead of copying
+
+Kuma keeps SQLite in WAL mode, and on this lab the write-ahead log is routinely
+**larger than the database file** — 832 KB of `kuma.db-wal` against 380 KB of
+`kuma.db` when the recipe was written. A `cp` of `kuma.db` alone would capture
+a file missing most of its committed state, and copying all three of the
+triplet while the database is live just captures them mid-write instead. That
+is why Kuma was the one stack the design deferred until the mechanism could be
+checked against the real image.
+
+The check settled it: `louislam/uptime-kuma:2` ships `/usr/bin/sqlite3`, so
+`dump_sqlite` dumps through the stack's own client exactly as `dump_postgres`
+does — no `alpine` sidecar, and no second process holding write access to
+Kuma's live database, which is what the sidecar route would have required
+(SQLite's backup path needs to read `-wal` and `-shm` and take a lock, so it
+cannot run against a read-only mount).
+
+It uses `.dump` rather than `.backup`. Both are safe against a live database —
+in WAL mode a reader gets a consistent snapshot and never blocks the writer —
+but `.dump` streams SQL to stdout, so nothing is written inside the container
+and nothing has to be copied back out, and the result is text, which
+deduplicates across nightly runs for the same reason plain-format `pg_dump`
+does.
+
+The restore mirrors the Postgres discipline one directory wider. Where those
+stacks leave `postgres/` empty, Kuma's restores the whole data directory —
+`db-config.json`, `upload/`, `screenshots/`, `docker-tls/` — and then deletes
+the `kuma.db` triplet before rebuilding from the dump. It rebuilds through
+`docker compose run --rm --entrypoint sqlite3`, which starts the stack's own
+image *without* starting Kuma: the client matches the file format, and the new
+`kuma.db` lands owned by the UID Kuma itself runs as, because it is that image
+writing it. A database file created by root here would be one Kuma might not be
+able to write to.
 
 **Why `run.sh` does not use `set -e`.** Every other script in this repo does.
 Here, one stack failing must not cost the others their snapshots — so failures

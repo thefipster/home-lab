@@ -322,14 +322,18 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **What remains is six files.** Only **Authentik** is wired
-   (`infra/authentik/backup.sh` + `restore.sh`). Vaultwarden, Forgejo,
-   monitoring, Traefik, Uptime Kuma and Dockge each need one `backup.sh`
-   following the same recipe, and Kuma additionally needs the `dump_sqlite`
-   recipe, which does not exist yet — its open question is whether `sqlite3`
-   ships inside `louislam/uptime-kuma:2` or wants a small `alpine` sidecar
-   holding the same bind mount. Vaultwarden is the one to write first, for the
-   reason at the top of this file.
+   **The recipe set is complete**, and two stacks are wired: **Authentik** and
+   **Uptime Kuma**. Kuma settled `dump_sqlite`'s open question — the image
+   ships `/usr/bin/sqlite3`, so no `alpine` sidecar is needed and the recipe
+   dumps through the stack's own client exactly as `dump_postgres` does.
+
+   **What remains is four files**, none of which needs new machinery:
+   Vaultwarden, Forgejo, monitoring and Traefik (Dockge is a fifth, and is one
+   `include` with no dump and no `.env`). Vaultwarden is the one to write
+   first, for the reason at the top of this file. Monitoring is the only one
+   with a wrinkle: its directory is `monitoring` but its database is `grafana`,
+   so it is the first caller that needs `dump_postgres`'s override arguments —
+   `dump_postgres monitoring db grafana grafana`.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -358,22 +362,29 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — Authentik only**, recorded in
+5. **Prove it.** ⚠️ **Partly done — both wired stacks drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
-   A real drill has run on the infra VM: a user was created *after* a backup,
-   `restore.sh` ran, and that user was correctly gone while everything else
-   kept working. That is
-   the coupling this design exists to protect, demonstrated rather than
-   asserted — the restored database is the backup's database, and
-   `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so the `.env` and
-   the dump came back as one unit.
+   Each drill used the same method: create something *after* the backup, run
+   `restore.sh`, confirm it is gone and everything else survived.
+
+   **Authentik** — a user created after the backup was correctly absent
+   afterwards. That is the coupling this design exists to protect,
+   demonstrated rather than asserted: the restored database is the backup's
+   database, and `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so
+   the `.env` and the dump came back as one unit.
+
+   **Uptime Kuma** — a throwaway monitor created after the backup was gone
+   afterwards, with monitors, groups, notification bindings and heartbeat
+   history all intact. It also verified the ownership mechanism: rebuilding
+   through the stack's own image means the new `kuma.db` lands owned by
+   whatever UID that image runs as, with no `chown` to get wrong.
 
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: every other stack (none
-   are wired yet), a **VM-rollback** drill rather than an in-place restore,
+   Still unproven, and not to be claimed until it is: the five unwired stacks,
+   a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
    because a heartbeat did not arrive, which is the property the arrangement

@@ -50,7 +50,9 @@ different password.
 Stated plainly, because the temptation is to read the above as broader than it
 is:
 
-- **Every other stack.** Only Authentik has a `backup.sh`. Six remain.
+- **Every other stack.** At the time of this drill only Authentik had a
+  `backup.sh`, and six remained. Uptime Kuma landed later the same day — see
+  the addendum — leaving five.
 - **A VM-rollback drill.** This was an in-place restore on a working VM. The
   phase-5 drill described in the roadmap rolls the infra VM back to a snapshot
   first, which is a materially harder test — it is also where the
@@ -207,11 +209,12 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Six `backup.sh` files**, Vaultwarden first — it is the stack whose loss is
-   unrecoverable by any other means, and it is one file.
-2. **`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
-   `louislam/uptime-kuma:2` or wants a small `alpine` sidecar on the same bind
-   mount.
+1. **Five `backup.sh` files**, Vaultwarden first — it is the stack whose loss is
+   unrecoverable by any other means, and it is one file. (Was six; Uptime Kuma
+   landed the same day — see the addendum below.)
+2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
+   `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
+   same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.
 3. ~~**Confirm the deadman actually fires.**~~ ✅ done the same day, once the
    query string was cut: the heartbeat arrived and the monitor went green.
    What remains is the negative case — break a stack deliberately, confirm the
@@ -220,3 +223,64 @@ Two consequences worth carrying into the remaining six stacks:
    where the clock-skew-after-rollback failure would surface.
 5. **A heartbeat for the weekly `restic check`**, which currently has none:
    an unreadable repository stays quiet until somebody thinks to look.
+
+---
+
+## Addendum: Uptime Kuma wired and drilled — same day
+
+The last recipe, done next rather than last, so the recipe set would be
+complete before the four mechanical stacks. Both of the design's open questions
+were settled by probing the running container rather than by reasoning about
+it, and both answers changed the implementation.
+
+**`sqlite3` ships in the image** (`/usr/bin/sqlite3` in
+`louislam/uptime-kuma:2`), so `dump_sqlite` dumps through the stack's own
+client exactly as `dump_postgres` does. The `alpine` sidecar the spec held in
+reserve would have been materially worse than "one more container": SQLite's
+backup path has to read `-wal` and `-shm` and take a lock, so it cannot run
+against a read-only mount — the sidecar would have needed **write** access to
+the watcher's live database.
+
+**WAL is not a theoretical concern here.** Before the drill, `kuma.db-wal` was
+**832 KB against a 380 KB `kuma.db`** — more than half the committed state
+living outside the database file. A `cp` of `kuma.db` would have produced
+something that looks like a backup and is missing most of it. This is the
+clearest justification in the whole project for dumping rather than copying,
+and it was a guess until the directory was actually listed.
+
+**`.dump`, not the `.backup` the spec named.** Recorded as a deviation rather
+than drift: the spec chose `.backup` while the image was still unknown, and
+finding `sqlite3` present made the simpler shape available. `.dump` streams SQL
+to stdout, so nothing is written inside the container and nothing has to be
+copied back out; it lands as text, which deduplicates for the same reason
+plain-format `pg_dump` does; and both are equally safe against a live WAL
+database, where a reader gets a consistent snapshot and never blocks the writer.
+
+### The drill
+
+Same shape as Authentik's: a throwaway monitor created **after** the backup,
+then `restore.sh`. Everything came back — monitors, groups, notification
+bindings, heartbeat history — and the throwaway was gone.
+
+Two behaviours worth recording as expected rather than faulty, because both
+look alarming: **Kuma is the watcher**, so nothing monitors the lab while it is
+down, and the script now says so at the confirmation prompt; and **both push
+monitors read as down after a restore** until their next push arrives, because
+nothing pushes on demand.
+
+### One thing verified, one thing still unexplained
+
+The rebuilt `kuma.db` came back **`root:root`**, and Kuma runs fine on it. That
+verifies the mechanism `restore.sh` was built around — rebuilding through
+`docker compose run --rm --entrypoint sqlite3` means the stack's *own image*
+writes the file, so it lands owned by whatever UID that image runs as, with no
+`chown` to get wrong. It also confirms `infra/uptime-kuma/compose.yaml`'s claim
+that the image runs as root.
+
+What is **not** explained is why `kuma.db` was owned `felix:felix` (1000:1000)
+*before* the drill, while every directory beside it was `root:root`. It was
+read at the time as evidence the image runs as UID 1000 and that the compose
+comment was stale; the drill disproves that reading. No theory here is worth
+writing down as fact. It is harmless — the restore is robust either way,
+because it never sets ownership itself — but it is the one observation from
+this bring-up that nothing accounts for.
