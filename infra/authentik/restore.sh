@@ -263,6 +263,17 @@ Done. Verify, in this order:
   4. Grafana's "Sign in with Authentik" button completes a login — that is
      OIDC, the other pattern.
 
-The previous tree is at /opt/${STACK}.bak-${ts}. Delete it once you are
-satisfied, not before.
+Two trees are left behind on purpose. Delete them once the checks above
+pass — not before, because the first one is your way back:
+
+  the previous live tree
+    sudo rm -rf /opt/${STACK}.bak-${ts}
+
+  the staging copy of the snapshot (bigger — it holds the raw PGDATA too,
+  and a decrypted copy of the .env)
+    sudo rm -rf ${STAGE}
+
+To see what is there before removing anything:
+
+  sudo du -sh /opt/${STACK}.bak-* ${STAGE} 2>/dev/null
 EOF

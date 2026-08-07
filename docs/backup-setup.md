@@ -452,6 +452,34 @@ up. It prints its own verification list at the end.
 > one unit for a second reason too: `AUTHENTIK_SECRET_KEY` decrypts the secrets
 > held *inside* that database.
 
+### Cleaning up afterwards
+
+A restore leaves **two** trees behind, both on purpose. Delete them once the
+verification above passes — not before, because the first one is your way back
+if it did not:
+
+```bash
+sudo du -sh /opt/authentik.bak-* /opt/backup/restore/authentik 2>/dev/null
+```
+
+The previous live tree, timestamped so repeated restores never collide:
+
+```bash
+sudo rm -rf /opt/authentik.bak-<timestamp>
+```
+
+And the staging copy of the snapshot, which is usually the larger of the two —
+it holds the raw `postgres/` as well, plus a decrypted copy of the `.env`:
+
+```bash
+sudo rm -rf /opt/backup/restore/authentik
+```
+
+If you used the [raw PGDATA path](#last-resort-the-raw-pgdata) there is a third,
+`/opt/backup/restore/authentik-raw`. Nothing reclaims any of these on a
+schedule; the next restore overwrites the staging tree but never the `.bak-`
+ones, so they accumulate until you remove them.
+
 ### The ordering trap
 
 **A restore obeys the build order, because the build order is a dependency
@@ -695,7 +723,8 @@ timedatectl status
 | What a stack's backup consists of | `infra/<stack>/backup.sh` |
 | The inverse | `infra/<stack>/restore.sh` |
 | Database dumps, overwritten every run | `/opt/backup/dumps/<stack>/` |
-| Restore staging | `/opt/backup/restore/<stack>/` |
+| Restore staging | `/opt/backup/restore/<stack>/` — kept until the next restore |
+| The tree a restore displaced | `/opt/<stack>.bak-<timestamp>` — never reclaimed; [delete it yourself](#cleaning-up-afterwards) |
 | Installed units | `/etc/systemd/system/restic-*.{service,timer}` |
 | The key the repository is reached with | `/root/.ssh/id_ed25519` |
 | The repository itself | `/usbbackup/chroot/restic` on the Proxmox host |
