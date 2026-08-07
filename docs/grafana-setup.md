@@ -1,7 +1,6 @@
 # Monitoring — Grafana, Prometheus, Loki, Tempo, Alloy (infra VM)
 
-**Runs on:** infra VM — except step 6, which is the one step in any infra-VM
-guide that runs on the Proxmox host
+**Runs on:** infra VM — except step 6, which runs on the Proxmox host
 
 **Prerequisite:** [forgejo-setup.md](forgejo-setup.md) complete — the stack
 scrapes Traefik, Authentik and Forgejo, so they should exist before you verify
@@ -210,8 +209,11 @@ once Uptime Kuma exists. [What `DiskAlmostFull` sees under
 ZFS](#what-diskalmostfull-sees-under-zfs) sets out exactly where the line falls
 and which metric covers which side of it.
 
-This is the only step in any infra-VM guide that runs **on the Proxmox host**
-instead of the infra VM. Open its shell (Proxmox UI → *pve* → **Shell**, or
+This is the only step in *this* guide that runs **on the Proxmox host** instead
+of the infra VM — the hypervisor has no checkout of this repo, so what it needs
+is installed by hand where it runs. ([backup-setup.md](backup-setup.md) does the
+same thing on a larger scale: its whole Part 1 is on the host, because the
+hypervisor owns the backup drive.) Open its shell (Proxmox UI → *pve* → **Shell**, or
 `ssh root@pve.thefipster.de` — that record has existed since
 [wildcard-dns-udr.md](wildcard-dns-udr.md)) and install Debian's node exporter:
 

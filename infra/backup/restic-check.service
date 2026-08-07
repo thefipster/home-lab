@@ -1,0 +1,19 @@
+[Unit]
+Description=Verify the restic repository is readable
+Documentation=file://@REPO_ROOT@/docs/backup-setup.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# systemd parses this itself — which is why .env.example insists on plain
+# KEY=value lines with no shell syntax in them.
+EnvironmentFile=@REPO_ROOT@/infra/backup/.env
+# A RANDOM ~10% of the pack files each week — the `n%` form samples, it does
+# not rotate (only `n/t` selects a deterministic slice). So this is a weekly
+# spot check that the repository is readable, not a scheduled sweep that
+# eventually covers all of it. The metadata check is complete every time.
+ExecStart=/usr/bin/restic check --read-data-subset=10%%
+User=root
+Nice=15
+IOSchedulingClass=idle

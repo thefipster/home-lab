@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly restic repository check
+
+[Timer]
+# Sunday 03:00 — after that night's 01:00 backup, so the two jobs that DO touch
+# the USB drive never overlap on it. (vzdump at 02:00 is not a third contender:
+# it writes to the internal `backup` mirror. Staying clear of it is about host
+# I/O, not the drive.)
+OnCalendar=Sun *-*-* 03:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

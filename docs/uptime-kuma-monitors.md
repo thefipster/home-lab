@@ -222,10 +222,11 @@ machine). Pinging `ha.` would pointlessly ping the infra VM —
 |---|---|---|
 | Hypervisor Storage | Push | *(push URL — the host calls Kuma)* |
 
-The one monitor here that watches a **condition** rather than a service, and the
-only one whose target is not something Kuma dials. Set the heartbeat interval to
-**300 s** with 2 retries; a timer on the Proxmox host calls the push URL on that
-cadence. Create the monitor first, then paste its URL into
+The **first** of the two monitors here that watch a **condition** rather than a
+service — [Backup](#backup--infra-vm) below is the other — and neither one's
+target is something Kuma dials. Set the heartbeat interval to **300 s** with 2
+retries; a timer on the Proxmox host calls the push URL on that cadence. Create
+the monitor first, then paste its URL into
 [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades),
 which is where the script and its systemd timer live — on the hypervisor, because
 that is the machine with the pools.
@@ -256,6 +257,36 @@ degrading mirror is something to be told about; a pool at 74% is something to
 look at on a graph. The coupling is also what makes a staleness alert
 unnecessary — a script that stops writing metrics stops pushing heartbeats, and
 this monitor says so.
+
+## Backup — infra VM
+
+| Name | Type | Target |
+|---|---|---|
+| Backup Job | Push | *(push URL — the infra VM calls Kuma)* |
+
+The second **Push** monitor, and the second thing in this lab that watches a
+condition rather than a service. Heartbeat interval **90000 s** (25 h), 0
+retries: the job runs once a day, so the window has to be longer than a day —
+with an hour of slack for the timer's `RandomizedDelaySec` and for a first run
+that uploads everything.
+
+Only a **fully clean** run pushes. A run where one stack failed exits non-zero
+and stays silent, so a partial success shows up here as red rather than as a
+green tick over a missing snapshot. That is the whole point: silence is the
+signal.
+
+The job and its timer live on the infra VM — [backup-setup.md](backup-setup.md).
+Create this monitor first and paste its URL into `infra/backup/.env` — **up to
+the token only**. Kuma displays it with `?status=up&msg=OK&ping=` attached, and
+that file is sourced as shell, where `&` is a command separator: pasted whole,
+`KUMA_PUSH_URL` silently ends up empty and this monitor never goes green again.
+`run.sh` builds the query itself. See
+[backup-setup.md Part 2](backup-setup.md#part-2--the-kuma-push-monitor).
+
+**The weekly `restic check` has no monitor here, and that is a gap rather than
+a decision.** Only the nightly run pushes; a repository that has quietly become
+unreadable stays quiet. Looking is the only way to find out —
+[backup-setup.md, Troubleshooting](backup-setup.md#troubleshooting).
 
 ---
 
@@ -331,9 +362,9 @@ write down.
 Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
 (`Gateway`, `Vault`, `Identity`, `Git`, `Stack management`, `Observability`,
-`App platform`, `Home automation`, `Hypervisor storage`) makes the status page
-collapse to nine rows that expand on demand, instead of twenty-five flat
-entries.
+`App platform`, `Home automation`, `Hypervisor storage`, `Backup`) makes the
+status page collapse to ten rows that expand on demand, instead of twenty-six
+flat entries.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups
 are cosmetic — they do not affect checks or notifications — so this registry

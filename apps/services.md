@@ -51,15 +51,15 @@ The move is recorded here because the reasoning is about *this* machine. Two
 things decided it:
 
 - **Backup.** Everything under `/data` on this VM is excluded from whole-VM
-  `vzdump` (`backup=0`) and covered by nothing until the file-level `restic`
-  layer lands — the honest state stated under [Backup](#backup) below. That is
-  an acceptable gap for recipes and a maintenance log. It is not an acceptable
-  gap for the only copy of every credential the lab has. On the infra VM the
-  vault sits under `/opt/vaultwarden` and is inside layer 1 today.
+  `vzdump` (`backup=0`) and covered by nothing until this VM joins the
+  file-level `restic` layer — the honest state stated under [Backup](#backup)
+  below. That is an acceptable gap for recipes and a maintenance log. It is not
+  an acceptable gap for the only copy of every credential the lab has. On the
+  infra VM the vault sits under `/opt/vaultwarden` and is inside layer 1 today.
 - **Build order.** Vaultwarden joins no SSO pattern precisely so it survives an
   Authentik outage, which means it has no reason to be built after Authentik —
   and every reason to be built before it, since from that point on each guide
-  generates a secret worth keeping. This VM does not exist until step 11. A
+  generates a secret worth keeping. This VM does not exist until step 12. A
   password manager that arrives after everything it should have been storing is
   a password manager you filled in by hand afterwards.
 
@@ -154,12 +154,14 @@ where **tier 1 is irreplaceable**.
 Every one of those lives under `/data/<stack>` on the second disk — which is
 **excluded from whole-VM `vzdump`** (`backup=0`,
 [proxmox-setup.md Part 5](../docs/proxmox-setup.md#part-5--create-the-vms)) and
-covered by nothing else until the file-level `restic` layer lands
+covered by nothing else. The file-level `restic` layer now exists
+([docs/backup-setup.md](../docs/backup-setup.md)), but it runs on the **infra
+VM** and this machine has not joined the repository
 ([roadmap/backup.md](../docs/roadmap/backup.md) names that gap and scopes it out).
 So the honest state today is: the apps VM's *root* disk is backed up and its
 **application data is not**. Paperless is tier 1 and ships its own
 `document_exporter`; run it by hand and copy `/data/paperless/export` off the box
-until phase 2 exists.
+until this VM joins that repository.
 
 That gap is the reason Paperless is now the **only** tier 1 row here — the
 other one, Vaultwarden, was moved to the infra VM partly to get out from under

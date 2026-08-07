@@ -196,10 +196,10 @@ docker start monitoring-loki-1
 
 ## Next
 
-The infra VM is complete. **[apps-vm-setup.md](apps-vm-setup.md)** is next — the
-second machine's checkout, host setup and data disk — followed by
-[coolify-setup.md](coolify-setup.md) and
-[home-assistant-setup.md](home-assistant-setup.md). The full sequence is the
+**[backup-setup.md](backup-setup.md)** — the last step on the infra VM:
+file-level `restic` backups, one snapshot per stack, onto the hypervisor's USB
+pool. It reports through a **Push** monitor you now know how to create, which is
+why it comes after this guide rather than before it. The full sequence is the
 [README build order](../README.md#build-order).
 
 If you skipped step 7, that is the one thing to come back for: **[proxmox-setup.md
@@ -309,8 +309,7 @@ would mean putting Kuma somewhere else entirely.
 
 ## Next
 
-The infra VM is complete. **[apps-vm-setup.md](apps-vm-setup.md)** is next — the
-second machine's checkout, host setup and data disk — followed by
-[coolify-setup.md](coolify-setup.md) and
-[home-assistant-setup.md](home-assistant-setup.md). The full sequence is the
-[README build order](../README.md#build-order).
+**[backup-setup.md](backup-setup.md)** — the last step on the infra VM:
+file-level `restic` backups, one snapshot per stack, onto the hypervisor's USB
+pool. It reports through a **Push** monitor you now know how to create. The full
+sequence is the [README build order](../README.md#build-order).
