@@ -52,12 +52,12 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
 ```
 
-| Layer | Runs | Purpose |
-|-------|------|---------|
-| **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | Traefik + Vaultwarden + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
-| **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
-| **home-assistant VM** | Home Assistant OS | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
+| Layer | Purpose |
+|-------|---------|
+| **Proxmox host** | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
+| **infra VM** | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
+| **apps VM** | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
+| **home-assistant VM** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
 Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
 of the three also refuses to share for its own reason — Coolify expects to own a
@@ -69,6 +69,20 @@ monitoring with it.
 ## Storage
 
 Six internal drives paired into **three ZFS mirrors**, plus one external drive.
+
+| Pool | Devices | Proxmox storage | Holds |
+|------|---------|-----------------|-------|
+| `rpool` | 2 × 500 GB NVMe, mirror | installer-created (boot pool) | Proxmox itself + all three VM **root** disks |
+| `backup` | 2 × 1 TB SATA, mirror | *Directory* on `/backup`, `--is_mountpoint 1` | `vzdump` whole-VM archives — layer 1 |
+| `data` | 2 × 500 GB SATA, mirror | `zfspool`, content `images,rootdir` | the apps VM's second disk (`/data`, 300 GB) |
+| `usbbackup` | 1 × 500 GB USB 3.1 NVMe | **none** — reached over SFTP, not by Proxmox | the `restic` repository — layer 2 |
+
+The storage *types* are not interchangeable: a pool registered as `zfspool`
+accepts disk images only and cannot hold `vzdump` output, which is why the backup
+mirror is a *Directory* on the pool's mountpoint instead. `usbbackup` gets no
+Proxmox entry at all — restic reaches it over the hypervisor's `sshd`. Both are
+built in [docs/proxmox-setup.md, Part 3](docs/proxmox-setup.md#part-3--post-install-housekeeping).
+
 Every mirror answers a different question, which is why they are not one big pool:
 `rpool` is fast flash for the hypervisor and every VM root disk; `backup` is
 deliberately **double** its size, because that is what makes a retention policy
@@ -104,102 +118,6 @@ registry [docs/dns-records.md](docs/dns-records.md); the router how-to is
 Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
 [docs/traefik-setup.md](docs/traefik-setup.md) for TLS.
-
-## Repository layout
-
-```
-.
-├── docs/                        Guides — flat; each names its machine up top
-│   ├── proxmox-setup.md          Proxmox host + the three VMs (start here)
-│   ├── wildcard-dns-udr.md       Lab DNS (thefipster.de) on the UniFi Dream Router
-│   ├── dns-records.md            Registry: every DNS record the lab needs
-│   ├── infra-vm-setup.md         infra VM: checkout, clock, guest agent, Docker
-│   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
-│   ├── vaultwarden-setup.md      Password manager — before SSO, joins no SSO
-│   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
-│   ├── sso-applications.md       Registry: the infra VM's SSO applications
-│   ├── dockge-setup.md           Dockge, the compose management UI
-│   ├── forgejo-setup.md          Forgejo CI/registry on the infra VM
-│   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
-│   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
-│   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
-│   ├── backup-setup.md           restic file-level backups, one snapshot/stack
-│   ├── backup-restore-drill.md   Proving a restore works — recurring, not a step
-│   ├── apps-vm-setup.md          apps VM: checkout, host scripts, data disk
-│   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
-│   ├── home-assistant-setup.md   Home Assistant OS on the third VM
-│   ├── review/                   Findings from replaying the guides
-│   └── roadmap/                  What's next (backup, CI hardening, apps-VM logs)
-├── scripts/                     Setup automation — flat; run on a VM, in this order
-│   ├── init-host.sh              Clock-step policy + guest agent (both Ubuntu VMs)
-│   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
-│   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
-│   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
-│   ├── init-vaultwarden.sh       Vaultwarden: data tree, DB password
-│   ├── init-authentik.sh         Authentik: data tree, generate secrets
-│   ├── init-dockge.sh            Bring up the Dockge management UI
-│   ├── init-forgejo.sh           Forgejo prep: data tree, .env secrets
-│   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
-│   ├── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
-│   ├── init-backup.sh            restic, SSH key, .env, the systemd units
-│   ├── init-coolify.sh           Coolify on the apps VM: preflight, swap, install
-│   └── init-node-exporter.sh     Host metrics unit — apps VM only (see its header)
-├── infra/                       Stacks for the infra VM
-│   ├── traefik/
-│   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
-│   │   ├── .env.example          netcup API credentials template
-│   │   └── dynamic/ha.yaml       File-provider router for the HA VM (off-box)
-│   ├── vaultwarden/
-│   │   ├── compose.yaml          Vaultwarden + Postgres — no SSO, deliberately
-│   │   └── .env.example          DB password / argon2 admin token template
-│   ├── authentik/
-│   │   ├── compose.yaml          Authentik SSO (server, worker, postgres)
-│   │   ├── .env.example          secret-key / DB / bootstrap template
-│   │   ├── backup.sh             What this stack's restic snapshot holds
-│   │   └── restore.sh            The inverse — dump, .env and data dirs back
-│   ├── forgejo/
-│   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
-│   │   ├── .env.example          DB password / DOCKER_GID template
-│   │   ├── config.yml            Runner config
-│   │   ├── build-and-push.yml    CI dev-build template (goes in your app repo)
-│   │   └── release.yml           CI release template (goes in your app repo)
-│   ├── dockge/
-│   │   └── compose.yaml          Dockge (compose management UI)
-│   ├── monitoring/
-│   │   ├── compose.yaml          Grafana + Postgres + Prometheus + Loki + Tempo + Alloy
-│   │   ├── .env.example          Grafana DB / admin / OIDC / HA token template
-│   │   ├── alloy/config.alloy    The collector: metrics, logs, OTLP intake
-│   │   ├── loki/loki.yaml        Log storage, 14d retention
-│   │   ├── tempo/tempo.yaml      Trace storage, 7d retention
-│   │   ├── prometheus/           Metrics storage, 15d retention
-│   │   └── grafana/provisioning/ Datasources, dashboards + alerts as code
-│   ├── uptime-kuma/
-│   │   └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
-│   └── backup/                   restic layer 2 — a systemd timer, not a stack
-│       ├── run.sh                Finds infra/*/backup.sh, one snapshot each
-│       ├── lib.sh                The recipes a stack's backup.sh sources
-│       ├── .env.example          Repository / password / Kuma push URL
-│       └── restic-*.{service,timer}  Nightly backup + weekly check
-├── apps/                        Apps VM (Coolify) — no deployed compose, by design
-│   ├── README.md                 What lives here and what deliberately doesn't
-│   ├── services.md               Catalog: third-party apps this VM runs
-│   ├── stacks/                   Compose drafts, deleted once pushed to Forgejo
-│   └── .env.example              netcup names Coolify's own proxy needs
-└── home-assistant/              HA VM (Home Assistant OS) — no compose, no script
-    ├── README.md                 Why an appliance has neither
-    └── configuration.yaml        Fragment to APPEND inside the VM
-```
-
-**The root directories are the machine map** — `infra/`, `apps/` and
-`home-assistant/` are one per VM. `docs/` and `scripts/` stay deliberately flat:
-their filenames already say which service they belong to, and nesting them would
-add a `../` to every cross-guide link without making anything easier to find. Each
-guide instead names its machine in a `**Runs on:**` line under the headline.
-
-Note how little the two new machines contain. Only the infra VM's services are
-declared in this repo; Coolify keeps app definitions in its own database and HAOS
-manages itself through the Supervisor. For those two, the repo holds guides and
-one config fragment each — not a source of truth.
 
 ## Build order
 
@@ -288,36 +206,6 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ## Status
 
-| Piece | State |
-|-------|-------|
-| Proxmox host + the infra and apps VMs | ✅ deployed |
-| DNS (UDR split-horizon + wildcard) | ✅ deployed |
-| Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
-| Vaultwarden password manager | 📄 stack + guide written, not yet built — pinned `1.37.1`, [guide](docs/vaultwarden-setup.md) |
-| Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2026.5`, [guide](docs/authentik-setup.md) |
-| Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
-| Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
-| Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
-| Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
-| Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 8](docs/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the USB drive | ✅ deployed — [guide](docs/backup-setup.md). All seven infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](docs/backup-restore-drill.md), [findings](docs/review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](docs/roadmap/backup.md)) |
-| ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
-| CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
-| CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |
-| CI: code analysis | ⬜ planned — [roadmap](docs/roadmap/ci-code-analysis.md) |
-| CI: container scanning + SBOM | ⬜ planned — [roadmap](docs/roadmap/ci-supply-chain.md) |
-| Coolify install (apps VM) | 📄 guide ready, not yet built — [guide](docs/coolify-setup.md) |
-| Third-party apps on the apps VM | 📄 catalog written, nothing deployed — [catalog](apps/services.md) |
-| Container logs from the apps VM | ⬜ planned — [roadmap](docs/roadmap/apps-vm-logs.md) |
-| home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](docs/home-assistant-setup.md) |
-| Monitoring the apps + HA VMs | 📄 config shipped; targets red until those VMs exist |
-| Sizing for the target hardware (12 threads / 96 GB / 4 pools) | 📄 documented — [Why these sizes](docs/proxmox-setup.md#why-these-sizes) |
-
-`✅` runs today · `📄` written and reviewed, waiting on hardware or a build step ·
-`⬜` not started. The three machine-shaped `📄` rows — Coolify, the third-party
-apps, the HA VM — are why the guides can describe machines you cannot yet log
-into: the repo documents the lab it is being built into, and each guide is
-verified by reading until the box exists to run it on. Vaultwarden is the same
-state on a machine that *does* exist: its stack and guide are written and the
-build order now runs through them, but nothing on the infra VM has been brought
-up against them yet.
+What actually runs today versus what is only written down is its own document:
+**[docs/status.md](docs/status.md)** — one row per piece of the lab, with the
+guide or roadmap entry each one points at.
