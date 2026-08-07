@@ -623,13 +623,14 @@ Each machine's section of the build order now opens with the guide that prepares
 that machine. Do not fold them back in, and do not add a third: the Proxmox host
 has no checkout, and the HA VM is an appliance. The README's "Build order" links them in sequence,
 **grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
-and each guide ends by linking the next. The `**Runs on:**` line is the quickest
-way to tell which machine a guide belongs to — **with two exceptions, both of
-which name the Proxmox host and neither of which has left the infra VM
-section.** `backup-setup.md` says *the Proxmox host shell, then the infra VM*
-because its Part 1 creates the SFTP account on the machine that owns the drive,
-and `grafana-setup.md` flags its step 6 the same way for the node exporter. Read
-past the first machine named. `grafana-setup.md` owns
+and each guide ends by linking the next. A guide's `**Runs on:**` line is a
+summary of every machine its steps touch, not a label naming the one it belongs
+to — **read all of it, because several guides name more than one and the first
+named is not reliably the guide's own.** `backup-setup.md` opens on the Proxmox
+host shell and belongs to the infra VM; `home-assistant-setup.md` opens there
+too and belongs to the HA VM; `grafana-setup.md` leads with its own machine and
+flags one step elsewhere. The build order, grouped by machine, is what says
+where a guide belongs. `grafana-setup.md` owns
 **all** of monitoring — the platform *and* what it observes; an earlier split
 into a second `monitoring-setup.md` was merged away because, on a fresh
 checkout, the second guide was pure verification.

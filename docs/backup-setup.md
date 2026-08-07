@@ -378,12 +378,21 @@ running it to *look* and then aborting at the prompt is a reasonable thing to
 do.
 
 It asks you to type `authentik` to continue, then: stops the stack, restores the
-snapshot into `/opt/backup/restore/authentik`, moves the live `/opt/authentik`
-aside to `/opt/authentik.bak-<timestamp>` rather than deleting it, puts
-`data/`, `templates/` and `certs/` back, replaces
-`infra/authentik/.env`, starts the database alone, loads `authentik.sql` into
-it, and brings the rest of the stack up. It prints its own verification list at
-the end.
+snapshot into `/opt/backup/restore/authentik`, **checks that everything it is
+about to need is actually in there**, moves the live `/opt/authentik` aside to
+`/opt/authentik.bak-<timestamp>` rather than deleting it, puts `data/`,
+`templates/` and `certs/` back, replaces `infra/authentik/.env`, starts the
+database alone, loads `authentik.sql` into it, and brings the rest of the stack
+up. It prints its own verification list at the end.
+
+> **The check comes before the move, and that ordering is the whole point.**
+> `data/`, `templates/`, `certs/`, the `.env` and the SQL dump are all verified
+> while `/opt/authentik` is still where it belongs, so an incomplete snapshot —
+> a [degraded](#last-resort-the-raw-pgdata) one, or a rebuilt VM whose checkout
+> now sits at a different path than the `.env` was stored under — stops the
+> script with nothing moved and nothing half-copied. Past that point, any
+> failure prints where `/opt/authentik.bak-<timestamp>` is and how to put it
+> back, rather than leaving you to find out.
 
 > **`postgres/` comes back empty, on purpose.** Postgres keeps the password its
 > data directory was **first initialised with**. A restored `postgres/` next to
@@ -432,7 +441,14 @@ whose database was already broken when the last good run happened.
 Expect it not to start. Try it anyway, in this order, and only after
 `restore.sh` has failed for want of a dump.
 
-1. Stop the stack:
+> **`restore.sh` stops that one *before* it moves anything.** The missing dump
+> is caught in its staged-snapshot check, alongside `data/`, `certs/` and the
+> `.env`, so it aborts with `/opt/authentik` exactly as it was and the stack
+> merely stopped — which is the state the steps below assume. It says so on the
+> way out and tells you not to undo anything. Take it literally: the steps below
+> operate on the live tree.
+
+1. Stop the stack — `restore.sh` already did this, so expect it to be a no-op:
 
 ```bash
 cd ~/home-lab/infra/authentik

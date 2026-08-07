@@ -23,6 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 STAGE="/opt/backup/restore/${STACK}"
 SNAPSHOT="${1:-latest}"
+dump="${STAGE}/opt/backup/dumps/${STACK}/${STACK}.sql"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "run this as root — it moves /opt trees around." >&2
@@ -97,19 +98,25 @@ restic restore "$id" --target "$STAGE"
 
 # ---- 4. Check the staged tree BEFORE touching anything live ----------------
 
-# Everything below this point is destructive, and every one of these four
-# sources is copied unconditionally once it starts. Check them here, while the
-# stack is merely stopped and /opt/<stack> is still where it belongs — the real
-# disaster case is a rebuilt VM whose checkout now sits at a different path, so
-# ${STAGE}${REPO_ROOT}/... simply is not there, and finding that out after the
-# rename leaves a half-populated stack and a renamed original.
+# Everything below this point is destructive, and every one of these sources is
+# consumed unconditionally once it starts. Check them ALL here, while the stack
+# is merely stopped and /opt/<stack> is still where it belongs.
+#
+# THE DUMP IS IN THIS LIST, and it is the reason the list is checked rather than
+# discovered. A dump-less snapshot is not a corrupt snapshot — infra/backup/
+# run.sh produces one deliberately when pg_dump fails (a DEGRADED snapshot),
+# and docs/backup-setup.md's raw-PGDATA procedure is the documented next move.
+# That procedure operates on /opt/<stack>, so this script must not have moved
+# it. Checked after the rename instead, the operator would be told the restore
+# failed and handed a command to undo the very tree the guide's next step needs.
 echo "==> Checking the staged snapshot is complete"
 missing=0
 for src in \
   "${STAGE}/opt/${STACK}/data" \
   "${STAGE}/opt/${STACK}/templates" \
   "${STAGE}/opt/${STACK}/certs" \
-  "${STAGE}${REPO_ROOT}/infra/${STACK}/.env"
+  "${STAGE}${REPO_ROOT}/infra/${STACK}/.env" \
+  "$dump"
 do
   if [ ! -e "$src" ]; then
     echo "  ! missing from the snapshot: ${src}" >&2
@@ -125,10 +132,27 @@ if [ "$missing" -ne 0 ]; then
   echo >&2
   echo "Then look at what the snapshot does contain:" >&2
   echo "  ls -R ${STAGE}" >&2
-  echo >&2
-  echo "A missing .env usually means the checkout moved: the snapshot stores it" >&2
-  echo "under the ABSOLUTE path it had when it was taken, and this script looks" >&2
-  echo "for it under ${REPO_ROOT}. Copy it out of the staged tree by hand." >&2
+
+  if [ ! -f "$dump" ]; then
+    echo >&2
+    echo "THE SQL DUMP IS THE MISSING ONE. That is a DEGRADED snapshot: a night" >&2
+    echo "when pg_dump failed and the runner snapshotted the files anyway. There" >&2
+    echo "is nothing to load, so this script stops here BY DESIGN — and it stops" >&2
+    echo "with /opt/${STACK} untouched, because the next move needs it that way." >&2
+    echo >&2
+    echo "That next move is 'Last resort: the raw PGDATA' in" >&2
+    echo "docs/backup-setup.md. Its steps operate on /opt/${STACK} exactly as it" >&2
+    echo "stands right now. Do not undo anything first." >&2
+  fi
+
+  if [ ! -e "${STAGE}${REPO_ROOT}/infra/${STACK}/.env" ]; then
+    echo >&2
+    echo "The .env is missing, which usually means the checkout moved: the" >&2
+    echo "snapshot stores it under the ABSOLUTE path it had when it was taken," >&2
+    echo "and this script looks for it under ${REPO_ROOT}. Copy it out of the" >&2
+    echo "staged tree by hand." >&2
+  fi
+
   exit 1
 fi
 
@@ -198,8 +222,9 @@ done
 # a raw psql connection error two lines later.
 if [ "$ready" -ne 1 ]; then
   echo
-  echo "Postgres never became ready (waited 120s). NOTHING has been loaded." >&2
-  echo "The restored files are in place and your previous tree is untouched." >&2
+  echo "Postgres never became ready — gave up after 60 checks. NOTHING has" >&2
+  echo "been loaded. The restored files are in place, and your previous tree" >&2
+  echo "was moved aside intact, not modified — its path is printed below." >&2
   echo "Read the database's log — a wrong password against a non-empty PGDATA" >&2
   echo "and a failed initdb both show up here:" >&2
   echo "  cd ${REPO_ROOT}/infra/${STACK} && docker compose logs db" >&2
@@ -208,13 +233,10 @@ fi
 
 # ---- 8. Load the dump ------------------------------------------------------
 
-dump="${STAGE}/opt/backup/dumps/${STACK}/${STACK}.sql"
-if [ ! -f "$dump" ]; then
-  echo "no dump at ${dump} — the snapshot has no SQL. See the last-resort" >&2
-  echo "PGDATA path in docs/backup-setup.md." >&2
-  exit 1
-fi
-
+# No existence check here: section 4 already refused to start without the dump,
+# and it did so while /opt/<stack> was still untouched. A second check at this
+# point could only fire after the rename, which is exactly the wrong side of it.
+#
 # -v ON_ERROR_STOP=1 is what makes `set -e` mean anything here. psql's exit
 # status ignores SQL errors by default, so a dump that only half applied still
 # exits 0 and this script would print its success message over a half-restored
