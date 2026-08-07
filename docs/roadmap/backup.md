@@ -424,6 +424,13 @@ reason.
    the vault has a granular restore that has actually been performed rather
    than described. A fresh browser login would have proved none of it.
 
+   **Forgejo** — packages deleted from the registry after the backup were back
+   afterwards. That is a better marker than the guide first suggested: creating
+   a repository proves the database rolled back and leaves the registry to be
+   inferred, while deleting a package exercises the thing this stack's shape
+   exists to protect. It is also the only marker in the drill guide that risks
+   anything, since a failed restore leaves the package deleted.
+
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
