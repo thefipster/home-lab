@@ -189,8 +189,11 @@ in the guest is the right pairing with ZFS on the host.
 
 **This disk is excluded from whole-VM backups** (`backup=0`), deliberately —
 see [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups).
-It is meant to be covered by the file-level backup layer instead, which is not
-built yet ([roadmap/backup.md](roadmap/backup.md)). Until it is, treat
+It is meant to be covered by the file-level backup layer instead. That layer
+exists — [backup-setup.md](backup-setup.md) — but it runs on the **infra VM**,
+and this machine has not joined the restic repository yet
+([roadmap/backup.md](roadmap/backup.md)); joining is one more key on the
+hypervisor and an `.env` value, not a redesign. Until it happens, treat
 everything under `/data` as **unbacked** and deploy accordingly.
 
 **Why this VM runs two of the three host scripts.** Neither `init-host.sh` nor

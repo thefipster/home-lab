@@ -328,11 +328,12 @@ retention policy at all. Excluding it is what keeps
 [Part 8](#part-8--schedule-whole-vm-backups) honest.
 
 The trade is real and worth stating plainly: this disk is meant to be covered by
-the **file-level** layer instead, which can restore a single directory — and that
-layer is **not built yet** ([roadmap/backup.md](roadmap/backup.md)). Until it is,
-everything on the apps VM's data disk is unbacked. That is currently harmless
-because the VM has no services on it, and it stops being harmless the day it
-does.
+the **file-level** layer instead, which can restore a single directory. That
+layer now exists ([backup-setup.md](backup-setup.md)) — but it runs on the
+**infra VM**, and the apps VM has not joined the restic repository yet
+([roadmap/backup.md](roadmap/backup.md)). Until it does, everything on the apps
+VM's data disk is unbacked. That is currently harmless because the VM has no
+services on it, and it stops being harmless the day it does.
 
 Start each VM, open **Console**, and run the Ubuntu installer (enable OpenSSH when
 prompted).
@@ -399,7 +400,9 @@ different pool are [Part 8](#part-8--schedule-whole-vm-backups).
 This is **layer 1** of the backup design: whole-VM archives that answer "the disk
 died" or "I broke the VM beyond repair" with one restore. The file-level layer
 that answers "Authentik ate its database" is separate and lives in
-[roadmap/backup.md](roadmap/backup.md).
+[backup-setup.md](backup-setup.md) — layer 2, built on the infra VM near the end
+of the build order. This one comes first because it needs nothing but the
+hypervisor.
 
 The target is the `backup` mirror from [Part 3](#part-3--post-install-housekeeping)
 — **1 TB, deliberately double the 500 GB root pool**, and on different physical
