@@ -300,7 +300,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 8](docs/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the USB drive | ✅ deployed — [guide](docs/backup-setup.md). All seven infra stacks wired, one tagged snapshot each; five restore-drilled ([drill guide](docs/backup-restore-drill.md), [findings](docs/review/2026-08-07-backup-bring-up.md)). Traefik and Dockge not yet drilled; the apps VM has not joined ([roadmap](docs/roadmap/backup.md)) |
+| Backup layer 2: `restic` file-level to the USB drive | ✅ deployed — [guide](docs/backup-setup.md). All seven infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](docs/backup-restore-drill.md), [findings](docs/review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](docs/roadmap/backup.md)) |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |

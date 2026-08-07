@@ -403,8 +403,7 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — five of the seven stacks drilled**
-   (Traefik and Dockge are wired but not yet exercised), recorded in
+5. **Prove it.** ⚠️ **Partly done — all seven stacks drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
    Each drill used the same method: change something *after* the backup, run
    `restore.sh`, confirm the change is gone and everything else survived.
@@ -446,8 +445,7 @@ reason.
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the Traefik and Dockge
-   drills,
+   Still unproven, and not to be claimed until it is:
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
