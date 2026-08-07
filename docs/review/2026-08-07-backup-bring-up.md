@@ -52,8 +52,9 @@ is:
 
 - **Every other stack.** At the time of this drill only Authentik had a
   `backup.sh`, and six remained. Uptime Kuma, monitoring, Vaultwarden and
-  Forgejo all landed later the same day and were drilled the same way — see the
-  addenda — leaving two.
+  Forgejo all landed later the same day, and Traefik and Dockge the day after —
+  every one of them drilled the same way. See the addenda; all seven are now
+  covered.
 - **A VM-rollback drill.** This was an in-place restore on a working VM. The
   phase-5 drill described in the roadmap rolls the infra VM back to a snapshot
   first, which is a materially harder test — it is also where the
@@ -210,9 +211,8 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Two `backup.sh` files** — Traefik and Dockge, both the include-only form,
-   neither with a database. (Was six. The other four all landed and were
-   drilled the same day — see the addenda below.)
+1. ~~**Six `backup.sh` files.**~~ ✅ all seven stacks are wired **and
+   drilled** — see the addenda below.
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.
@@ -442,3 +442,45 @@ behind it.
 
 Two stacks — Traefik and Dockge — both the include-only form, neither with a
 database, and after them every tier-1 row in this roadmap has a `backup.sh`.
+
+---
+
+## Addendum: Traefik and Dockge drilled — 2026-08-08
+
+The last two stacks, drilled the day after the rest. Both passed.
+
+This entry is deliberately shorter than the four above, and the reason is worth
+stating rather than hiding: they were reported complete without per-check
+detail, so this records the **outcome** and does not reconstruct observations
+that were not given. The checks they were run against are the ones in
+[backup-restore-drill.md](../backup-restore-drill.md); what is written here is
+what is known.
+
+With these two, **all seven infra stacks have been wired and drilled.** Every
+tier-1 and tier-2 row in [roadmap/backup.md](../roadmap/backup.md) is covered
+by a `backup.sh`, a `restore.sh`, and a restore that has actually been
+performed.
+
+### What remains untested, unchanged by these two
+
+- **A VM-rollback drill.** Every drill so far, these included, was an in-place
+  restore on a working VM. Rolling the infra VM back to a snapshot first is the
+  materially harder test, and the one where clock skew surfaces.
+- **The unattended timer**, the **weekly `restic check`**, and the **deadman's
+  silent half** — nothing has yet watched the monitor go red because a
+  heartbeat did not arrive.
+- **Phase 3, offsite**, and the **apps VM**, whose 300 GB data disk is still
+  covered by nothing.
+
+### The pattern this bring-up established
+
+Worth recording once, at the end, because it held for all seven stacks and for
+the guides as well: **the code was almost always right, and what the execution
+found was what the writing assumed.** Five documentation defects on day one,
+all of them places where a reader arriving cold could not tell what the author
+knew. Two design corrections that only appeared when someone ran the thing — a
+deadman that pasted itself into silence, and a "monitoring is the only such
+stack" rule that found its second case one stack later. And two operator
+improvements on the drills themselves, both better than what was written down:
+a Grafana preference row instead of a throwaway user, and deleting a package
+instead of creating a repository.

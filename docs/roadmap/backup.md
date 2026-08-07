@@ -363,8 +363,18 @@ reason.
      value against the live docker group and warns, because a stale gid breaks
      only the runner and nothing else looks wrong.
 
-   **What remains is two files and no new decisions**: Traefik and Dockge.
-   Both are the include-only form.
+   - **Traefik** and **Dockge** — the include-only form, no database, and
+     between them one more lesson. Dockge turned out to need a **narrow
+     restore** as well, for a different reason than monitoring's: it is the
+     one stack *copied* into `/opt/stacks` rather than symlinked, so its
+     directory also holds a `compose.yaml` and a `.env` that
+     `scripts/init-dockge.sh` writes and the backup does not carry. The rule
+     that caught it — *where a stack's `/opt` directory holds anything not in
+     its snapshot, do not move the whole tree* — had been written down one
+     stack earlier, and found its second case immediately.
+
+   **Every tier-1 and tier-2 row above now has a `backup.sh` and a
+   `restore.sh`.** Phase 2 is complete.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -393,7 +403,7 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — every wired stack drilled**, recorded in
+5. **Prove it.** ⚠️ **Partly done — all seven stacks drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
    Each drill used the same method: change something *after* the backup, run
    `restore.sh`, confirm the change is gone and everything else survived.
@@ -435,7 +445,7 @@ reason.
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the two unwired stacks,
+   Still unproven, and not to be claimed until it is:
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
