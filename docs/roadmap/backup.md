@@ -322,18 +322,27 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **The recipe set is complete**, and two stacks are wired: **Authentik** and
-   **Uptime Kuma**. Kuma settled `dump_sqlite`'s open question — the image
-   ships `/usr/bin/sqlite3`, so no `alpine` sidecar is needed and the recipe
-   dumps through the stack's own client exactly as `dump_postgres` does.
+   **The recipe set is complete and every exception is spent.** Three stacks
+   are wired, and they were chosen in that order deliberately — each one was
+   the last remaining unknown of its kind:
 
-   **What remains is four files**, none of which needs new machinery:
-   Vaultwarden, Forgejo, monitoring and Traefik (Dockge is a fifth, and is one
-   `include` with no dump and no `.env`). Vaultwarden is the one to write
-   first, for the reason at the top of this file. Monitoring is the only one
-   with a wrinkle: its directory is `monitoring` but its database is `grafana`,
-   so it is the first caller that needs `dump_postgres`'s override arguments —
-   `dump_postgres monitoring db grafana grafana`.
+   - **Authentik** — the Postgres shape, and the DB↔secret-key coupling the
+     per-stack design exists for.
+   - **Uptime Kuma** — settled `dump_sqlite`'s open question. The image ships
+     `/usr/bin/sqlite3`, so no `alpine` sidecar, and the recipe dumps through
+     the stack's own client exactly as `dump_postgres` does.
+   - **monitoring** — the only stack whose directory and database names differ
+     (`monitoring` vs `grafana`), so the only caller of `dump_postgres`'s
+     override arguments: `dump_postgres monitoring db grafana grafana`. Also
+     the only **narrow** restore: it touches `postgres/` alone and leaves the
+     five Tier-3 directories beside it untouched, because they are not in the
+     snapshot and destroying them would throw away live data the backup never
+     promised to return.
+
+   **What remains is four files and no new decisions**: Vaultwarden, Forgejo,
+   Traefik and Dockge. All four are the single-argument or include-only forms.
+   Vaultwarden is the one to write first, for the reason at the top of this
+   file.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -362,10 +371,10 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — both wired stacks drilled**, recorded in
+5. **Prove it.** ⚠️ **Partly done — every wired stack drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
-   Each drill used the same method: create something *after* the backup, run
-   `restore.sh`, confirm it is gone and everything else survived.
+   Each drill used the same method: change something *after* the backup, run
+   `restore.sh`, confirm the change is gone and everything else survived.
 
    **Authentik** — a user created after the backup was correctly absent
    afterwards. That is the coupling this design exists to protect,
@@ -379,11 +388,18 @@ reason.
    through the stack's own image means the new `kuma.db` lands owned by
    whatever UID that image runs as, with no `chown` to get wrong.
 
+   **monitoring** — the Grafana theme was switched from dark to light after
+   the backup and came back dark. A per-user preference row makes a good
+   marker: unambiguous at a glance, and nothing to clean up afterwards. It
+   also proved the **narrow restore** — Prometheus, Loki and Tempo still
+   returned data from before it, which is what shows the script left the five
+   Tier-3 directories alone rather than moving the whole tree.
+
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the five unwired stacks,
+   Still unproven, and not to be claimed until it is: the four unwired stacks,
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**

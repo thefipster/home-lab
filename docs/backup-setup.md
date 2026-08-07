@@ -31,11 +31,13 @@ Three things shape everything below:
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Authentik and Uptime Kuma are wired up end to end**, database dump, restore
-  script and all — one Postgres stack and one SQLite stack, which between them
-  exercise every recipe there is. The rest of the tier-1 table in
+- **Authentik, monitoring and Uptime Kuma are wired up end to end**, database
+  dump, restore script and all. Between them they cover every shape there is:
+  Postgres, SQLite, and the one stack whose directory and database names
+  differ. The rest of the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
-  follows the same recipe when each gets its file, and needs no new machinery.
+  follows the same recipes when each gets its file, with no new decisions in
+  them.
 
 ## Part 1 — The host side: a user, a chroot, and one sshd block
 
@@ -362,12 +364,14 @@ and may take a while:
 sudo infra/backup/run.sh
 ```
 
-Expect a `staging` / `snapshot` pair per wired stack — `authentik` and
-`uptime-kuma` today — then `==> forget + prune`, then a final
-`OK: authentik uptime-kuma`. Each staging step declares that stack's
-directories and runs its dump through the stack's **own** container: `pg_dump`
-in Authentik's `db`, `sqlite3` in Kuma's single service. The snapshot step
-hands restic the path list that step produced, and nothing else.
+Expect a `staging` / `snapshot` pair per wired stack — `authentik`,
+`monitoring` and `uptime-kuma` today, in that order, since the runner globs
+them alphabetically — then `==> forget + prune`, then a final
+`OK: authentik monitoring uptime-kuma`. Each staging step declares that
+stack's directories and runs its dump through the stack's **own** container:
+`pg_dump` in the `db` service for the two Postgres stacks, `sqlite3` in Kuma's
+single service. The snapshot step hands restic the path list that step
+produced, and nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
 > has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
@@ -407,7 +411,7 @@ Sunday at 03:00.
 - [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
-- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik uptime-kuma`
+- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik monitoring uptime-kuma`
 - [ ] A snapshot is listed for each tag — `authentik` and `uptime-kuma`
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
@@ -444,6 +448,20 @@ leaving `postgres/` empty it restores the whole data directory and then
 **deletes the `kuma.db` triplet** before rebuilding the database from the dump;
 and it warns you at the prompt that while Kuma is down nothing is watching the
 lab. See [Why Kuma dumps instead of copying](#why-kuma-dumps-instead-of-copying).
+
+**Monitoring restores narrowly**, with `sudo infra/monitoring/restore.sh`, and
+it is the one that does *not* move the whole tree aside. It touches
+`/opt/monitoring/postgres` and nothing else, because the five directories
+beside it — `prometheus/`, `loki/`, `tempo/`, `alloy/`, `grafana/` — are Tier 3
+and were never in the snapshot. Moving them aside would destroy live data this
+backup never promised to bring back, and discard the per-directory ownership
+`scripts/init-monitoring.sh` sets. Its prompt says so before you confirm.
+
+One consequence worth knowing when you verify it: Grafana's dashboards and
+datasources are **provisioned from this repo**, so they come back on an empty
+database too. They prove the stack started, not that the restore worked. The
+things that actually prove it are the hand-made ones — users, API tokens,
+starred dashboards, anything built in the browser rather than committed.
 
 > **The check comes before the move, and that ordering is the whole point.**
 > `data/`, `templates/`, `certs/`, the `.env` and the SQL dump are all verified
