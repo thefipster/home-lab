@@ -322,14 +322,18 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **What remains is six files.** Only **Authentik** is wired
-   (`infra/authentik/backup.sh` + `restore.sh`). Vaultwarden, Forgejo,
-   monitoring, Traefik, Uptime Kuma and Dockge each need one `backup.sh`
-   following the same recipe, and Kuma additionally needs the `dump_sqlite`
-   recipe, which does not exist yet — its open question is whether `sqlite3`
-   ships inside `louislam/uptime-kuma:2` or wants a small `alpine` sidecar
-   holding the same bind mount. Vaultwarden is the one to write first, for the
-   reason at the top of this file.
+   **The recipe set is complete**, and two stacks are wired: **Authentik** and
+   **Uptime Kuma**. Kuma settled `dump_sqlite`'s open question — the image
+   ships `/usr/bin/sqlite3`, so no `alpine` sidecar is needed and the recipe
+   dumps through the stack's own client exactly as `dump_postgres` does.
+
+   **What remains is four files**, none of which needs new machinery:
+   Vaultwarden, Forgejo, monitoring and Traefik (Dockge is a fifth, and is one
+   `include` with no dump and no `.env`). Vaultwarden is the one to write
+   first, for the reason at the top of this file. Monitoring is the only one
+   with a wrinkle: its directory is `monitoring` but its database is `grafana`,
+   so it is the first caller that needs `dump_postgres`'s override arguments —
+   `dump_postgres monitoring db grafana grafana`.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a

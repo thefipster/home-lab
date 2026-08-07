@@ -194,8 +194,9 @@ file-level restic — "Authentik ate its database" — and is `infra/backup/` pl
 
 Backups are **per stack, defined beside the stack**. A stack is backed up by
 adding one file, `infra/<stack>/backup.sh`, which sources `infra/backup/lib.sh`
-and declares what that stack consists of using three recipes:
-`dump_postgres <stack>`, `include <path>`, and `include_env`. There is **no
+and declares what that stack consists of using four recipes:
+`dump_postgres <stack>`, `dump_sqlite <stack> <service> <path>`,
+`include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
 it. Only **Authentik** is wired up today; the rest of the tier-1 table in

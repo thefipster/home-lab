@@ -86,3 +86,40 @@ dump_postgres() {
 
   include "$out"
 }
+
+# dump_sqlite <stack> <service> <container-path>
+#
+# Same principle as dump_postgres: dump through the stack's own client, which
+# ships in the image and therefore always matches the file it wrote. No service
+# default here — SQLite stacks have no `db` convention to lean on, so the
+# service and the path are both named explicitly.
+#
+# `.dump`, NOT `.backup`, and the choice is worth recording because the design
+# spec named `.backup` while the image was still an unknown. It turned out to
+# ship /usr/bin/sqlite3, which makes the simpler shape available:
+#
+#   - `.dump` streams SQL to stdout, so there is no temp file written inside
+#     the container and no `docker compose cp` to fetch one back out. `.backup`
+#     writes to a path, which for a container means writing somewhere and then
+#     retrieving it — two more moving parts in the one script that runs
+#     unattended every night.
+#   - It lands as text, which deduplicates across nightly runs for exactly the
+#     reason plain-format pg_dump does.
+#   - Both are equally safe against a live database. In WAL mode a reader gets
+#     a consistent snapshot for the length of its transaction and never blocks
+#     the writer, which is the whole reason a dump is used instead of `cp`:
+#     the WAL routinely holds more committed data than the .db file itself.
+dump_sqlite() {
+  local stack="$1"
+  local service="$2"
+  local dbpath="$3"
+  local out="${BACKUP_STAGE}/${stack}.sql"
+
+  ( cd "${REPO_ROOT}/infra/${stack}" \
+    && docker compose exec -T "$service" sqlite3 "$dbpath" .dump ) \
+    > "${out}.part"
+
+  mv -f "${out}.part" "$out"
+
+  include "$out"
+}
