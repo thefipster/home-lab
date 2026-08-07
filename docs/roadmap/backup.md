@@ -5,11 +5,24 @@ lost disk, a lost VM, and a bad `rm -rf` — with a restore procedure that has
 actually been run, not just written down.
 
 Half the problem is already solved and worth naming: **the configuration is
-not at risk.** Compose files, init scripts, provisioning, guides and the two
+not at risk.** Compose files, init scripts, provisioning, guides and the three
 registries ([dns-records.md](../dns-records.md),
-[sso-applications.md](../sso-applications.md)) live in git, on GitHub, mirrored
+[sso-applications.md](../sso-applications.md),
+[uptime-kuma-monitors.md](../uptime-kuma-monitors.md)) live in git, on GitHub, mirrored
 into Forgejo. What is *not* in git is exactly what this roadmap is about: the
 bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
+
+> **Vaultwarden changed the stakes of phase 2, and nothing else about this
+> plan.** Every other tier-1 entry below is painful to lose; the vault
+> ([vaultwarden-setup.md](../vaultwarden-setup.md)) is the one whose loss is
+> *unrecoverable by any other means*, because it is where the credentials for
+> rebuilding everything else are kept. Layer 1 already covers it — a whole-VM
+> `vzdump` of the infra VM includes `/opt/vaultwarden` like any other
+> directory, and that is real coverage, not a placeholder. What it does not
+> give is a granular restore, an off-premises copy, or the ability to recover
+> the vault without rolling the entire VM back. Until phase 2 exists, treat
+> "the vault is backed up" as true only in the coarse sense, and keep the
+> master password somewhere outside the lab.
 
 ## What needs a backup
 
@@ -21,16 +34,24 @@ that make it openable.
 
 | What | Path | Why it can't be rebuilt |
 |---|---|---|
+| **Vaultwarden DB** | `/opt/vaultwarden/postgres` | **The vault itself** — every credential the lab has, including the ones needed to repair the rest of this table. Nothing regenerates it and nothing else holds a copy. |
+| **Vaultwarden data** | `/opt/vaultwarden/data` | Attachments, Sends, and `rsa_key.pem` — the key that signs every access token. See the coupling below: this is not optional beside the row above. |
 | Forgejo data | `/opt/forgejo/forgejo` | Git repos, LFS, attachments, **container-registry blobs**, `app.ini`, SSH host keys, the instance's internal/JWT secrets. The repos are pull-mirrors of GitHub, so those come back — the **registry does not**, and it is what the apps VM pulls from. |
 | Forgejo DB | `/opt/forgejo/postgres` | Users, the Authentik OIDC source, issues/PRs, Actions history, and **package metadata** — registry blobs without it are unaddressable garbage. |
 | Authentik DB | `/opt/authentik/postgres` | Every application, provider, flow, policy, group and user. This is the entire body of clickwork that `sso-applications.md` describes; the registry records the *values*, not the objects. |
 | Authentik data/templates/certs | `/opt/authentik/data`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
-| Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The guide's monitor inventory makes it *re-creatable*, by hand, one form at a time. |
+| Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The monitor registry ([uptime-kuma-monitors.md](../uptime-kuma-monitors.md)) makes it *re-creatable*, by hand, one form at a time. |
 | Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
-| All `.env` files | `infra/{traefik,authentik,forgejo,monitoring}/.env`, `/opt/stacks/dockge/.env` | netcup API credentials, three Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
+| All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring}/.env`, `/opt/stacks/dockge/.env` | netcup API credentials, four Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
 
-Two couplings in that table decide the shape of the whole thing:
+Three couplings in that table decide the shape of the whole thing:
 
+- **`rsa_key.pem` and the Vaultwarden database are one unit.** The key under
+  `/opt/vaultwarden/data` signs every access token the server issues, and the
+  database holds what those tokens address. Restore either without the other
+  and every client is logged out of a vault it can no longer prove anything
+  against. Same failure as the Authentik pairing below, one directory apart
+  instead of one file.
 - **`AUTHENTIK_SECRET_KEY` encrypts secrets stored in the Authentik DB.** A
   restored `/opt/authentik/postgres` without the matching key is a database
   full of undecryptable values. The DB and the `.env` must be captured
@@ -113,7 +134,7 @@ Why not just one:
 | Borg | Better compression/dedup ratios, but wants `borg` installed on the remote for efficient SSH transport, which rules out plain object storage without an extra layer. |
 | duplicity | Full+incremental chains make a restore only as good as the whole chain. A corrupt increment poisons everything after it. |
 | rsnapshot / rsync+hardlinks | No encryption at all — disqualifying for `.env` and ACME private keys on an off-site target. |
-| `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a fifth root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
+| `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a sixth root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
 | Proxmox Backup Server | The right answer *if a second machine exists* — dedup, incremental, verify jobs, and it makes layer 1 genuinely offsite. Running PBS as a VM on the host it protects is the classic anti-pattern. Revisit when there is a NAS or a mini-PC to put it on. |
 
 ### Where layer 2 writes
@@ -158,14 +179,22 @@ a rethink.
 
 ### Why dumps, not raw directory copies, for the databases
 
-Three Postgres instances (`authentik`, `forgejo`, `grafana` — all
+Four Postgres instances (`vaultwarden`, `authentik`, `forgejo`, `grafana` — all
 `postgres:18-alpine`) and one SQLite (Kuma). Copying a live `PGDATA` yields a
-torn snapshot; stopping three stacks nightly is downtime this lab has no
+torn snapshot; stopping four stacks nightly is downtime this lab has no
 reason to take. `pg_dump` runs against a **live** database — the same argument
 [monitoring's phase-1 spec](../superpowers/specs/2026-07-26-monitoring-phase1-design.md)
 used to pick Postgres over SQLite for Grafana in the first place. Running it as
 `docker compose exec -T db pg_dump` uses the container's own client, so the
 dump tool always matches the server version.
+
+The raw `PGDATA` directories still ride *inside* the restic snapshot — the
+diagram's whole-`/opt/<stack>` paths include them, and `monitoring/postgres`
+is listed by name precisely so Grafana's database comes along while the
+re-collectable stores beside it (Prometheus, Loki, Tempo) stay out. That is
+belt and braces, not a second restore path: a live-copied `PGDATA` is torn by
+construction, so a restore starts from the dumps, and the raw copy is the
+last resort for when no dump exists.
 
 Kuma is the exception and needs deciding at implementation time: its SQLite is
 open with WAL, so a live file copy is torn too. Preferred fix is
@@ -185,9 +214,9 @@ Proxmox │        (2×1 TB SATA mirror, 2× the root pool, retention on the sto
         └─ `usbbackup` pool (500 GB USB NVMe), served over SFTP by the host's sshd
                                     ▲
 infra VM                            │
-  pg_dump ×3 ─┐                     │
+  pg_dump ×4 ─┐                     │
   sqlite .backup ─┼─► /opt/backup/dumps ─┐
-  /opt/{forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ─┘  (encrypted)
+  /opt/{vaultwarden,forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ─┘  (encrypted)
   infra/*/.env ──────────────────────────┘                          │
                                                                     └─► Kuma push URL (deadman)
 
@@ -196,7 +225,7 @@ apps VM (later) ─── same repository, its own key ────────�
 
 Layer 2 is a **systemd timer**, not a compose stack — deliberately. A backup
 that runs inside Docker is a backup that stops when Docker does, and the
-alternative (a container that can stop other containers) means a fifth socket
+alternative (a container that can stop other containers) means a sixth socket
 mount. Precedent exists: the Proxmox node exporter is a systemd unit too. The
 repo still owns the files, same as every other stack:
 
@@ -214,6 +243,15 @@ docs/backup-setup.md     the guide, once phase 2 lands
 the repository is cryptographically gone. It belongs in a password manager and
 on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
 
+**And "a password manager" cannot mean *this* password manager, alone.** The
+lab now runs its own ([vaultwarden-setup.md](../vaultwarden-setup.md)), and
+storing `RESTIC_PASSWORD` only there closes a circle: the vault is in the
+backup, the backup key is in the vault, and losing the infra VM loses both at
+once. Keep it in the vault by all means — that is the convenient copy — but the
+authoritative one is outside the lab entirely. On paper, or in an account that
+survives the building. Same for the Vaultwarden master password, for the same
+reason.
+
 ## Phases
 
 1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
@@ -228,7 +266,8 @@ on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
    local first, so the mechanism gets debugged without also debugging cloud
    credentials. Retention `--keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
    weekly `restic check`. Host-side prerequisites: the `backup` user, its
-   chroot, and one authorized key per client.
+   chroot, and one authorized key per client. **Vaultwarden is the reason this
+   phase is the next one done** — see the note at the top.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -247,8 +286,10 @@ on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
    write a `backup_last_success_timestamp` metric for Alloy's textfile
    collector, for the "why" half.
 5. **Prove it.** Restore drill: roll the infra VM back to a snapshot, restore
-   from restic, verify each stack comes up — Authentik with its providers
-   intact, Forgejo serving a `docker pull`, Kuma with its monitors. Record it
+   from restic, verify each stack comes up — Vaultwarden accepting a login
+   from a client that was already paired (which is what proves `rsa_key.pem`
+   and the database came back together), Authentik with its providers intact,
+   Forgejo serving a `docker pull`, Kuma with its monitors. Record it
    in `docs/review/` as a dated finding, the same way the guide replay was.
    **Until this phase runs, treat phases 1–4 as untested.** Re-run yearly.
 

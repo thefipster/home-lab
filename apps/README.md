@@ -14,11 +14,16 @@ manages applications through its web UI, so app definitions live **in Coolify**,
 not here. Mirroring them into the repo would create a second source of truth that
 silently drifts from the one actually deploying things.
 
-That holds for third-party software too — Paperless, Vaultwarden and the rest
-are Coolify resources deployed from **one Forgejo repository each**, not stacks
+That holds for third-party software too — Paperless, Mealie and the rest are
+Coolify resources deployed from **one Forgejo repository each**, not stacks
 declared here. What this directory adds for them is a **catalog**:
 [services.md](services.md) records what runs and why that one, and points at the
 repo holding the compose.
+
+Vaultwarden is the one that went the other way: it was catalogued here and now
+runs on the infra VM as an ordinary `infra/` stack, for the reasons
+[services.md](services.md#vaultwarden-is-not-on-this-list-and-used-to-be)
+records.
 
 What that leaves in this directory:
 

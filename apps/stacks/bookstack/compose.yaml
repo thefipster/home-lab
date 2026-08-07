@@ -66,7 +66,9 @@ services:
         condition: service_healthy
 
   mariadb:
-    image: mariadb:11.8
+    # Major.minor pin on the current LTS line — MariaDB's scheme makes each
+    # major's .3 release the LTS (12.3 today; 11.8 was the previous one).
+    image: mariadb:12.3
     restart: unless-stopped
     # BookStack expects utf8mb4 throughout; the defaults differ per MariaDB build.
     command: >-

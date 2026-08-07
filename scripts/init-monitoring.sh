@@ -50,7 +50,7 @@ run_root mkdir -p /opt/monitoring/postgres /opt/monitoring/grafana \
 #   prom/prometheus:v3    -> nobody (65534)
 #   grafana/loki:3        -> 10001
 #   grafana/tempo:3.0.2   -> 10001
-#   grafana/alloy:v1.18.0 -> root, so its dir needs no chown
+#   grafana/alloy:v1.18.1 -> root, so its dir needs no chown
 # Postgres manages its own dir's ownership.
 run_root chown -R 472:472 /opt/monitoring/grafana
 run_root chown -R 65534:65534 /opt/monitoring/prometheus

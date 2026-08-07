@@ -143,7 +143,7 @@ new one). Local username/password login still works.
 4. Create. Forgejo clones it and re-pulls on that interval.
 
 > A pull mirror updates Git data but does **not** fire `push` events. Builds
-> are therefore manual — see [step 8](#8-run-a-build-and-verify-the-image).
+> are therefore manual — see [step 8](#8-run-a-dev-build-and-verify-the-image).
 
 ### 7. Add the pipeline to your repo
 
@@ -298,7 +298,7 @@ docker compose up -d --remove-orphans
 **`docker: not found` inside a CI job.** The job image must contain **both**
 Node (for the checkout/login/build-push actions) **and** the `docker` CLI with
 buildx. A plain `node` image fails; the shipped workflow uses
-`ghcr.io/catthehacker/ubuntu:act-22.04`, which has both. The first run pulls it
+`ghcr.io/catthehacker/ubuntu:act-24.04`, which has both. The first run pulls it
 (~1.5 GB) onto the host daemon and caches it.
 
 **A workflow refuses to start and reports a schema error.** Forgejo and the

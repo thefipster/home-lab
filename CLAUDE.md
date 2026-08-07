@@ -34,13 +34,15 @@ service name and nesting them would add a `../` to every cross-guide link:
 
 - **Proxmox host** — hypervisor only, no Docker. A bad container can't
   take the box down.
-- **infra VM** — Traefik + Authentik + Forgejo + Dockge + monitoring
-  (the stacks in `infra/`). The only machine whose services this repo declares.
+- **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
+  monitoring (the stacks in `infra/`). The only machine whose services this repo
+  declares.
 - **apps VM** — Coolify (self-hosted PaaS). Coolify owns its own Docker
-  and manages apps through its UI, so `apps/` holds **no compose file** — a
-  README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
-  needs, and `services.md`, a **catalog** of the third-party software this VM
-  runs. Coolify never reads that `.env` and has **no credentials form**: the
+  and manages apps through its UI, so `apps/` declares **no running service** —
+  a README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
+  needs, `services.md`, a **catalog** of the third-party software this VM
+  runs, and `stacks/`, where a third-party compose is drafted until it is
+  pushed to its own Forgejo repo and deleted from here. Coolify never reads that `.env` and has **no credentials form**: the
   values are typed into the proxy's own compose in its UI (*Servers → Proxy →
   Configuration*), beside the flags that switch it off its default HTTP-01
   challenge — which cannot issue a wildcard at all. The file is the **recovery
@@ -144,11 +146,21 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
-**Two services join neither, deliberately.** Both have no OIDC, so the
-convention would point at forward-auth for each; treat both as stated exceptions,
-not gaps to close. The reasoning lives in `sso-applications.md`, and each absence
-is commented in place so someone about to "fix" it reads why first.
+**Three services join neither, deliberately.** Treat all three as stated
+exceptions, not gaps to close. The reasoning lives in `sso-applications.md`, and
+each absence is commented in place so someone about to "fix" it reads why first.
+Two of them have no OIDC, so the convention would point at forward-auth; the
+first one **does** have OIDC and declines it anyway, which makes it the single
+exception to "anything with native OIDC uses it".
 
+- **Vaultwarden.** It holds the credentials for repairing Authentik, so a vault
+  that dies with the identity provider is the one outage with no way out —
+  break-glass would be SSH into a box whose key passphrase is inside the thing
+  that is down. This is also why it sits **before** Authentik in the build
+  order, and why `/admin` is not gated either: that is the page you would need
+  in order to repair anything. `infra/vaultwarden/compose.yaml` carries no
+  `middlewares` label, and its `/admin` is protected by an Argon2id
+  `ADMIN_TOKEN` instead.
 - **Uptime Kuma.** Gating the outage dashboard behind the identity provider makes
   an Authentik outage the one failure you cannot see, and break-glass would need
   SSH mid-incident. `infra/uptime-kuma/compose.yaml` carries no `middlewares`
@@ -162,7 +174,7 @@ is commented in place so someone about to "fix" it reads why first.
   `infra/traefik/dynamic/ha.yaml` carries no `middlewares` key.
 
 `infra/authentik/compose.yaml` carries **no** `/outpost.goauthentik.io/` router
-for either host, with a comment naming both and why.
+for any of the three hosts, with a comment naming all three and why.
 
 Not every SSO knob is clickwork: Forgejo's auto-registration and account
 linking are **instance settings** in the compose
@@ -219,10 +231,20 @@ section, for the reasons under [Docs layout](#docs-layout).
    `.env` from `.env.example`, symlinks the stack into `/opt/stacks`. The
    entrypoint-level `tls.domains` makes
    Traefik request the wildcard cert at startup — no router needed.
-5. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
-   into `.env`. Authentik is the first *routed* stack and must run before the
-   forward-auth-gated routers (Dockge, Traefik dashboard) can load.
-6. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
+5. `scripts/init-vaultwarden.sh` — creates `/opt/vaultwarden`, generates
+   `VAULTWARDEN_DB_PASSWORD` into `.env`, symlinks the stack. The **first
+   routed stack**, before Authentik on purpose: it joins no SSO pattern
+   (see above), so it depends on nothing that comes after it, and from step 6
+   onward every guide generates a secret worth keeping. The one secret it does
+   **not** generate is `VAULTWARDEN_ADMIN_TOKEN` — `vaultwarden hash` prompts
+   twice on a TTY and cannot be driven from a script, so the guide mints it by
+   hand. The DB password is **hex**, not base64 like every other stack: it is
+   substituted into `DATABASE_URL`, a URI, where base64's `+ / =` would need
+   percent-encoding.
+6. `scripts/init-authentik.sh` — creates `/opt/authentik`, generates secrets
+   into `.env`. Authentik must run before the forward-auth-gated routers
+   (Dockge, Traefik dashboard) can load.
+7. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at
    an identical path so stack symlinks resolve inside the container), and — the
    **only** init script that does — **starts the stack itself**, so its guide
@@ -231,17 +253,17 @@ section, for the reasons under [Docs layout](#docs-layout).
    (it would leave an un-gated LAN path), so Dockge is unreachable until both
    Traefik and Authentik run. From here on the remaining stacks can be driven
    from the web UI.
-7. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
+8. `scripts/init-forgejo.sh` — creates `/opt/forgejo` data tree, seeds `.env`
    (generates `FORGEJO_DB_PASSWORD`, records `DOCKER_GID`), symlinks the stack
    into `/opt/stacks`.
-8. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
+9. `scripts/init-monitoring.sh` — creates `/opt/monitoring`, chowns each data
    dir to the UID its image runs as (grafana 472, prometheus 65534, loki and
    tempo 10001; alloy is root), generates `GRAFANA_DB_PASSWORD` +
    `GRAFANA_ADMIN_PASSWORD`, symlinks the stack. Comes after Authentik because
    Grafana's OIDC needs a provider — but the stack starts fine before SSO is
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
    verified first.
-9. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
+10. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
    stack. The only stack with **no `.env` and no `.env.example`**: Kuma has no
    database and creates its admin through its own first-run web form, so there
    is nothing to seed. No `chown`
@@ -251,7 +273,7 @@ section, for the reasons under [Docs layout](#docs-layout).
 That sequence is the **infra VM**. The other two machines follow it, and the
 build order in the README is grouped by machine for exactly this reason:
 
-10. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
+11. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
    30 GB free, and Docker Engine ≥ 24 **only if an Engine is already there**),
    a swapfile if none is active, then Coolify's
    official installer **fetched to a temp file with its source URL and sha256
@@ -263,13 +285,13 @@ build order in the README is grouped by machine for exactly this reason:
    gate: the apps VM skips `init-docker.sh`, so on a first run there is no
    Engine yet and the installer is what provides it. Making that gate hard
    deadlocks the only machine that needs the script.
-11. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
+12. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
    only caller**. Explicitly **not** folded into `init-host.sh`: that runs on the
    infra VM too, where Alloy's embedded `prometheus.exporter.unix` already
    collects host metrics, so a second exporter there would be a duplicate target.
    The Proxmox host wants one as well but has no checkout, so it stays a
    documented `apt install`.
-12. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+13. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
     per `docs/home-assistant-setup.md`.
 
@@ -293,16 +315,18 @@ the single source of truth; Dockge only drives start/stop/logs.
 ## Conventions & gotchas that aren't obvious from a single file
 
 - **Image pins are major-only** (`traefik:v3`, `dockge:1`, `postgres:18-alpine`,
-  `forgejo:15`) — a deliberate policy; keep it when bumping. Four exceptions,
+  `forgejo:15`) — a deliberate policy; keep it when bumping. Five exceptions,
   each for a different reason: Authentik is pinned **major.minor** (`2026.5`)
   because its minor releases ship breaking DB migrations — upstream requires
   upgrades to step through **every** intermediate release, so a bump here is
   never routine and the pin is what keeps that decision explicit;
   `grafana/grafana` is
   pinned **major.minor** (`13.1`) because no bare-major tag is published;
-  `grafana/alloy` (`v1.18.0`) and `grafana/tempo` (`3.0.2`) are pinned to a
-  **full patch** because each publishes only `vX.Y.Z` / `X.Y.Z` tags. Verify
-  against the registry before assuming a coarser tag exists.
+  `grafana/alloy` (`v1.18.1`), `grafana/tempo` (`3.0.2`) and
+  `vaultwarden/server` (`1.37.1`) are pinned to a **full patch** because each
+  publishes only `vX.Y.Z` / `X.Y.Z` tags — Vaultwarden ships `latest`, `alpine`
+  and `X.Y.Z` and no bare `1` or `1.37` at all. Verify against the registry
+  before assuming a coarser tag exists.
 - **Which major is a separate question from how coarse the pin is, and Forgejo
   answers it differently.** `forgejo:15` tracks the **LTS** major, not the
   latest stable one — Forgejo's non-LTS majors carry a ~3-month support window,
@@ -310,7 +334,7 @@ the single source of truth; Dockge only drives start/stop/logs.
   rather than on a release cadence. So the pinned number normally **lags** the
   newest release and is not stale; check https://forgejo.org/releases/ for which
   major is LTS before raising it. The Forgejo **runner** has no LTS track, so it
-  follows the newest major (`runner:12`) — and it moves **with** the server:
+  follows the newest major (`runner:13`) — and it moves **with** the server:
   Forgejo 13 and runner 8 both began rejecting Actions workflows that fail a
   YAML schema check, so a pair straddling those versions disagrees about what a
   valid workflow is.
@@ -324,18 +348,29 @@ the single source of truth; Dockge only drives start/stop/logs.
   line (`24-bookworm` today; 20 went EOL 2026-04-30): a non-LTS Node major
   loses support inside a year, which is shorter than the interval between bumps
   here. The other toolchain jobs set their own images and are unaffected.
-- **The three Postgres services set `PGDATA` explicitly**, which no other stack
+- **The four Postgres services set `PGDATA` explicitly**, which no other stack
   needs to do. Postgres 18's official image made its default PGDATA
   version-specific (`/var/lib/postgresql/18/docker`) and moved the declared
   `VOLUME` up to `/var/lib/postgresql`; left alone, a bind mount at
   `/var/lib/postgresql/data` would no longer be where the server writes.
   `PGDATA: /var/lib/postgresql/data` pins it back, so `/opt/<stack>/postgres`
-  keeps holding PGDATA directly — one flat path across all three stacks, all
+  keeps holding PGDATA directly — one flat path across all four stacks, all
   the guides, and the backup roadmap. It also makes a future major bump fail
   **loudly** ("database files are incompatible with server") rather than
-  silently initializing an empty `19/` beside the old data. All three consumers
-  are in range for 18 (Forgejo ≥ 14, Authentik 14–18, Grafana ≥ 12) even though
-  Authentik's own upstream compose still ships 16.
+  silently initializing an empty `19/` beside the old data. All four consumers
+  are in range for 18 (Forgejo ≥ 14, Authentik 14–18, Grafana ≥ 12, Vaultwarden
+  whatever libpq speaks) even though Authentik's own upstream compose still
+  ships 16.
+- **Vaultwarden's DB password is hex, not base64** — the only stack whose
+  generated password deviates. It is substituted into `DATABASE_URL`, which
+  libpq parses as a URI, so base64's `+ / =` would each need percent-encoding.
+  Keep `openssl rand -hex 32` in `scripts/init-vaultwarden.sh`.
+- **`VAULTWARDEN_ADMIN_TOKEN` must be single-quoted in `.env`.** It is an
+  Argon2id PHC string (`$argon2id$v=19$m=…`), and Compose interpolates unquoted
+  and double-quoted `.env` values — so without the quotes every `$`-segment is
+  expanded away and the admin page rejects the password that generated it,
+  while the container starts perfectly happily. This is the only value in the
+  repo with that property.
 - **Tempo 3.x is monolithic mode, and that is what makes it Kafka-free.** 3.0
   replaced ingesters and the compactor with live-store / block-builder /
   backend-scheduler, and grew a Kafka-backed write path — but only in
@@ -482,9 +517,10 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 `docs/` holds the reproduction guides, one per build-order step:
 `proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
-`traefik-setup.md` → `authentik-setup.md` → `dockge-setup.md` →
-`forgejo-setup.md` → `grafana-setup.md` → `uptime-kuma-setup.md` →
-**`apps-vm-setup.md`** → `coolify-setup.md` → `home-assistant-setup.md`.
+`traefik-setup.md` → `vaultwarden-setup.md` → `authentik-setup.md` →
+`dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
+`uptime-kuma-setup.md` → **`apps-vm-setup.md`** → `coolify-setup.md` →
+`home-assistant-setup.md`.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is
 load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which
@@ -512,14 +548,14 @@ per-service values should never be repeated inline in a guide.
 All three carry `**Runs on:** … — registry, not a build step`, and all three list
 their **deliberate absences** alongside their entries, because a registry that
 only records what exists cannot tell you whether a gap was a decision. The
-absences are load-bearing: `coolify.`/`apps.` have no DNS row, Kuma and Home
-Assistant have no SSO entry, and Kuma does not monitor itself or the hypervisor.
-When adding a service, decide about all three and say so in each.
+absences are load-bearing: `coolify.`/`apps.` have no DNS row, Vaultwarden, Kuma
+and Home Assistant have no SSO entry, and Kuma does not monitor itself or the
+hypervisor. When adding a service, decide about all three and say so in each.
 
 **Every guide follows the same structure**, in this order: headline; a
-`**Runs on:** <machine>` line naming the machine whose shell you are in (the two
-registries say `— registry, not a build step` instead, because they describe
-manual operations that span machines);
+`**Runs on:** <machine>` line naming the machine whose shell you are in (the
+three registries say `— registry, not a build step` instead, because they
+describe manual operations that span machines);
 one-line prerequisite linking the previous guide (never a restatement of it);
 short explanation of the stack; numbered steps with verification, **each
 command in its own fenced block**; jump-off to the next guide;

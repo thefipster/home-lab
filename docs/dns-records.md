@@ -39,6 +39,7 @@ All entries are type **Host (A)**:
 | `git.thefipster.de` | `infra ip` | Forgejo web + registry (via Traefik) |
 | `dockge.thefipster.de` | `infra ip` | Dockge UI (via Traefik) |
 | `auth.thefipster.de` | `infra ip` | Authentik SSO portal (via Traefik) |
+| `vault.thefipster.de` | `infra ip` | Vaultwarden password manager (via Traefik) |
 | `traefik.thefipster.de` | `infra ip` | Traefik dashboard (gated by Authentik) |
 | `grafana.thefipster.de` | `infra ip` | Grafana monitoring UI (via Traefik) |
 | `otlp.thefipster.de` | `infra ip` | OpenTelemetry ingest (Alloy via Traefik) |
@@ -78,6 +79,13 @@ Note the contrast with `pve.thefipster.de`, which needs its exact record
 precisely *because* the wildcard would answer with the apps VM — the wrong box.
 Same mechanism, opposite outcome: whether the wildcard is a safety net or a trap
 depends only on whether the name wants the apps VM.
+
+`vault.thefipster.de` is the one name that has been on both sides of that line.
+Vaultwarden was catalogued as an apps-VM service, where it would have ridden the
+wildcard with no record at all; it now runs on the **infra VM**
+([vaultwarden-setup.md](vaultwarden-setup.md)), so it needs an exact record like
+every other infra name. Nothing about the mechanism changed — only which machine
+the name wants.
 
 ## Home Assistant has two names, on purpose
 
@@ -132,7 +140,7 @@ A quick way to see the whole shape at once, infra names together and the wildcar
 falling elsewhere:
 
 ```bash
-for n in git dockge auth traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
+for n in git dockge auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
 ```
 
 Everything through `ha` should share one address, `homeassistant` and `pve`

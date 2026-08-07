@@ -16,7 +16,6 @@ this machine.
 | Service | Host | What it is | Database | Also needs | SSO | Repo | Data |
 |---|---|---|---|---|---|---|---|
 | Paperless-ngx | `paperless.` | Scanned-document archive — OCR, tagging, full-text search. **PDFs and images only** | Postgres | Valkey | OIDC | `paperless` | `/data/paperless` |
-| Vaultwarden | `vault.` | Bitwarden-compatible password manager | Postgres | — | **none, deliberate** | `vaultwarden` | `/data/vaultwarden` |
 | Mealie | `mealie.` | Recipe manager — meal planning, shopping lists | Postgres | — | OIDC | `mealie` | `/data/mealie` |
 | LubeLogger | `lube.` | Vehicle maintenance and fuel-mileage log | Postgres | — | OIDC | `lubelogger` | `/data/lubelogger` |
 | BookStack | `wiki.` | Wiki and documentation | **MariaDB** | — | OIDC | `bookstack` | `/data/bookstack` |
@@ -36,14 +35,43 @@ Stacks not yet split into their own repo are drafted in
 [stacks/](stacks/README.md) and deleted from there once pushed.
 
 Each application is put on **Postgres wherever it offers the choice**, matching
-the database Authentik, Forgejo and Grafana already run. Three of them
-(Vaultwarden, Mealie, LubeLogger) default to SQLite and are moved off it
-deliberately; Paperless already ships Postgres; BookStack has no choice to make.
+the database Authentik, Forgejo, Vaultwarden and Grafana already run. Two of
+them (Mealie, LubeLogger) default to SQLite and are moved off it deliberately;
+Paperless already ships Postgres; BookStack has no choice to make.
+
+## Vaultwarden is not on this list, and used to be
+
+It was catalogued here, and it now runs on the **infra VM** as a first-class
+stack: [infra/vaultwarden/](../infra/vaultwarden/), guide
+[docs/vaultwarden-setup.md](../docs/vaultwarden-setup.md). The row is gone
+rather than marked moved, because a catalog of what this machine runs should
+not list something it doesn't.
+
+The move is recorded here because the reasoning is about *this* machine. Two
+things decided it:
+
+- **Backup.** Everything under `/data` on this VM is excluded from whole-VM
+  `vzdump` (`backup=0`) and covered by nothing until the file-level `restic`
+  layer lands — the honest state stated under [Backup](#backup) below. That is
+  an acceptable gap for recipes and a maintenance log. It is not an acceptable
+  gap for the only copy of every credential the lab has. On the infra VM the
+  vault sits under `/opt/vaultwarden` and is inside layer 1 today.
+- **Build order.** Vaultwarden joins no SSO pattern precisely so it survives an
+  Authentik outage, which means it has no reason to be built after Authentik —
+  and every reason to be built before it, since from that point on each guide
+  generates a secret worth keeping. This VM does not exist until step 11. A
+  password manager that arrives after everything it should have been storing is
+  a password manager you filled in by hand afterwards.
+
+Unlike the four above, it therefore **does** get rows in the three `docs/`
+registries — a DNS record, an SSO non-entry and three Kuma monitors — because
+that is what living on the infra VM means.
 
 ## Two decisions that look like mistakes
 
 Both are recorded here because they are exactly what a later reader would try to
-"fix".
+"fix": one is an engine that does not match the lab's standard, the other is an
+absence where the rest of the repo has a stated exception.
 
 ### BookStack uses MariaDB, and that is not fixable
 
@@ -72,20 +100,18 @@ redeploying, which restores the original admin account untouched. That is a real
 downgrade — a redeploy instead of a login form — and it is the price of the row
 above, not an oversight. Its repo's README says so in place.
 
-### Vaultwarden has no SSO, and it is the only one
+### Every application here joins SSO, and that is not a coincidence
 
-Vaultwarden **does** support OIDC — it landed upstream and shipped in 1.36.0. It
-is kept on local login anyway, which makes it the third stated exception to the
-repo's "anything with native OIDC uses it" rule, alongside
-[Uptime Kuma and Home Assistant](../docs/sso-applications.md).
+All four use OIDC against Authentik. The lab's stated exceptions to the
+"anything with native OIDC uses it" rule — Vaultwarden, Uptime Kuma, Home
+Assistant — are all **infra VM** services, and each is an exception because
+something about recovering the lab depends on it staying reachable when
+Authentik is not ([sso-applications.md](../docs/sso-applications.md)).
 
-The reason is the same shape as Kuma's: a password manager that dies with the
-identity provider is the one outage you cannot recover from, because the
-credentials needed to repair Authentik are inside it. Break-glass would mean
-SSH at precisely the moment you are already locked out.
-
-Vaultwarden also needs `SIGNUPS_ALLOWED=false` once the first account exists,
-and an argon2-hashed `ADMIN_TOKEN`. Both live in its Forgejo repo.
+Nothing on this machine has that property. A recipe manager behind a dead
+identity provider is an inconvenience, not a trap, so there is no reason for an
+application here to decline the pattern. If one ever does, its repo's README is
+where the reasoning goes — not this table.
 
 ## What this machine gives them for free
 
@@ -100,12 +126,12 @@ and an argon2-hashed `ADMIN_TOKEN`. Both live in its Forgejo repo.
   any application here.
 - **Host metrics.** `init-node-exporter.sh` already runs on this VM and Alloy on
   the infra VM already scrapes it. Nothing here changes that, and none of these
-  five is an exporter.
+  four is an exporter.
 
 ## What it does not give them
 
 - **No container logs.** Alloy tails the *infra* VM's Docker socket, so nothing
-  running here reaches Loki — these five, and Coolify's own containers alike.
+  running here reaches Loki — these four, and Coolify's own containers alike.
   This is a gap for the whole machine, not for these applications:
   [docs/roadmap/apps-vm-logs.md](../docs/roadmap/apps-vm-logs.md).
 - **No container-state monitoring.** Uptime Kuma's container monitors read the
@@ -121,7 +147,6 @@ where **tier 1 is irreplaceable**.
 | Service | Tier | What is at stake |
 |---|---|---|
 | Paperless-ngx | **1** | Scanned documents. The originals are paper, or gone. |
-| Vaultwarden | **1** | Vault data, attachments and `rsa_key`. Losing it locks you out of everything else, including the lab. |
 | Mealie | 2 | Re-scrapable, tediously. |
 | LubeLogger | 2 | Hand-entered service history — no upstream to re-fetch it from. |
 | BookStack | 2 | Authored, but small. |
@@ -135,6 +160,10 @@ So the honest state today is: the apps VM's *root* disk is backed up and its
 **application data is not**. Paperless is tier 1 and ships its own
 `document_exporter`; run it by hand and copy `/data/paperless/export` off the box
 until phase 2 exists.
+
+That gap is the reason Paperless is now the **only** tier 1 row here — the
+other one, Vaultwarden, was moved to the infra VM partly to get out from under
+it ([above](#vaultwarden-is-not-on-this-list-and-used-to-be)).
 
 ## Where the rest lives
 
@@ -152,7 +181,7 @@ This file is a pointer, not a registry. For any application above:
 The three registries in `docs/` cover **infra VM** services, where the
 implementation is clickwork with no other home — an Authentik application exists
 only in Authentik's database, a Kuma monitor only in Kuma's SQLite, so a file in
-this repo is the only durable record. These five have a git repository each
+this repo is the only durable record. These four have a git repository each
 instead, which is where a reader already goes to change them. A second copy here would
 drift, and a drifted registry is worse than none because it reads as
 authoritative.

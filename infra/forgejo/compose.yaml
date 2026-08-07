@@ -124,9 +124,12 @@ services:
     # Actions workflows against a YAML schema server-side and runner 8 began
     # doing the same before starting a job; a runner from before that gate
     # paired with a server from after it disagree about what a valid workflow
-    # is. Runner 12 additionally needs a `git` binary to fetch remote actions,
-    # which this image ships.
-    image: code.forgejo.org/forgejo/runner:12
+    # is. Since runner 12 the runner also needs a `git` binary to fetch remote
+    # actions, which this image ships. Runner 13 removed the ::set-output/
+    # set-env/add-path commands, the GITEA_* vars and secret-based registry
+    # auth — the two workflows here use none of them (file-based
+    # $GITHUB_OUTPUT and docker/login-action), verified before this bump.
+    image: code.forgejo.org/forgejo/runner:13
     restart: unless-stopped
     depends_on:
       - forgejo

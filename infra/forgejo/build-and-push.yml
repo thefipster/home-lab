@@ -80,7 +80,7 @@ jobs:
       # binary, so `docker/login-action` fails with "docker: not found". The
       # catthehacker "act" images bundle Node + docker CLI + buildx (they mirror
       # GitHub's ubuntu-latest runner), which is what these actions expect.
-      image: ghcr.io/catthehacker/ubuntu:act-22.04
+      image: ghcr.io/catthehacker/ubuntu:act-24.04
     steps:
       # ---------------------------------------------------------------------
       # 1. Check out the mirrored code. fetch-depth: 0 = full clone, so build
@@ -136,8 +136,10 @@ jobs:
       # PlatformIO publishes NO official Docker image — the ones on Docker Hub
       # are all community builds. Upstream's own documented CI recipe is a pip
       # install, so that is what this does. Pinned major.minor because the bare
-      # `python:3` tag moves across minor releases.
-      image: python:3.12-bookworm
+      # `python:3` tag moves across minor releases. 3.14 needs PlatformIO core
+      # >= 6.1.19 — satisfied here because the pip install below always takes
+      # the latest core.
+      image: python:3.14-bookworm
     strategy:
       fail-fast: false
       matrix:

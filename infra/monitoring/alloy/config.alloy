@@ -66,6 +66,9 @@ prometheus.scrape "monitoring_stack" {
 // These are reachable only because Alloy joined the `proxy` network; see
 // compose.yaml. Static targets on purpose: three entries that change roughly
 // never don't justify a discovery convention every stack has to opt into.
+// Vaultwarden is the routed stack that is deliberately NOT here: it exposes no
+// metrics endpoint at all (nothing to flip), so its coverage is Uptime Kuma's
+// monitors plus the container logs tailed below.
 prometheus.scrape "infra_services" {
   targets = [
     {"__address__" = "traefik:8082", "job" = "traefik"},
@@ -111,7 +114,8 @@ prometheus.scrape "host" {
   forward_to      = [prometheus.remote_write.default.receiver]
 }
 
-// The PROXMOX HOST — the one scrape target in the lab that is not a container.
+// The PROXMOX HOST — the first of the lab's three scrape targets that are not
+// containers (the apps VM and Home Assistant follow below).
 // Alloy reaches it outbound over the LAN through the docker bridge, which is
 // why adding it needed no mount, no network change and no published port.
 //

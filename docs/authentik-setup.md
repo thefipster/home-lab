@@ -2,14 +2,14 @@
 
 **Runs on:** infra VM
 
-**Prerequisite:** [traefik-setup.md](traefik-setup.md) complete — the wildcard
-certificate issued and Traefik serving.
+**Prerequisite:** [vaultwarden-setup.md](vaultwarden-setup.md) complete — the
+vault is where this guide's generated secrets belong, and it is the last stack
+that does not depend on what you are about to build.
 
 [Authentik](https://goauthentik.io) is the lab's identity provider, at
-**`https://auth.thefipster.de`**. It is the first stack Traefik actually
-serves, and it must run before the services it gates: the Traefik dashboard
-and Dockge reference a forward-auth middleware that Authentik provides, so
-their routers do not load without it.
+**`https://auth.thefipster.de`**. It must run before the services it gates: the
+Traefik dashboard and Dockge reference a forward-auth middleware that Authentik
+provides, so their routers do not load without it.
 
 Services join SSO by **one of two patterns, never both**:
 
@@ -17,6 +17,11 @@ Services join SSO by **one of two patterns, never both**:
   non-browser traffic (`git push`, `docker login`, CI). Forgejo and Grafana.
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support at
   all. The Traefik dashboard and Dockge.
+
+Three services join **neither**, deliberately — Vaultwarden, Uptime Kuma and
+Home Assistant. The first of those is already running by the time you get here,
+and its absence is the reason it was built first
+([sso-applications.md](sso-applications.md#vaultwarden-deliberately-not-joined)).
 
 The full list of applications and the exact values each is created with is the
 registry: **[sso-applications.md](sso-applications.md)**. This guide sets up

@@ -24,13 +24,19 @@ convention):
   non-browser traffic (git push, `docker login`/registry, CI).
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support.
 
-**Two** services join **neither**, deliberately — see
+**Three** services join **neither**, deliberately — see
+[Vaultwarden](#vaultwarden-deliberately-not-joined),
 [Uptime Kuma](#uptime-kuma-deliberately-not-joined) and
 [Home Assistant](#home-assistant-deliberately-not-joined). They are listed here
 so this registry stays an honest account of every service's relationship to
-Authentik, not only the ones that joined. Both are decisions, not gaps: in each
-case the break-glass path for an Authentik outage would need `ssh` at precisely
-the moment you are least able to use it.
+Authentik, not only the ones that joined. All three are decisions, not gaps: in
+each case the break-glass path for an Authentik outage would need `ssh` at
+precisely the moment you are least able to use it.
+
+**Only one of the three could have joined.** Kuma and Home Assistant have no
+OIDC support at all, so the convention would have pointed them at forward-auth.
+Vaultwarden **has** OIDC, which makes it the single service in the lab that
+declines a pattern it qualifies for.
 
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
@@ -38,6 +44,7 @@ the moment you are least able to use it.
 | Dockge | forward-auth | Authentik only | [dockge-setup.md, step 1](dockge-setup.md#1-create-the-dockge-application-in-authentik) |
 | Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
+| Vaultwarden | **none** (deliberate) | Vaultwarden's own master-password login | [vaultwarden-setup.md, step 5](vaultwarden-setup.md#5-create-your-account) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
 | Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik) |
 
@@ -122,6 +129,37 @@ Grafana side — no admin-UI work: the Client ID / Client Secret go into
 Local `admin` login stays **enabled** (break-glass;
 `GRAFANA_ADMIN_PASSWORD` in the same `.env`).
 
+## Vaultwarden (deliberately not joined)
+
+The exception that costs something. Vaultwarden **does** support OIDC — it
+landed upstream in 1.35.0 — so the repo's "anything with native OIDC uses it"
+rule points straight at it, and it is the only service here that declines a
+pattern it qualifies for.
+
+It is kept on its own master-password login because **this is where the
+credentials for repairing Authentik live**. A vault that dies with the identity
+provider is the one outage with no way out: the break-glass would be `ssh` into
+a box whose key passphrase is inside the thing that is down. That is also why
+Vaultwarden comes *before* Authentik in the build order
+([vaultwarden-setup.md](vaultwarden-setup.md)) rather than after it.
+
+**`/admin` is not gated either**, and that was the tempting half-measure. It is
+the one page a browser-only user reaches, so forward-auth on that path alone
+looks free — but it is also the page you would need in order to repair
+anything, and adding it would put back exactly the dependency this decision
+removes. It is protected instead by an Argon2id `ADMIN_TOKEN` and upstream's
+own rate limiting (about one attempt per 300 s after a burst of 3).
+
+Vaultwarden's login is a zero-knowledge master password, not a password form in
+front of a database, so the exposure this leaves on the LAN is a login page
+whose failure mode is bounded by the master password's strength. Same cost as
+the two below, named the same way.
+
+Nothing to click in Authentik, and nothing to undo:
+`infra/authentik/compose.yaml` carries **no** outpost router for this host, and
+`infra/vaultwarden/compose.yaml` carries **no** `middlewares` label. Both
+absences are deliberate and commented in place.
+
 ## Uptime Kuma (deliberately not joined)
 
 Kuma has no OIDC support, so the convention would point at forward-auth. It is
@@ -171,7 +209,7 @@ are deliberate and commented in place.
 
 An application with **no** bindings admits **any authenticated user**; the
 moment it has at least one, everyone not matched is denied. The lab binds
-each Authentik application above to the `lab-users` group (Uptime Kuma and Home
-Assistant have no application, so they have no binding) —
+each Authentik application above to the `lab-users` group (Vaultwarden, Uptime
+Kuma and Home Assistant have no application, so they have no binding) —
 [authentik-setup.md, step 5](authentik-setup.md#5-control-who-reaches-what)
 covers creating the group and users, and what "denied" means per pattern.
