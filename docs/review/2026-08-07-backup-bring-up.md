@@ -210,9 +210,10 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Three `backup.sh` files** — Forgejo, Traefik, Dockge. (Was six. Uptime
-   Kuma, monitoring and Vaultwarden all landed and were drilled the same day —
-   see the addenda below. The three that remain carry no new decisions.)
+1. **Two `backup.sh` files** — Traefik and Dockge, both the include-only form.
+   (Was six. Uptime Kuma, monitoring and Vaultwarden all landed and were
+   drilled the same day — see the addenda below; Forgejo landed after them and
+   is written but **not yet drilled**.)
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.

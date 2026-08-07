@@ -353,8 +353,18 @@ reason.
      to prove anything — so `restore.sh` checks for `rsa_key.pem` by name
      rather than trusting that `data/` exists.
 
-   **What remains is three files and no new decisions**: Forgejo, Traefik and
-   Dockge. All three are the single-argument or include-only forms.
+   - **Forgejo** — single-argument `dump_postgres`, three includes,
+     `include_env`, and the largest snapshot of the set. It carries three quiet
+     couplings with its database: the container-registry **blobs** live in the
+     files while their **package metadata** lives in the database; `app.ini`
+     holds the instance's `SECRET_KEY`/`INTERNAL_TOKEN`; and the SSH host keys
+     are in there too. Its `.env` also holds `DOCKER_GID`, the one
+     machine-specific value in the repo — `restore.sh` compares the restored
+     value against the live docker group and warns, because a stale gid breaks
+     only the runner and nothing else looks wrong.
+
+   **What remains is two files and no new decisions**: Traefik and Dockge.
+   Both are the include-only form.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -418,7 +428,7 @@ reason.
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the three unwired stacks,
+   Still unproven, and not to be claimed until it is: the two unwired stacks,
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
