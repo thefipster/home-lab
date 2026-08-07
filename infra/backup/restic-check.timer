@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly restic repository check
+
+[Timer]
+# Sunday 03:00 — after that night's backup and after vzdump, so the three jobs
+# never contend for the same USB drive.
+OnCalendar=Sun *-*-* 03:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

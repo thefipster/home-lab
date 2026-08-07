@@ -1,0 +1,14 @@
+[Unit]
+Description=Nightly file-level backup (restic)
+
+[Timer]
+# 01:00 — one hour BEFORE the 02:00 vzdump job on the Proxmox host
+# (proxmox-setup.md Part 8), so layer 1's whole-VM archive contains the current
+# night's dumps. Also clear of the 04:30 unattended-upgrades reboot window.
+OnCalendar=*-*-* 01:00:00
+RandomizedDelaySec=300
+# A VM that was down at 01:00 catches up on boot rather than skipping a night.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=File-level backup of the infra VM (restic)
+Documentation=file://@REPO_ROOT@/docs/backup-setup.md
+# Wants, not Requires: if Docker is down the run fails loudly and Kuma goes red,
+# which is the behaviour we want. Requires would cancel the unit silently.
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@REPO_ROOT@/infra/backup/run.sh
+# Root: the /opt trees are owned by the UIDs their images run as.
+User=root
+# The backup is never the most important thing running. Yield to the lab.
+Nice=10
+IOSchedulingClass=idle

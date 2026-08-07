@@ -1,0 +1,17 @@
+[Unit]
+Description=Verify the restic repository is readable
+Documentation=file://@REPO_ROOT@/docs/backup-setup.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# systemd parses this itself — which is why .env.example insists on plain
+# KEY=value lines with no shell syntax in them.
+EnvironmentFile=@REPO_ROOT@/infra/backup/.env
+# A rotating tenth per week verifies the whole repository over ~10 weeks
+# without reading all of it every night.
+ExecStart=/usr/bin/restic check --read-data-subset=10%%
+User=root
+Nice=15
+IOSchedulingClass=idle
