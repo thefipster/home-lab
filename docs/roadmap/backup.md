@@ -423,8 +423,10 @@ reason.
    with its providers intact, Forgejo serving a `docker pull`, Kuma with its
    monitors.
 
-   Record each further drill in `docs/review/` as its own dated finding, the
-   same way the guide replays were. **Treat every phase as untested for the
+   The procedure is [backup-restore-drill.md](../backup-restore-drill.md) —
+   what to mark before each restore, and what each stack's result actually
+   proves. Record each further drill in `docs/review/` as its own dated
+   finding, the same way the guide replays were. **Treat every phase as untested for the
    parts no drill has covered.** Re-run yearly.
 
 ## Constraints & notes

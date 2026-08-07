@@ -421,6 +421,12 @@ Sunday at 03:00.
 
 ## Restore
 
+> **To restore as an exercise rather than an emergency**, use
+> [backup-restore-drill.md](backup-restore-drill.md). It covers what to change
+> before each restore so the result proves something, and what each stack's
+> outcome actually demonstrates. This section is the mechanism; that guide is
+> how you find out whether it works.
+
 Restoring Authentik is one command, and it asks before it does anything
 destructive:
 
@@ -939,8 +945,9 @@ step is credentials and a bandwidth check, not a redesign
 no deadman**: `run.sh` pings Kuma, `restic check` does not, so a repository that
 has quietly become unreadable stays quiet — the monitor proves the backup ran,
 not that it can be restored from. And **until a restore drill has actually been
-run, treat all of this as untested**; that is phase 5, and it belongs in
-`docs/review/` as a dated finding when it happens.
+run, treat a stack as untested** — that is phase 5, and the procedure is
+[backup-restore-drill.md](backup-restore-drill.md), with each run recorded in
+`docs/review/` as a dated finding.
 
 ## Next
 

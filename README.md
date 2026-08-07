@@ -124,6 +124,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
 │   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
 │   ├── backup-setup.md           restic file-level backups, one snapshot/stack
+│   ├── backup-restore-drill.md   Proving a restore works — recurring, not a step
 │   ├── apps-vm-setup.md          apps VM: checkout, host scripts, data disk
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
