@@ -184,6 +184,79 @@ Linking matches on **email**, so the Authentik user and the Forgejo admin must
 share an address or SSO silently creates a second account. `sso-applications.md`
 records which side each value lives on; keep that column honest.
 
+## The backup convention
+
+Two layers, and they answer different questions. **Layer 1** is whole-VM
+`vzdump` on the hypervisor — "the disk died" — and needs no repo code
+([docs/proxmox-setup.md Part 8](docs/proxmox-setup.md)). **Layer 2** is
+file-level restic — "Authentik ate its database" — and is `infra/backup/` plus
+[docs/backup-setup.md](docs/backup-setup.md). Only layer 2 is a convention.
+
+Backups are **per stack, defined beside the stack**. A stack is backed up by
+adding one file, `infra/<stack>/backup.sh`, which sources `infra/backup/lib.sh`
+and declares what that stack consists of using three recipes:
+`dump_postgres <stack>`, `include <path>`, and `include_env`. There is **no
+central list** — `infra/backup/run.sh` finds stacks by globbing
+`infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
+it. Only **Authentik** is wired up today; the rest of the tier-1 table in
+`docs/roadmap/backup.md` follows the same recipe.
+
+Each stack gets its **own restic snapshot, tagged with the stack name**, so
+restoring one is `restic restore latest --tag <stack>` and the stack's couplings
+come back as a unit by construction. Those couplings are why the definition
+lives beside the stack rather than in a central runner: Authentik's
+DB↔`AUTHENTIK_SECRET_KEY` and Vaultwarden's DB↔`rsa_key.pem` are per-stack
+facts, and they belong in the file someone changing that stack will read —
+Authentik's is commented in `infra/authentik/backup.sh`; Vaultwarden's is the
+next one to write.
+
+Five rules that are not obvious from one file:
+
+- **`.env` files come from the CHECKOUT, never from `/opt/stacks/<stack>`** —
+  those are symlinks, and restic stores a symlink as a symlink rather than
+  descending into it. `include_env` resolves against `$REPO_ROOT`, which is why
+  a stack script cannot be run without it.
+- **Database dumps are `--format=plain`, not `-Fc`.** A compressed dump changes
+  in its entirety when one row changes, which defeats restic's content-defined
+  chunking; restic compresses at rest anyway. The dump goes through the stack's
+  own `db` container, so the client version always matches the server.
+- **`--group-by host,tags` on `forget` is not optional.** The default grouping
+  is `host,paths`, so `--keep-daily 7` would be decided by a partition that
+  re-shuffles the moment a `backup.sh` gains or loses an include — silently
+  changing what "seven dailies" means. It is also what lets the apps VM join
+  the same repository later.
+- **`run.sh` deliberately does not `set -e`**, unlike every other script here:
+  one stack failing must not cost the others their snapshots. Failures are
+  collected, named on the last line, and turned into a non-zero exit at the end.
+  Only a **fully clean** run pings Kuma, so a partial success reads as red
+  rather than as a green tick over a missing snapshot.
+- **It is a systemd timer, not a compose stack.** Nothing appears in Dockge,
+  there is no `/opt/stacks/backup` symlink, and `systemctl status` /
+  `journalctl -u restic-backup.service` are the equivalent of reading a
+  container's logs. A backup that runs inside Docker stops when Docker does.
+
+Restores are scripted per stack too (`infra/<stack>/restore.sh`), and every one
+of them leaves `postgres/` **empty** so the container re-initialises from the
+restored `.env` — Postgres keeps the password its data dir was first
+initialised with, so a restored `.env` beside an old PGDATA is a stack that
+cannot log into its own database. The raw PGDATA rides along in the snapshot as
+a last resort and is never the restore path: copied from a running server, it is
+torn by construction.
+
+The repository is `sftp:resticbackup@pve.thefipster.de:/restic` — the
+hypervisor's own `sshd`, into a chroot on the `usbbackup` pool. The account is
+**shared by every client**, which is why it is not named after a machine; the
+apps VM joins by adding a second key line on the host, not by a redesign. It
+needs **no DNS row of its own** — `pve` already has its exact record — and no
+Authentik entry, both recorded as non-rows in their registries.
+
+Two known gaps, stated rather than fixed: the weekly `restic check` has **no**
+heartbeat, so a repository that has become unreadable stays quiet; and the apps
+VM's 300 GB data disk is covered by nothing, because layer 1 excludes it
+(`backup=0`) and the apps VM has not joined the repository. `RESTIC_PASSWORD` is
+the one secret that cannot live only in the backup — nor only in Vaultwarden,
+which is inside it.
+
 ## Deploy model & ordering
 
 Bring-up order matters and is enforced by the guides — Traefik must exist
@@ -267,13 +340,24 @@ section, for the reasons under [Docs layout](#docs-layout).
    stack. The only stack with **no `.env` and no `.env.example`**: Kuma has no
    database and creates its admin through its own first-run web form, so there
    is nothing to seed. No `chown`
-   either — the default image runs as root, like Alloy. Last on purpose; it
-   watches everything above it.
+   either — the default image runs as root, like Alloy. **Last stack** on
+   purpose; it watches everything above it.
+11. `scripts/init-backup.sh` — the only step that is **not a compose stack**:
+   installs restic, creates `/opt/backup` mode 700, seeds `infra/backup/.env`,
+   generates `/root/.ssh/id_ed25519`, records the Proxmox host key, then
+   `restic init` and installs four systemd units with `@REPO_ROOT@` substituted
+   for the checkout path. It **stops on its first run** — `RESTIC_PASSWORD` is
+   empty and the far end does not trust the key yet — so it is meant to be run
+   twice, with a trip to the hypervisor in between. Last because it backs up
+   everything above it, and after Kuma because the job's only alarm is a Kuma
+   **push** monitor whose URL is an input to the `.env`. Its guide is the only
+   one on the infra VM whose first part runs on the **Proxmox host**: the
+   hypervisor owns the drive, so it owns the `resticbackup` SFTP account too.
 
 That sequence is the **infra VM**. The other two machines follow it, and the
 build order in the README is grouped by machine for exactly this reason:
 
-11. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
+12. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
    30 GB free, and Docker Engine ≥ 24 **only if an Engine is already there**),
    a swapfile if none is active, then Coolify's
    official installer **fetched to a temp file with its source URL and sha256
@@ -285,13 +369,13 @@ build order in the README is grouped by machine for exactly this reason:
    gate: the apps VM skips `init-docker.sh`, so on a first run there is no
    Engine yet and the installer is what provides it. Making that gate hard
    deadlocks the only machine that needs the script.
-12. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
+13. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
    only caller**. Explicitly **not** folded into `init-host.sh`: that runs on the
    infra VM too, where Alloy's embedded `prometheus.exporter.unix` already
    collects host metrics, so a second exporter there would be a duplicate target.
    The Proxmox host wants one as well but has no checkout, so it stays a
    documented `apt install`.
-13. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+14. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
     per `docs/home-assistant-setup.md`.
 
@@ -519,8 +603,8 @@ the single source of truth; Dockge only drives start/stop/logs.
 `proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
 `traefik-setup.md` → `vaultwarden-setup.md` → `authentik-setup.md` →
 `dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
-`uptime-kuma-setup.md` → **`apps-vm-setup.md`** → `coolify-setup.md` →
-`home-assistant-setup.md`.
+`uptime-kuma-setup.md` → `backup-setup.md` → **`apps-vm-setup.md`** →
+`coolify-setup.md` → `home-assistant-setup.md`.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is
 load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which
@@ -532,8 +616,10 @@ Each machine's section of the build order now opens with the guide that prepares
 that machine. Do not fold them back in, and do not add a third: the Proxmox host
 has no checkout, and the HA VM is an appliance. The README's "Build order" links them in sequence,
 **grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
-and each guide ends by linking the next. The last two guides leave the infra VM:
-their `**Runs on:**` line is the quickest way to tell. `grafana-setup.md` owns **all** of monitoring —
+and each guide ends by linking the next. The last two guides leave the infra VM,
+and `backup-setup.md` starts on the Proxmox host before returning to it: the
+`**Runs on:**` line is the quickest way to tell, and it is the only one naming
+two machines. `grafana-setup.md` owns **all** of monitoring —
 the platform *and* what it observes; an earlier split into a second
 `monitoring-setup.md` was merged away because, on a fresh checkout, the second
 guide was pure verification.

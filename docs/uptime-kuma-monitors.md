@@ -257,6 +257,31 @@ look at on a graph. The coupling is also what makes a staleness alert
 unnecessary — a script that stops writing metrics stops pushing heartbeats, and
 this monitor says so.
 
+## Backup — infra VM
+
+| Name | Type | Target |
+|---|---|---|
+| Backup Job | Push | *(push URL — the infra VM calls Kuma)* |
+
+The second **Push** monitor, and the second thing in this lab that watches a
+condition rather than a service. Heartbeat interval **90000 s** (25 h), 0
+retries: the job runs once a day, so the window has to be longer than a day —
+with an hour of slack for the timer's `RandomizedDelaySec` and for a first run
+that uploads everything.
+
+Only a **fully clean** run pushes. A run where one stack failed exits non-zero
+and stays silent, so a partial success shows up here as red rather than as a
+green tick over a missing snapshot. That is the whole point: silence is the
+signal.
+
+The job and its timer live on the infra VM — [backup-setup.md](backup-setup.md).
+Create this monitor first and paste its URL into `infra/backup/.env`.
+
+**The weekly `restic check` has no monitor here, and that is a gap rather than
+a decision.** Only the nightly run pushes; a repository that has quietly become
+unreadable stays quiet. Looking is the only way to find out —
+[backup-setup.md, Troubleshooting](backup-setup.md#troubleshooting).
+
 ---
 
 ## Reachability, and why only two machines get it
@@ -331,9 +356,9 @@ write down.
 Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
 (`Gateway`, `Vault`, `Identity`, `Git`, `Stack management`, `Observability`,
-`App platform`, `Home automation`, `Hypervisor storage`) makes the status page
-collapse to nine rows that expand on demand, instead of twenty-five flat
-entries.
+`App platform`, `Home automation`, `Hypervisor storage`, `Backup`) makes the
+status page collapse to ten rows that expand on demand, instead of twenty-six
+flat entries.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups
 are cosmetic — they do not affect checks or notifications — so this registry

@@ -87,6 +87,13 @@ wildcard with no record at all; it now runs on the **infra VM**
 every other infra name. Nothing about the mechanism changed — only which machine
 the name wants.
 
+**The backup repository needs no new record either.** It is
+`sftp:resticbackup@pve.thefipster.de:/restic`
+([backup-setup.md](backup-setup.md)), and `pve` already has its exact record
+above — which it needs anyway, so the wildcard does not answer with the apps VM
+and send Alloy to scrape the wrong machine. One name, two consumers, and the
+scrape is the one that would fail loudly first.
+
 ## Home Assistant has two names, on purpose
 
 They are not interchangeable, and swapping them breaks the route:

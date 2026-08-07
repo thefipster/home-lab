@@ -78,7 +78,10 @@ hypervisor with it.
 
 The external USB drive is the only copy that can physically leave the building.
 It holds the file-level `restic` repository, reached over SFTP so both VMs can
-write to it — see [docs/roadmap/backup.md](docs/roadmap/backup.md).
+write to it. The infra VM's half is built in
+[docs/backup-setup.md](docs/backup-setup.md); the apps VM has **not** joined the
+repository yet, which is why its 300 GB data disk is still covered by nothing
+([docs/roadmap/backup.md](docs/roadmap/backup.md)).
 
 Mirrors only help if a failure is noticed, and a degraded mirror is precisely the
 failure that takes *nothing* down. A timer on the hypervisor reports pool health
@@ -120,6 +123,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── grafana-setup.md          Monitoring: stack, SSO, and what it observes
 │   ├── uptime-kuma-setup.md      Uptime Kuma: independent status monitoring
 │   ├── uptime-kuma-monitors.md   Registry: every monitor, grouped by stack
+│   ├── backup-setup.md           restic file-level backups, one snapshot/stack
 │   ├── apps-vm-setup.md          apps VM: checkout, host scripts, data disk
 │   ├── coolify-setup.md          Coolify (the PaaS) on the apps VM
 │   ├── home-assistant-setup.md   Home Assistant OS on the third VM
@@ -136,6 +140,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── init-forgejo.sh           Forgejo prep: data tree, .env secrets
 │   ├── init-monitoring.sh        Monitoring: data tree, .env secrets
 │   ├── init-uptime-kuma.sh       Uptime Kuma: data dir, stack symlink
+│   ├── init-backup.sh            restic, SSH key, .env, the systemd units
 │   ├── init-coolify.sh           Coolify on the apps VM: preflight, swap, install
 │   └── init-node-exporter.sh     Host metrics unit — apps VM only (see its header)
 ├── infra/                       Stacks for the infra VM
@@ -148,7 +153,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── .env.example          DB password / argon2 admin token template
 │   ├── authentik/
 │   │   ├── compose.yaml          Authentik SSO (server, worker, postgres)
-│   │   └── .env.example          secret-key / DB / bootstrap template
+│   │   ├── .env.example          secret-key / DB / bootstrap template
+│   │   ├── backup.sh             What this stack's restic snapshot holds
+│   │   └── restore.sh            The inverse — dump, .env and data dirs back
 │   ├── forgejo/
 │   │   ├── compose.yaml          Forgejo + Postgres + Actions runner
 │   │   ├── .env.example          DB password / DOCKER_GID template
@@ -165,8 +172,13 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   ├── tempo/tempo.yaml      Trace storage, 7d retention
 │   │   ├── prometheus/           Metrics storage, 15d retention
 │   │   └── grafana/provisioning/ Datasources, dashboards + alerts as code
-│   └── uptime-kuma/
-│       └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
+│   ├── uptime-kuma/
+│   │   └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
+│   └── backup/                   restic layer 2 — a systemd timer, not a stack
+│       ├── run.sh                Finds infra/*/backup.sh, one snapshot each
+│       ├── lib.sh                The recipes a stack's backup.sh sources
+│       ├── .env.example          Repository / password / Kuma push URL
+│       └── restic-*.{service,timer}  Nightly backup + weekly check
 ├── apps/                        Apps VM (Coolify) — no deployed compose, by design
 │   ├── README.md                 What lives here and what deliberately doesn't
 │   ├── services.md               Catalog: third-party apps this VM runs
@@ -198,7 +210,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
-   `home-assistant` VM's specs are in the same table but it is built in step 13,
+   `home-assistant` VM's specs are in the same table but it is built in step 14,
    since it needs an imported disk image rather than an ISO. Its last part —
    the pool-health monitor — is done at the end, since it needs a Kuma that
    does not exist until step 10; everything before it, the whole-VM backup job
@@ -208,7 +220,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate. The one exception is
-   `homeassistant.thefipster.de`, whose target VM does not exist until step 13
+   `homeassistant.thefipster.de`, whose target VM does not exist until step 14
    and which that guide adds.
 
 ### infra VM — everything the other two lean on
@@ -246,15 +258,20 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     themselves are the registry,
     **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
     service gets its rows there.
+11. **[Backup](docs/backup-setup.md)** — layer 2: file-level `restic` backups,
+    one snapshot per stack, onto the hypervisor's USB pool over SFTP. Last on
+    the infra VM because it backs up everything above it and reports through a
+    Kuma push monitor. Part 1 runs on the **Proxmox host** — the machine that
+    owns the drive.
 
 ### apps VM — your own applications
 
-11. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
+12. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
     and host scripts: `init-host.sh` and `init-unattended-upgrades.sh`, but
     **not** `init-docker.sh` — Coolify's own installer brings the Engine. Also
     mounts the 300 GB second disk at `/data`, which has to happen *before*
     Coolify exists rather than after.
-12. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
+13. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
     admin account *immediately*: a fresh instance is unauthenticated on a LAN
     port with nothing in front of it. Its bundled proxy needs switching from
     HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
@@ -262,7 +279,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### home-assistant VM — home automation
 
-13. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+14. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
@@ -282,7 +299,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](docs/grafana-setup.md), [roadmap](docs/roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](docs/uptime-kuma-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `backup` mirror | 📄 documented — [Part 8](docs/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the USB drive | ⬜ planned — [roadmap](docs/roadmap/backup.md) |
+| Backup layer 2: `restic` file-level to the USB drive | 📄 code + guide written, not yet built — [guide](docs/backup-setup.md). Authentik is wired end to end; the other stacks and the apps VM are not ([roadmap](docs/roadmap/backup.md)) |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | 📄 documented — [Part 9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](docs/roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](docs/roadmap/ci-testing.md) |

@@ -205,6 +205,19 @@ Nothing to click in Authentik, and nothing to undo:
 `infra/traefik/dynamic/ha.yaml` carries **no** `middlewares` key. Both absences
 are deliberate and commented in place.
 
+## The backup job (not an application at all)
+
+`infra/backup/` is a systemd timer on the infra VM
+([backup-setup.md](backup-setup.md)). It has no browser UI to gate and speaks no
+OIDC, so it is not a candidate for either pattern — recorded here so that the
+absence reads as a decision rather than an oversight, the same as the three
+above.
+
+It is not counted among the **three** deliberate non-joiners for that reason:
+those are services that could have joined and did not. This one was never
+eligible. It authenticates to exactly one thing, the repository over SSH, with a
+key in `/root/.ssh/id_ed25519` that Authentik has no part in.
+
 ## Access bindings
 
 An application with **no** bindings admits **any authenticated user**; the
