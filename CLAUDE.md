@@ -199,12 +199,20 @@ and declares what that stack consists of using four recipes:
 `include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
-it. **Authentik**, **Uptime Kuma** and **monitoring** are wired up today, and
-between them they exercise every recipe and every exception there is: the
-Postgres shape, the SQLite shape, and the one stack whose directory and
-database names differ. The rest of the tier-1 table in
-`docs/roadmap/backup.md` — Vaultwarden, Forgejo, Traefik, Dockge — follows the
+it. **Authentik**, **Uptime Kuma**, **monitoring** and **Vaultwarden** are
+wired up today, and between them they exercise every recipe and every
+exception there is: the Postgres shape, the SQLite shape, the one stack whose
+directory and database names differ, and the vault. The rest of the tier-1
+table in `docs/roadmap/backup.md` — Forgejo, Traefik, Dockge — follows the
 same recipes with no new decisions left in them.
+
+**Vaultwarden's `restore.sh` checks for `data/rsa_key.pem` by name**, not just
+that `data/` exists. That key signs every access token; the database holds
+what those tokens address. Restore one without the other and you get a working
+server, an intact vault, and every client logged out with no way to prove
+anything — so a missing key must abort before the tree is moved, and the drill
+that proves this stack is a login from an **already-paired** client, not from
+a fresh browser.
 
 **`monitoring` is the only caller of `dump_postgres`'s override arguments.**
 Every other Postgres stack satisfies `POSTGRES_USER == POSTGRES_DB ==
