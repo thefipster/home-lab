@@ -87,7 +87,9 @@ Three inputs and one output file:
 - The stack script writes dump files into `$BACKUP_STAGE` and the paths it wants
   snapshotted into `$BACKUP_STAGE/paths.txt`.
 - The runner runs `restic backup --tag <stack> --files-from
-  $BACKUP_STAGE/paths.txt`, plus the stage directory itself.
+  $BACKUP_STAGE/paths.txt` — **that file is the only input**. `dump_postgres`
+  adds its own output to it, so there is one mechanism deciding what gets
+  snapshotted rather than two.
 
 **Executed, not sourced.** Sourcing would let `include` append to a shared array
 and save the intermediate file, but it would also make a stack script
@@ -227,8 +229,16 @@ not cost the other six their snapshots. It does make the run exit non-zero, and
 a non-zero run **does not ping Kuma**. Silence is the signal, so a partial
 success is treated as a failure rather than reported green.
 
-After every stack: `restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly
-6 --prune`, then the Kuma push.
+After every stack: `restic forget --group-by host,tags --keep-daily 7
+--keep-weekly 4 --keep-monthly 6 --prune`, then the Kuma push.
+
+**`--group-by host,tags` is not optional.** restic applies a retention policy
+*per group*, and its default grouping is `host,paths` — so `--keep-daily 7`
+against seven stacks in one repository would be decided by a grouping that
+changes the moment a stack's `backup.sh` gains or loses an `include`, silently
+re-partitioning what "the last 7 daily" means. Grouping by tag makes the policy
+mean "seven dailies of Authentik", which is what it reads as. `host` is in there
+because the roadmap has the apps VM joining this same repository later.
 
 A second weekly unit runs `restic check --read-data-subset=10%`. Reading a
 rotating tenth verifies the whole repository over roughly ten weeks without
