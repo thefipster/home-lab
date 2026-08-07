@@ -199,8 +199,12 @@ and declares what that stack consists of using four recipes:
 `include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
-it. Only **Authentik** is wired up today; the rest of the tier-1 table in
-`docs/roadmap/backup.md` follows the same recipe.
+it. **Authentik** and **Uptime Kuma** are wired up today — one Postgres stack
+and one SQLite stack, which between them exercise every recipe there is. The
+rest of the tier-1 table in `docs/roadmap/backup.md` follows the same recipe
+and needs no new machinery; `monitoring` is the only one with a wrinkle, being
+the first caller that needs `dump_postgres`'s overrides (its directory is
+`monitoring`, its database is `grafana`).
 
 Each stack gets its **own restic snapshot, tagged with the stack name**, so
 restoring one is `restic restore latest --tag <stack>` and the stack's couplings
@@ -226,6 +230,20 @@ Six rules that are not obvious from one file:
   re-shuffles the moment a `backup.sh` gains or loses an include — silently
   changing what "seven dailies" means. It is also what lets the apps VM join
   the same repository later.
+- **SQLite is dumped, never copied, and `dump_sqlite` uses `.dump`.** Uptime
+  Kuma runs WAL mode, where the write-ahead log routinely holds *more*
+  committed data than the `.db` file — 832 KB against 380 KB when the recipe
+  was written — so a `cp` captures something that looks like a backup and
+  isn't. The recipe dumps through the image's own `/usr/bin/sqlite3` (verified
+  present, which is what ruled out an `alpine` sidecar: SQLite's backup path
+  needs to read `-wal`/`-shm` and lock, so a sidecar would need **write**
+  access to the live database). `.dump` over `.backup` because it streams to
+  stdout — nothing written inside the container, nothing to copy back — and
+  lands as text, for the same dedup reason as plain-format `pg_dump`.
+  Kuma's restore mirrors the empty-`postgres/` discipline one directory wider:
+  restore the whole data dir, delete the `kuma.db` triplet, rebuild from the
+  dump via `docker compose run --entrypoint sqlite3` so the file is written by
+  the stack's own image and lands owned by the UID that image runs as.
 - **`run.sh` deliberately does not `set -e`**, unlike every other script here:
   one stack failing must not cost the others their snapshots. Failures are
   collected, named on the last line, and turned into a non-zero exit at the end.

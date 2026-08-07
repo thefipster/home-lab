@@ -362,22 +362,29 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — Authentik only**, recorded in
+5. **Prove it.** ⚠️ **Partly done — both wired stacks drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
-   A real drill has run on the infra VM: a user was created *after* a backup,
-   `restore.sh` ran, and that user was correctly gone while everything else
-   kept working. That is
-   the coupling this design exists to protect, demonstrated rather than
-   asserted — the restored database is the backup's database, and
-   `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so the `.env` and
-   the dump came back as one unit.
+   Each drill used the same method: create something *after* the backup, run
+   `restore.sh`, confirm it is gone and everything else survived.
+
+   **Authentik** — a user created after the backup was correctly absent
+   afterwards. That is the coupling this design exists to protect,
+   demonstrated rather than asserted: the restored database is the backup's
+   database, and `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so
+   the `.env` and the dump came back as one unit.
+
+   **Uptime Kuma** — a throwaway monitor created after the backup was gone
+   afterwards, with monitors, groups, notification bindings and heartbeat
+   history all intact. It also verified the ownership mechanism: rebuilding
+   through the stack's own image means the new `kuma.db` lands owned by
+   whatever UID that image runs as, with no `chown` to get wrong.
 
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: every other stack (none
-   are wired yet), a **VM-rollback** drill rather than an in-place restore,
+   Still unproven, and not to be claimed until it is: the five unwired stacks,
+   a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**
    because a heartbeat did not arrive, which is the property the arrangement
