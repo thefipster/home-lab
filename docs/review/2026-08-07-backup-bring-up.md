@@ -51,9 +51,9 @@ Stated plainly, because the temptation is to read the above as broader than it
 is:
 
 - **Every other stack.** At the time of this drill only Authentik had a
-  `backup.sh`, and six remained. Uptime Kuma, monitoring and Vaultwarden all
-  landed later the same day and were drilled the same way — see the addenda —
-  leaving three.
+  `backup.sh`, and six remained. Uptime Kuma, monitoring, Vaultwarden and
+  Forgejo all landed later the same day and were drilled the same way — see the
+  addenda — leaving two.
 - **A VM-rollback drill.** This was an in-place restore on a working VM. The
   phase-5 drill described in the roadmap rolls the infra VM back to a snapshot
   first, which is a materially harder test — it is also where the
@@ -210,9 +210,9 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Three `backup.sh` files** — Forgejo, Traefik, Dockge. (Was six. Uptime
-   Kuma, monitoring and Vaultwarden all landed and were drilled the same day —
-   see the addenda below. The three that remain carry no new decisions.)
+1. **Two `backup.sh` files** — Traefik and Dockge, both the include-only form,
+   neither with a database. (Was six. The other four all landed and were
+   drilled the same day — see the addenda below.)
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.
@@ -393,3 +393,52 @@ This was also the first use of
 [backup-restore-drill.md](../backup-restore-drill.md), written immediately
 before it. Nothing in the guide needed correcting, which after five defects
 found by execution earlier the same day is worth recording rather than assuming.
+
+---
+
+## Addendum: Forgejo wired and drilled — same day
+
+Mechanically the routine one — single-argument `dump_postgres`, three includes,
+`include_env` — and the largest snapshot of the set. What made it worth care is
+that it carries **three couplings that all fail quietly**:
+
+- The container-registry **blobs** live under `forgejo/`; their package
+  **metadata** lives in the database. One without the other is a registry that
+  either lists images it cannot serve or holds blobs nothing can address.
+- `app.ini` holds the instance's `SECRET_KEY` and `INTERNAL_TOKEN` — the same
+  shape as Authentik's coupling, one file deeper.
+- The **SSH host keys** are in there too. Losing them makes every client that
+  has ever pushed refuse to connect until its `known_hosts` is edited by hand.
+
+Plus one thing that is not a coupling but bites the same way: **`DOCKER_GID` is
+the only machine-specific value in this repo.** `scripts/init-forgejo.sh`
+derives it from `getent group docker`, so a restored `.env` on a rebuilt VM can
+carry a stale gid — and the only symptom is a runner that cannot reach the
+socket, while the web UI, git and the registry all work perfectly.
+`restore.sh` compares the restored value against the live group and prints the
+fix rather than leaving it to be discovered by a failing pipeline.
+
+### The drill, and a better marker than the guide suggested
+
+The guide proposed creating a repository. The operator **deleted packages from
+the registry** instead, and they were back after the restore.
+
+That is the stronger test, and worth recording as the recommended marker for
+this stack: creating a repository proves the database rolled back and leaves
+you to *infer* that the registry did. Deleting a package exercises the exact
+thing this stack's backup shape exists to protect, directly.
+
+It is also the **only marker in this guide that risks something**. Every other
+stack's marker is additive — a user, a monitor, a theme change — and costs
+nothing if the restore fails. A deleted package stays deleted. The guide now
+says so, and says to pick one that could be rebuilt.
+
+The distinction the guide draws is still worth keeping: a package **listed**
+again proves the metadata returned; a package **pulled** proves the blobs did
+too. Browsing the Packages tab would look identical with the blobs missing
+behind it.
+
+### What it leaves
+
+Two stacks — Traefik and Dockge — both the include-only form, neither with a
+database, and after them every tier-1 row in this roadmap has a `backup.sh`.

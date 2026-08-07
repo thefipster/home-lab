@@ -96,6 +96,7 @@ not a whole-tree copy, because its restore is narrow.
 | Stack | Marker | The check that proves it |
 |---|---|---|
 | **authentik** | Create a user after the backup | The user is gone, and Dockge still redirects through Authentik and back |
+| **forgejo** | **Delete a package** from the registry | It is back afterwards, and `docker pull` of it works |
 | **monitoring** | Switch the Grafana theme (dark ↔ light) | The theme reverts, **and** Prometheus/Loki/Tempo still return pre-restore data |
 | **uptime-kuma** | Create a throwaway monitor | It is gone, and heartbeat history survived |
 | **vaultwarden** | A new item **and** an attachment on an existing one | A login from an **already-paired** client still works |
@@ -106,6 +107,41 @@ The user's absence proves the restored database is the backup's. Dockge
 redirecting proves more: the forward-auth outpost and its token survived, so
 `AUTHENTIK_SECRET_KEY` still decrypts what is inside that database — the `.env`
 and the dump came back as one unit.
+
+### forgejo
+
+The largest snapshot in the repository, so allow room and time: the staged copy
+under `/opt/backup/restore/forgejo` is a second copy of the registry blobs, and
+the `.bak-` tree beside it is a third until you delete it.
+
+**The best marker for this stack is a deletion, not a creation.** Delete a
+package from the registry after the backup; it should be back afterwards. That
+is stronger than creating a repository, because it exercises the exact thing
+this stack's shape exists to protect — the registry — rather than proving the
+database rolled back and inferring the rest.
+
+> **It is also the only marker here that risks something.** If the restore
+> fails, the package stays deleted. Pick one you could rebuild — a CI artifact
+> rather than the only copy of anything — or create a throwaway one to delete.
+> Every other stack's marker is additive and costs nothing if the restore does
+> not work.
+
+Then **`docker pull` the package that came back**. That is the one operation
+needing both halves at once: the blobs live under `forgejo/` and their package
+metadata lives in the database. Seeing it listed again proves the metadata
+returned; pulling it proves the blobs did too. Browsing the Packages tab alone
+would look identical with the blobs missing behind it.
+
+Two more checks worth doing because nothing else covers them:
+
+- **Clone over SSH from a machine that has pushed before.** No
+  `REMOTE HOST IDENTIFICATION HAS CHANGED` means the SSH host keys under
+  `forgejo/` came back. A fresh machine would not notice either way.
+- **Actions → Runners shows the runner online.** That proves `.runner`
+  survived. If `restore.sh` printed a `DOCKER_GID` warning, fix that first —
+  on a rebuilt VM the docker group can land on a different gid than the
+  snapshot recorded, and a runner that cannot reach the socket is the only
+  symptom while the web UI, git and the registry all work perfectly.
 
 ### monitoring
 

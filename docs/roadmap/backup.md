@@ -353,8 +353,18 @@ reason.
      to prove anything — so `restore.sh` checks for `rsa_key.pem` by name
      rather than trusting that `data/` exists.
 
-   **What remains is three files and no new decisions**: Forgejo, Traefik and
-   Dockge. All three are the single-argument or include-only forms.
+   - **Forgejo** — single-argument `dump_postgres`, three includes,
+     `include_env`, and the largest snapshot of the set. It carries three quiet
+     couplings with its database: the container-registry **blobs** live in the
+     files while their **package metadata** lives in the database; `app.ini`
+     holds the instance's `SECRET_KEY`/`INTERNAL_TOKEN`; and the SSH host keys
+     are in there too. Its `.env` also holds `DOCKER_GID`, the one
+     machine-specific value in the repo — `restore.sh` compares the restored
+     value against the live docker group and warns, because a stale gid breaks
+     only the runner and nothing else looks wrong.
+
+   **What remains is two files and no new decisions**: Traefik and Dockge.
+   Both are the include-only form.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -414,11 +424,18 @@ reason.
    the vault has a granular restore that has actually been performed rather
    than described. A fresh browser login would have proved none of it.
 
+   **Forgejo** — packages deleted from the registry after the backup were back
+   afterwards. That is a better marker than the guide first suggested: creating
+   a repository proves the database rolled back and leaves the registry to be
+   inferred, while deleting a package exercises the thing this stack's shape
+   exists to protect. It is also the only marker in the drill guide that risks
+   anything, since a failed restore leaves the package deleted.
+
    The **Kuma push is confirmed** too: found misconfigured during the same
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is: the three unwired stacks,
+   Still unproven, and not to be claimed until it is: the two unwired stacks,
    a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
    deadman's *silent* half — nothing has yet watched the monitor go **red**

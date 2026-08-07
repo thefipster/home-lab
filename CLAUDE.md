@@ -199,12 +199,16 @@ and declares what that stack consists of using four recipes:
 `include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
-it. **Authentik**, **Uptime Kuma**, **monitoring** and **Vaultwarden** are
-wired up today, and between them they exercise every recipe and every
-exception there is: the Postgres shape, the SQLite shape, the one stack whose
-directory and database names differ, and the vault. The rest of the tier-1
-table in `docs/roadmap/backup.md` — Forgejo, Traefik, Dockge — follows the
-same recipes with no new decisions left in them.
+it. **Authentik**, **Forgejo**, **Uptime Kuma**, **monitoring** and
+**Vaultwarden** are wired up today, and between them they exercise every
+recipe and every exception there is. Only **Traefik** and **Dockge** remain,
+and both are the include-only form.
+
+**Forgejo's `.env` holds `DOCKER_GID`, the one machine-specific value in this
+repo** — `scripts/init-forgejo.sh` reads it from `getent group docker`. A
+restored `.env` on a rebuilt VM can therefore carry a stale gid, whose only
+symptom is a runner that cannot reach the socket while the web UI, git and the
+registry all work. `infra/forgejo/restore.sh` compares the two and warns.
 
 **Vaultwarden's `restore.sh` checks for `data/rsa_key.pem` by name**, not just
 that `data/` exists. That key signs every access token; the database holds

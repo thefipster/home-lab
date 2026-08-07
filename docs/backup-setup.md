@@ -31,10 +31,10 @@ Three things shape everything below:
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Authentik, monitoring, Uptime Kuma and Vaultwarden are wired up end to
-  end**, database dump, restore script and all. Between them they cover every
-  shape there is: Postgres, SQLite, the one stack whose directory and database
-  names differ, and the vault. The rest of the tier-1 table in
+- **Authentik, Forgejo, monitoring, Uptime Kuma and Vaultwarden are wired up
+  end to end**, database dump, restore script and all. Between them they cover
+  every shape there is: Postgres, SQLite, the one stack whose directory and
+  database names differ, and the vault. The rest of the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
   follows the same recipes when each gets its file, with no new decisions in
   them.
@@ -365,11 +365,11 @@ sudo infra/backup/run.sh
 ```
 
 Expect a `staging` / `snapshot` pair per wired stack — `authentik`,
-`monitoring`, `uptime-kuma` and `vaultwarden` today, in that order, since the
-runner globs them alphabetically — then `==> forget + prune`, then a final
-`OK: authentik monitoring uptime-kuma vaultwarden`. Each staging step declares
-that stack's directories and runs its dump through the stack's **own**
-container: `pg_dump` in the `db` service for the three Postgres stacks,
+`forgejo`, `monitoring`, `uptime-kuma` and `vaultwarden` today, in that order,
+since the runner globs them alphabetically — then `==> forget + prune`, then a
+final `OK: authentik forgejo monitoring uptime-kuma vaultwarden`. Each staging
+step declares that stack's directories and runs its dump through the stack's own
+container: `pg_dump` in the `db` service for the four Postgres stacks,
 `sqlite3` in Kuma's single service. The snapshot step hands restic the path
 list that step produced, and nothing else.
 
@@ -412,7 +412,7 @@ Sunday at 03:00.
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
 - [ ] `sudo infra/backup/run.sh` ends in
-      `OK: authentik monitoring uptime-kuma vaultwarden`
+      `OK: authentik forgejo monitoring uptime-kuma vaultwarden`
 - [ ] A snapshot is listed for each tag — `authentik` and `uptime-kuma`
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
