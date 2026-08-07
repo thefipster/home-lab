@@ -1,0 +1,632 @@
+# Backup — restic, file-level, per stack
+
+**Runs on:** the Proxmox host shell, then the infra VM
+
+Prerequisite: [uptime-kuma-setup.md](uptime-kuma-setup.md) — the backup job
+reports to a Kuma push monitor, so Kuma has to exist first.
+
+This is **layer 2** of [roadmap/backup.md](roadmap/backup.md). Layer 1 —
+whole-VM `vzdump` onto the internal `backup` mirror — is already built, in
+[proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups),
+and the two answer different questions. **Layer 1 answers "the disk died".
+Layer 2 answers "Authentik ate its database"**: one directory, one stack, one
+night, restored without rolling the whole machine back to it.
+
+[restic](https://restic.net/) is a single static binary with no daemon and
+nothing to install on the far end. It encrypts client-side, deduplicates by
+content, and speaks SFTP natively — so the repository is the **`usbbackup`
+pool** on the hypervisor ([proxmox-setup.md Part
+3](proxmox-setup.md#part-3--post-install-housekeeping)), reached over the
+Proxmox host's existing `sshd` as `sftp:backup@pve.thefipster.de:/restic`.
+
+Three things shape everything below:
+
+- **It is a systemd timer, not a compose stack.** A backup that runs inside
+  Docker stops when Docker does, and the alternative — a container allowed to
+  stop other containers — means a sixth root-equivalent socket mount for
+  scheduling a timer already does. Precedent: the Proxmox node exporter.
+- **A stack's backup is defined beside the stack.** `infra/<stack>/backup.sh`
+  says what that stack consists of; `infra/backup/run.sh` finds them by
+  globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
+  the stack name**. There is no list to keep in sync, and adding a stack is one
+  file.
+- **Authentik is the stack wired up end to end**, database dump, restore script
+  and all. The rest of the tier-1 table in
+  [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
+  follows the same recipe when each gets its file.
+
+## Part 1 — The host side: a user, a chroot, and one sshd block
+
+**Runs on the Proxmox host shell, as root.** Nothing here is Docker and nothing
+here is in this repo — the hypervisor owns the drive, so the hypervisor owns
+the account that writes to it.
+
+What you are building: an unprivileged `backup` user that can do exactly one
+thing — SFTP into a directory on the `usbbackup` pool — and cannot get a shell,
+forward a port, or see any other part of the filesystem.
+
+> **You need one thing from the infra VM first: root's public key.**
+> `scripts/init-backup.sh` generates and prints it, and its **first** run stops
+> long before it needs anything from this host. So if you have not run it yet,
+> jump ahead to [Part 3](#part-3--the-infra-vm-side), run it once, and come back
+> with the key in the clipboard. On a VM where it has already run,
+> `sudo cat /root/.ssh/id_ed25519.pub` prints it again.
+
+Create the chroot as its own dataset on the backup pool:
+
+```bash
+zfs create usbbackup/chroot
+```
+
+```bash
+chown root:root /usbbackup/chroot && chmod 755 /usbbackup/chroot
+```
+
+Create the user, then the one writable directory *inside* the chroot:
+
+```bash
+useradd --system --home-dir /usbbackup/chroot --shell /usr/sbin/nologin backup
+```
+
+```bash
+mkdir -p /usbbackup/chroot/restic && chown backup:backup /usbbackup/chroot/restic && chmod 700 /usbbackup/chroot/restic
+```
+
+> **The two `chown`/`chmod` lines above are the step that fails silently.** The
+> chroot directory itself must be **root-owned and not group-writable** —
+> sshd refuses to chroot into anything else, and the entire path above it has to
+> satisfy the same rule. The writable part is `restic/` *inside* it, owned by
+> `backup`. Get it wrong and the session is closed the instant it opens, with
+> nothing useful in the client's output: restic reports only that it cannot open
+> the repository, and the reason is in the *host's* journal.
+
+That `restic/` is also why the repository path is `/restic` and not
+`/usbbackup/chroot/restic` — inside the chroot, the chroot **is** the root.
+
+Install the infra VM's public key. It goes outside the chroot, in a directory
+sshd reads as root, because anything inside a chroot the confined user can write
+is a place they could install their own key:
+
+```bash
+mkdir -p /etc/ssh/authorized_keys && chmod 755 /etc/ssh/authorized_keys
+```
+
+```bash
+nano /etc/ssh/authorized_keys/backup
+```
+
+Paste the single `ssh-ed25519 …` line, then:
+
+```bash
+chown root:root /etc/ssh/authorized_keys/backup && chmod 644 /etc/ssh/authorized_keys/backup
+```
+
+One key per client, one line each — the apps VM joins the same repository later
+by adding a second line here, not by redesigning anything.
+
+Now the sshd configuration, as a **drop-in**:
+
+```bash
+nano /etc/ssh/sshd_config.d/backup-sftp.conf
+```
+
+```
+Match User backup
+    ChrootDirectory /usbbackup/chroot
+    ForceCommand internal-sftp
+    AuthorizedKeysFile /etc/ssh/authorized_keys/backup
+    PasswordAuthentication no
+    AllowTcpForwarding no
+    X11Forwarding no
+```
+
+> **A `Match` block claims every line after it, to the end of the file.** There
+> is no "end match" directive — the next `Match`, or EOF, is what closes it. Put
+> this in `sshd_config` directly and any option that happens to follow it
+> silently becomes backup-only; put something after it later and you have
+> reconfigured a user you did not mean to touch. A drop-in file keeps the block
+> contained by construction, which is why this guide never edits `sshd_config`.
+>
+> **It is still the one step in this guide that can lock you out of the
+> hypervisor.** So it gets verified before the daemon is restarted, and the
+> restart happens from a session that stays open.
+
+### Verify before restarting sshd
+
+Syntax first:
+
+```bash
+sshd -t
+```
+
+Expected: **no output**.
+
+Then the question that matters — does the block leak onto anyone else?
+
+```bash
+sshd -T -C user=root | grep -iE 'chrootdirectory|forcecommand'
+```
+
+Expected: **no output.** If anything prints here, root would be chrooted and
+forced into `internal-sftp` on the next login — that is a locked-out hypervisor.
+**Do not restart sshd.** Fix the drop-in first.
+
+Then the same question in the positive:
+
+```bash
+sshd -T -C user=backup | grep -iE 'chrootdirectory|forcecommand'
+```
+
+Expected: `chrootdirectory /usbbackup/chroot` and `forcecommand internal-sftp`.
+If *this* one is empty while the root check was also empty, the drop-in is not
+being read at all — check that `sshd_config` still carries its
+`Include /etc/ssh/sshd_config.d/*.conf` line, and that the filename ends in
+`.conf`.
+
+Only with both results correct, and **from a terminal you keep open**:
+
+```bash
+systemctl restart ssh
+```
+
+Then open a **second** terminal and log in as root normally. Once that works,
+and not before, close the first one. A restart does not disturb existing
+sessions, so the old terminal is the way back if the new login is refused.
+
+## Part 2 — The Kuma push monitor
+
+The job reports to Uptime Kuma, and it reports by **pushing**: Kuma cannot run
+a shell command, so the thing being watched calls in instead. This is the second
+push monitor in the lab, after the hypervisor's pool health
+([proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades)),
+and it has the same shape — create the monitor first, because its URL is an
+input to the next part.
+
+Its row is in
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#backup--infra-vm): **Add New
+Monitor**, type **Push**, heartbeat interval **90000 s**, retries **0**, with
+the ntfy notification attached. Copy the push URL.
+
+**90000 s is 25 hours, and the hour of slack is deliberate.** The job runs once
+a day, so the heartbeat window has to be longer than a day or a perfectly
+healthy lab goes red every night. The extra hour absorbs the timer's
+`RandomizedDelaySec` and a first run that uploads everything.
+
+**Only a fully clean run pushes.** A run where one stack failed exits non-zero
+and says nothing, so a partial success surfaces here as red rather than as a
+green tick over a missing snapshot. Silence is the signal — which is exactly
+what a heartbeat monitor is for.
+
+## Part 3 — The infra VM side
+
+**Runs on the infra VM** from here on.
+
+```bash
+cd ~/home-lab
+```
+
+```bash
+scripts/init-backup.sh
+```
+
+The script installs restic, creates `/opt/backup` mode 700, seeds
+`infra/backup/.env` from `.env.example`, and generates `/root/.ssh/id_ed25519`
+if it does not exist. Then it does two things that need you:
+
+**It prints the public key.** That is the one Part 1 wants in
+`/etc/ssh/authorized_keys/backup`.
+
+**It records the Proxmox host key, and shows you the fingerprint.** A systemd
+timer cannot answer a trust-on-first-use prompt, so the key has to be accepted
+now, by a human — which only means anything if the fingerprint is compared.
+On the **Proxmox host**:
+
+```bash
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+The two must match. If they do not, stop and remove the line the script appended
+to `/root/.ssh/known_hosts` before doing anything else.
+
+Then the script stops, because `RESTIC_PASSWORD` is empty. Generate one:
+
+```bash
+openssl rand -base64 32
+```
+
+> **This is the one secret that cannot be in the backup.** Lose it and the
+> repository is cryptographically gone — no recovery, no support, no reset, and
+> nobody to ask. **The authoritative copy belongs outside the lab**: on paper,
+> or in an account that survives the building.
+>
+> **A copy in Vaultwarden alone closes a circle.** The vault is *inside* this
+> backup. Storing the key only there means losing the infra VM loses both at
+> once — the backup and the only thing that can open it. Keep it in the vault by
+> all means; that is the convenient copy, not the authoritative one. The same
+> reasoning applies to the Vaultwarden master password, for the same reason.
+
+Put it, and the Kuma push URL from Part 2, into the `.env`:
+
+```bash
+nano infra/backup/.env
+```
+
+`RESTIC_REPOSITORY` is already correct. Leave every line as plain `KEY=value`
+with no quoting, no `export` and no `$` — this file is read **twice**, once by
+`run.sh` as shell and once by systemd as an `EnvironmentFile` for
+`restic-check.service`, and systemd does not run a shell over it and will not
+tell you it skipped a line.
+
+Then re-run:
+
+```bash
+scripts/init-backup.sh
+```
+
+This time it gets past the gate: `restic init` creates the repository over
+SFTP — the first real proof that Part 1 worked — and the four systemd units are
+installed with `@REPO_ROOT@` substituted for the checkout path, then
+`restic-backup.timer` and `restic-check.timer` are enabled and started.
+
+Re-running it later is safe. It reinstalls the units from the repo, which is how
+a change to a unit file reaches systemd.
+
+## Part 4 — The first run
+
+Run it by hand rather than waiting for 01:00. The first run uploads everything
+and may take a while:
+
+```bash
+sudo infra/backup/run.sh
+```
+
+Expect one `==> authentik: staging` / `==> authentik: snapshot` pair, then
+`==> forget + prune`, then `OK: authentik`. The staging step runs `pg_dump`
+through Authentik's own `db` container; the snapshot step hands restic the path
+list that dump produced, and nothing else.
+
+> **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
+> has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
+> *is* a standalone form and it is genuinely useful — it is in
+> [Troubleshooting](#troubleshooting), where inspecting one stack's output
+> without a repository is the point.
+
+Now confirm the snapshot exists. Ad-hoc `restic` commands need the repository
+and the password in the environment, and your shell does not have them —
+`run.sh` and the restore scripts source `infra/backup/.env` themselves. So every
+bare `restic` call in this guide takes this shape, **from `~/home-lab`**:
+
+```bash
+sudo bash -c 'set -a; . infra/backup/.env; set +a; restic snapshots --tag authentik'
+```
+
+Expected: one snapshot. The relative path is deliberate — `~` inside
+`sudo bash -c` is root's home, not yours. So is the subshell: the password stays
+out of `argv` this way, where any local user could read it out of `ps auxww`,
+which is the same reason `scripts/init-backup.sh` uses `sudo --preserve-env`
+rather than `sudo env VAR=…`.
+
+Confirm the **Backup Job** monitor in Kuma went green — that is the deadman's
+first heartbeat, and it proves `KUMA_PUSH_URL` reached the file correctly.
+
+Confirm the timers are armed:
+
+```bash
+systemctl list-timers 'restic-*' --no-pager
+```
+
+Expected: `restic-backup.timer` next at 01:00 and `restic-check.timer` next on
+Sunday at 03:00.
+
+### Checklist
+
+- [ ] `sshd -T -C user=root` prints nothing about chroot or forced commands, and
+      a fresh root login to the hypervisor still works
+- [ ] `scripts/init-backup.sh` completes without stopping
+- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik`
+- [ ] One snapshot tagged `authentik` is listed
+- [ ] The **Backup Job** monitor is green
+- [ ] Both `restic-*` timers appear in `systemctl list-timers`
+- [ ] `RESTIC_PASSWORD` is written down **outside the lab**, not only in
+      Vaultwarden
+
+## Restore
+
+Restoring Authentik is one command, and it asks before it does anything
+destructive:
+
+```bash
+sudo infra/authentik/restore.sh
+```
+
+Optionally with a snapshot id — `sudo infra/authentik/restore.sh 1a2b3c4d` — for
+anything but the latest. It lists the snapshots tagged `authentik` first, so
+running it to *look* and then aborting at the prompt is a reasonable thing to
+do.
+
+It asks you to type `authentik` to continue, then: stops the stack, restores the
+snapshot into `/opt/backup/restore/authentik`, moves the live `/opt/authentik`
+aside to `/opt/authentik.bak-<timestamp>` rather than deleting it, puts
+`data/`, `templates/` and `certs/` back, replaces
+`infra/authentik/.env`, starts the database alone, loads `authentik.sql` into
+it, and brings the rest of the stack up. It prints its own verification list at
+the end.
+
+> **`postgres/` comes back empty, on purpose.** Postgres keeps the password its
+> data directory was **first initialised with**. A restored `postgres/` next to
+> a restored `.env` that was generated at a different time is a stack that
+> cannot log into its own database — a failure that looks exactly like a corrupt
+> backup and is not one. So the container initialises a fresh cluster using the
+> restored `.env`, and the dump loads into that. The `.env` and the database are
+> one unit for a second reason too: `AUTHENTIK_SECRET_KEY` decrypts the secrets
+> held *inside* that database.
+
+### The ordering trap
+
+**A restore obeys the build order, because the build order is a dependency
+order.** Traefik must be running before anything is reachable at all, and
+Authentik must be running before anything it gates will let you in. Restore
+Authentik on a machine where Traefik is down and every symptom you get is a
+Traefik symptom.
+
+The visible version of this: while Authentik is down, `dockge.thefipster.de` and
+the Traefik dashboard have no forward-auth middleware to send you to, and
+Traefik reports the middleware as undefined. That is expected during the restore
+and it clears when the stack comes back. If you need one of those UIs *during*
+the outage, comment out its `middlewares` label — that is the break-glass path,
+and it is the reason Vaultwarden and Uptime Kuma deliberately join no SSO
+pattern at all.
+
+### Last resort: the raw PGDATA
+
+The snapshot also carries `/opt/authentik/postgres` — the live data directory,
+copied while it was running. **It is never the restore path**, because a
+live-copied `PGDATA` is torn by construction. It rides along because it costs
+little for a database this size, and it is what you have when there is no dump:
+a snapshot taken while `pg_dump` was failing, or a stack whose database was
+already broken when the last good run happened.
+
+Expect it not to start. Try it anyway, in this order, and only after
+`restore.sh` has failed for want of a dump.
+
+1. Stop the stack:
+
+```bash
+cd ~/home-lab/infra/authentik
+```
+
+```bash
+docker compose down
+```
+
+2. Restore only that directory, into staging — from the repo root, because the
+   `.env` path is relative for the reason given in
+   [Part 4](#part-4--the-first-run):
+
+```bash
+cd ~/home-lab
+```
+
+```bash
+sudo bash -c 'set -a; . infra/backup/.env; set +a; restic restore latest --tag authentik --target /opt/backup/restore/authentik-raw --include /opt/authentik/postgres'
+```
+
+3. Move the live one aside — never delete it:
+
+```bash
+sudo mv /opt/authentik/postgres /opt/authentik/postgres.torn
+```
+
+4. Put the restored copy in place, preserving ownership:
+
+```bash
+sudo cp -a /opt/backup/restore/authentik-raw/opt/authentik/postgres /opt/authentik/postgres
+```
+
+5. Start the database alone and read its log before starting anything else:
+
+```bash
+cd ~/home-lab/infra/authentik
+```
+
+```bash
+docker compose up -d db
+```
+
+```bash
+docker compose logs -f db
+```
+
+If it recovers, take a `pg_dump` immediately and treat that dump as the real
+artefact. If it does not — and "database files are incompatible", "invalid page
+in block" or a WAL error are all plausible — you are rebuilding Authentik from
+[sso-applications.md](sso-applications.md), which is what that registry exists
+for.
+
+## Next
+
+**[apps-vm-setup.md](apps-vm-setup.md)** — the second machine's checkout, host
+setup and data disk, followed by [coolify-setup.md](coolify-setup.md) and
+[home-assistant-setup.md](home-assistant-setup.md). The full sequence is the
+[README build order](../README.md#build-order).
+
+## Troubleshooting
+
+**`Fatal: unable to open repository`.** Three causes, all on the SFTP path:
+the Proxmox host key is not in `/root/.ssh/known_hosts`, the public key is not
+in `/etc/ssh/authorized_keys/backup`, or the chroot permissions are wrong. Test
+the transport on its own:
+
+```bash
+sudo ssh -i /root/.ssh/id_ed25519 backup@pve.thefipster.de
+```
+
+**It should refuse a shell but not refuse the connection.** Getting as far as
+`This service allows sftp connections only` means keys and chroot are both
+fine and the problem is elsewhere. A disconnect with no message means the
+chroot ownership — re-read the bold note in [Part 1](#part-1--the-host-side-a-user-a-chroot-and-one-sshd-block),
+then look in the host's `journalctl -u ssh`, which is where the real reason is
+logged.
+
+**One stack shows as failed and the others succeeded.** That is the design.
+`run.sh` deliberately does not use `set -e` — one stack failing must not cost
+the others their snapshots — so failures are collected and named on the last
+line. Read the detail in the journal:
+
+```bash
+journalctl -u restic-backup.service -n 50
+```
+
+**The Kuma monitor is red but the run printed `OK`.** `KUMA_PUSH_URL` is empty
+or wrong in `infra/backup/.env`. A failed push is reported but does not fail the
+run — the backup succeeding matters more than the notification about it. Paste
+the URL from the monitor's page again; it is a bearer token in a query string,
+so a truncated copy looks like a valid URL.
+
+**Re-running one stack without waiting for the others:**
+
+```bash
+sudo infra/backup/run.sh authentik
+```
+
+**Inspecting one stack's staging output with no repository at all** — no
+password, no network, nothing uploaded. This is what the standalone form is for:
+
+```bash
+sudo BACKUP_STAGE=/tmp/t REPO_ROOT="$PWD" infra/authentik/backup.sh
+```
+
+Then look at `/tmp/t/authentik.sql` and `/tmp/t/paths.txt`. That second file is
+the **only** thing restic is ever given, so if a path is missing from the
+backup, it is missing from there first.
+
+**`include: /opt/… does not exist`.** A declared path is gone, and that aborts
+the stack rather than warning. Intentional: a backup quietly missing a directory
+is worse than a backup that says it failed.
+
+**`restic check` fails on Sunday.** The repository is not readable — the drive,
+not the job. Check pool health on the hypervisor first (`zpool status
+usbbackup`); the **Hypervisor Storage** monitor covers `usbbackup` by name
+precisely because a pool whose device fell off the USB bus does not appear in
+`zpool list` at all.
+
+**The clock, after a rollback.** A restored or rolled-back guest resumes with a
+stale clock and every TLS client fails with "certificate has expired or is not
+yet valid". `scripts/init-host.sh` relaxes the time-sync step policy for exactly
+this, but expect to meet it during a restore drill and do not misdiagnose it as
+a bad restore:
+
+```bash
+timedatectl status
+```
+
+## Layout on the server
+
+| What | Where |
+|------|-------|
+| The runner, the recipes and the units (source of truth) | `infra/backup/` in this repo |
+| Secrets | `infra/backup/.env` — gitignored, VM-only, mode 600 |
+| What a stack's backup consists of | `infra/<stack>/backup.sh` |
+| The inverse | `infra/<stack>/restore.sh` |
+| Database dumps, overwritten every run | `/opt/backup/dumps/<stack>/` |
+| Restore staging | `/opt/backup/restore/<stack>/` |
+| Installed units | `/etc/systemd/system/restic-*.{service,timer}` |
+| The key the repository is reached with | `/root/.ssh/id_ed25519` |
+| The repository itself | `/usbbackup/chroot/restic` on the Proxmox host |
+
+`/opt/backup` is mode **700**. The dumps are plain SQL and contain every
+credential the lab has.
+
+**The dumps are overwritten, not accumulated.** History lives in restic, which
+is what history is for; a directory of timestamped dumps is a directory that
+grows until the disk is full and takes the backup down with it.
+
+**Nothing here is a compose stack, so nothing here appears in Dockge.** There is
+no `/opt/stacks/backup` symlink and no container to look at — `systemctl status
+restic-backup.service` and `journalctl -u restic-backup.service` are the
+equivalent.
+
+## How it works
+
+**Why one snapshot per stack, tagged.** Restoring Authentik is
+`restic restore latest --tag authentik`, not an include-list assembled under
+pressure from a guide you are reading with the lab down. It also makes the
+per-stack couplings come back as one unit by construction: Authentik's database
+and its `AUTHENTIK_SECRET_KEY` are in the same snapshot because the same
+`backup.sh` declared both.
+
+**Why `--group-by host,tags` is not optional.** `restic forget` applies its
+policy *per group*, and its default grouping is `host,paths`. With several
+stacks in one repository, `--keep-daily 7` under the default grouping would be
+decided by a partition that silently re-shuffles the moment a stack's
+`backup.sh` gains or loses an include — quietly changing what "seven dailies"
+means. Grouping by tag makes the policy read the way it is written: seven
+dailies *of Authentik*. `host` is in there because the apps VM joins this same
+repository later.
+
+**Why plain-format dumps, not `pg_dump -Fc`.** A compressed dump changes in its
+entirety when a single row changes, which defeats restic's content-defined
+chunking — every night would store a whole new blob. Plain SQL deduplicates
+across nightly runs, and restic compresses it at rest anyway (`--compression
+auto`, the default since 0.14), so plain text costs nothing in stored size and
+buys almost all of the dedup. `--clean --if-exists` is there so the dump loads
+into a live database rather than requiring a hand-dropped one, and the dump is
+written to `.part` and renamed only after `pg_dump` exits 0 — a truncated dump
+must never be mistaken for a good one by the next run, or by a restore.
+
+**Why the dump goes through the container.** `docker compose exec -T db pg_dump`
+uses the database's own client, so the dump tool always matches the server
+version. Nothing on the VM needs a `postgresql-client` package, and a Postgres
+major bump cannot leave a stale client behind.
+
+**Why `run.sh` does not use `set -e`.** Every other script in this repo does.
+Here, one stack failing must not cost the others their snapshots — so failures
+are collected into a list, reported on the last line, and turned into a non-zero
+exit at the end. `-u` and `-o pipefail` still apply. The Kuma push is guarded by
+that same exit path, which is what makes a partial success look like a failure
+rather than a green tick.
+
+**Why 01:00.** One hour **before** the 02:00 `vzdump` job on the hypervisor, so
+layer 1's whole-VM archive contains the current night's dumps rather than the
+previous night's — the two layers stack instead of merely coexisting. It is also
+clear of the 04:30 unattended-upgrades reboot window. `Persistent=true` means a
+VM that was down at 01:00 catches up on boot rather than skipping a night, and
+the weekly check runs Sunday 03:00 so the three jobs never contend for the same
+USB drive.
+
+**Why `check --read-data-subset=10%`.** A repository that cannot be read is not
+a backup, and the only way to know is to read it. A rotating tenth per week
+covers the whole repository in about ten weeks without reading all of it every
+night — the trade between proving the bytes are there and spending a night on
+the USB bus doing it.
+
+**Why the raw `PGDATA` rides along but is never the restore path.** It is in the
+snapshot because it costs almost nothing for a database this size, and because
+"no dump exists" is a real state to be in. It is not the restore path because a
+`PGDATA` copied from a running server is torn by construction — the dump is the
+consistent artefact, and a second path that *looks* equally valid is how a
+restore goes wrong. This is the first thing to reconsider if snapshots ever get
+expensive.
+
+**Why the `.env` files come from the checkout.** `/opt/stacks/<stack>` is a
+*symlink* into `~/home-lab/infra/<stack>`, and restic stores a symlink as a
+symlink rather than descending into it. Backing up `/opt/stacks` would capture
+the links and none of the secrets — which is why `include_env` names
+`$REPO_ROOT/infra/<stack>/.env` explicitly.
+
+**Where this is not yet finished.** The repository lives on a drive plugged into
+the machine it protects. That is a real second copy and it is the only one that
+can physically leave the building, but it is not offsite until someone points
+restic at B2, netcup Storage Space or rclone — client-side encryption means that
+step is credentials and a bandwidth check, not a redesign
+([roadmap/backup.md](roadmap/backup.md#phases) phase 3). And **until a restore
+drill has actually been run, treat all of this as untested**; that is phase 5,
+and it belongs in `docs/review/` as a dated finding when it happens.
+
+## Next
+
+**[apps-vm-setup.md](apps-vm-setup.md)** — the second machine. It joins this
+same restic repository later with one more key in
+`/etc/ssh/authorized_keys/backup` and an `.env` value, which is why the
+transport was chosen the way it was. The full sequence is the
+[README build order](../README.md#build-order).
