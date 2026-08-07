@@ -35,6 +35,20 @@ run_root() {
   fi
 }
 
+# Like run_root, but for restic calls that need RESTIC_REPOSITORY/PASSWORD.
+# Those come from the .env sourced below (via `set -a`) and must stay in the
+# environment rather than on the command line — `env VAR=val restic ...`
+# would put the plaintext password in this process's argv, readable by any
+# local user via `ps auxww` or /proc/<pid>/cmdline. --preserve-env carries
+# the already-exported variables across sudo without ever naming the value.
+restic_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    restic "$@"
+  else
+    sudo --preserve-env=RESTIC_REPOSITORY,RESTIC_PASSWORD restic "$@"
+  fi
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker not found — run scripts/init-docker.sh first." >&2
   exit 1
@@ -73,7 +87,10 @@ echo
 # to be accepted now, by a human looking at the fingerprint.
 echo "==> Recording the ${PVE_HOST} host key"
 if ! run_root grep -q "${PVE_HOST}" /root/.ssh/known_hosts 2>/dev/null; then
-  scan="$(ssh-keyscan -t ed25519 "${PVE_HOST}" 2>/dev/null)"
+  # `|| true`: this is a bare assignment, not an if-condition, so under
+  # `set -e` a non-zero ssh-keyscan (unresolvable/unreachable host) would
+  # kill the script here instead of reaching the friendly diagnostic below.
+  scan="$(ssh-keyscan -t ed25519 "${PVE_HOST}" 2>/dev/null)" || true
   if [ -z "$scan" ]; then
     echo "ssh-keyscan got nothing from ${PVE_HOST}. Is the name resolving?" >&2
     exit 1
@@ -104,12 +121,10 @@ if [ -z "${RESTIC_PASSWORD:-}" ]; then
 fi
 
 echo "==> Initialising the restic repository (if it isn't already)"
-if run_root env RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD="$RESTIC_PASSWORD" \
-     restic cat config >/dev/null 2>&1; then
+if restic_root cat config >/dev/null 2>&1; then
   echo "    already initialised"
 else
-  run_root env RESTIC_REPOSITORY="$RESTIC_REPOSITORY" RESTIC_PASSWORD="$RESTIC_PASSWORD" \
-    restic init
+  restic_root init
 fi
 
 echo "==> Installing the systemd units"
