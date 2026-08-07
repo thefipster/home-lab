@@ -20,9 +20,14 @@ bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
 > `vzdump` of the infra VM includes `/opt/vaultwarden` like any other
 > directory, and that is real coverage, not a placeholder. What it does not
 > give is a granular restore, an off-premises copy, or the ability to recover
-> the vault without rolling the entire VM back. Until phase 2 exists, treat
-> "the vault is backed up" as true only in the coarse sense, and keep the
-> master password somewhere outside the lab.
+> the vault without rolling the entire VM back.
+>
+> **Phase 2 now exists, and the vault has not joined it.** The mechanism is
+> built and running ([backup-setup.md](../backup-setup.md)), but the only stack
+> wired up is Authentik — `infra/vaultwarden/backup.sh` is the next file to
+> write, and it is one file. Until it exists, "the vault is backed up" is still
+> true only in the coarse sense, for a different reason than before. Keep the
+> master password somewhere outside the lab either way.
 
 ## What needs a backup
 
@@ -305,17 +310,26 @@ reason.
    with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
    the storage. Was the biggest coverage-per-effort item in the roadmap, and it
    is the one piece of this design that needed no repo code at all.
-2. **Layer 2 — the dump + restic job, USB target.** `infra/backup/` as above,
-   `scripts/init-backup.sh`, `docs/backup-setup.md`. The repository is the
-   `usbbackup` pool over SFTP ([Where layer 2 writes](#where-layer-2-writes)) —
-   local first, so the mechanism gets debugged without also debugging cloud
-   credentials. Retention `--keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
-   weekly `restic check`. Host-side prerequisites: the `resticbackup` user, its
-   chroot, and one authorized key per client.
-   The Kuma push (phase 4) lands here rather than later: a backup nobody knows
-   has stopped is decorative, and it is three lines given Kuma already exists.
-   **Vaultwarden is the reason this phase is the next one done** — see the
-   note at the top.
+2. ~~**Layer 2 — the dump + restic job, USB target.**~~ ✅ **built and
+   running** — [backup-setup.md](../backup-setup.md). `infra/backup/`,
+   `scripts/init-backup.sh`, the four systemd units, and the per-stack shape
+   described above. The repository is the `usbbackup` pool over SFTP
+   ([Where layer 2 writes](#where-layer-2-writes)) — local first, so the
+   mechanism got debugged without also debugging cloud credentials. Retention
+   `--group-by host,tags --keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
+   weekly `restic check`. Host-side prerequisites — the `resticbackup` user,
+   its chroot, one authorized key per client — are Part 1 of the guide and run
+   on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
+   backup nobody knows has stopped is decorative.
+
+   **What remains is six files.** Only **Authentik** is wired
+   (`infra/authentik/backup.sh` + `restore.sh`). Vaultwarden, Forgejo,
+   monitoring, Traefik, Uptime Kuma and Dockge each need one `backup.sh`
+   following the same recipe, and Kuma additionally needs the `dump_sqlite`
+   recipe, which does not exist yet — its open question is whether `sqlite3`
+   ships inside `louislam/uptime-kuma:2` or wants a small `alpine` sidecar
+   holding the same bind mount. Vaultwarden is the one to write first, for the
+   reason at the top of this file.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -326,17 +340,46 @@ reason.
    for as long as someone actually does — and nothing here can alert on a human
    step that didn't happen.
 4. **Notice when it stops.** ✅ folded into phase 2 — `run.sh` pings an Uptime
-   Kuma push monitor, and only a fully clean run does. What remains here is the
-   optional `backup_last_success_timestamp` metric for Alloy's textfile
-   collector, for the "why" half; it needs a `textfile` block on
-   `prometheus.exporter.unix` and has not been built.
-5. **Prove it.** Restore drill: roll the infra VM back to a snapshot, restore
-   from restic, verify each stack comes up — Vaultwarden accepting a login
-   from a client that was already paired (which is what proves `rsa_key.pem`
-   and the database came back together), Authentik with its providers intact,
-   Forgejo serving a `docker pull`, Kuma with its monitors. Record it
-   in `docs/review/` as a dated finding, the same way the guide replay was.
-   **Until this phase runs, treat phases 1–4 as untested.** Re-run yearly.
+   Kuma push monitor, and only a fully clean run does.
+
+   Two things remain. The **weekly `restic check` has no heartbeat of its
+   own**: it is a separate unit and nothing pushes on its behalf, so a
+   repository that has quietly become unreadable stays quiet. Today that is
+   found with `systemctl status restic-check.service`, which means finding it
+   requires already suspecting it — the gap is stated rather than fixed, and
+   the guide says so too. Second, the optional
+   `backup_last_success_timestamp` metric for Alloy's textfile collector, for
+   the "why" half; it needs a `textfile` block on `prometheus.exporter.unix`
+   and has not been built.
+
+   One thing this phase learned the hard way: the push URL is the part that
+   breaks. Kuma displays it with a query string attached, `.env` is sourced as
+   shell, and `&` there is a command separator — so pasting it verbatim leaves
+   `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
+   guide did not prevent it on the first real bring-up; `run.sh` now detects
+   that exact signature and fails loudly instead.
+5. **Prove it.** ⚠️ **Partly done — Authentik only.** A real drill has now
+   run on the infra VM: a user was created *after* a backup, `restore.sh` ran,
+   and that user was correctly gone while everything else kept working. That is
+   the coupling this design exists to protect, demonstrated rather than
+   asserted — the restored database is the backup's database, and
+   `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so the `.env` and
+   the dump came back as one unit.
+
+   Still unproven, and not to be claimed until it is: every other stack (none
+   are wired yet), a **VM-rollback** drill rather than an in-place restore,
+   the nightly timer firing unattended, the weekly `restic check`, and the
+   Kuma deadman — which was found *misconfigured* during this bring-up and has
+   never delivered a heartbeat. The full drill still reads: roll the infra VM
+   back to a snapshot, restore from restic, verify each stack comes up —
+   Vaultwarden accepting a login from a client that was already paired (which
+   is what proves `rsa_key.pem` and the database came back together), Authentik
+   with its providers intact, Forgejo serving a `docker pull`, Kuma with its
+   monitors.
+
+   Record each drill in `docs/review/` as a dated finding, the same way the
+   guide replay was. **Treat every phase as untested for the parts this drill
+   did not cover.** Re-run yearly.
 
 ## Constraints & notes
 
