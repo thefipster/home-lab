@@ -1,0 +1,50 @@
+// Renovate — the "Dependabot for images" for the INFRA VM's compose stacks.
+// Activated by installing the Mend Renovate GitHub App on this repository;
+// the file alone does nothing. Renovate opens PRs and maintains a pinned
+// "Dependency Dashboard" issue listing every pending update — that issue is
+// the weekly report.
+//
+// PRs from this bot are SIGNALS, NOT MERGES. A version in this repo lives in
+// more than one place (the compose pin, often a comment beside it, an init
+// script, a guide — grafana/alloy is written down four times), and a bot PR
+// edits only the compose line. Apply every bump by hand, moving all of its
+// locations together, then close the PR. Automerge stays off for exactly
+// this reason.
+//
+// Two classes of update, and this file only sees one: Renovate watches TAGS,
+// so the major-only pins (traefik:v3, postgres:18-alpine, loki:3, ...) that
+// move underneath an unchanged tag never appear here. Those are handled by
+// `docker compose pull && up -d` on the VM, not by a repo edit.
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Berlin",
+  // Weekly, batched: check Saturday morning, read the dashboard over coffee.
+  "schedule": ["before 8am on saturday"],
+  "dependencyDashboard": true,
+  "automerge": false,
+  // Only the compose files. The workflow templates in infra/forgejo/*.yml
+  // carry image pins too (act, python, node) but live outside every standard
+  // manager's file patterns — they stay part of the by-hand sweep.
+  "enabledManagers": ["docker-compose"],
+  // apps/stacks/ is staging: each draft moves to its own Forgejo repo and is
+  // deleted from here, so its pins are watched by the self-hosted Renovate
+  // that runs against Forgejo once the repo exists — not from GitHub, which
+  // cannot reach the LAN-only Forgejo. Watching drafts here would create
+  // update PRs against files that are about to disappear.
+  "ignorePaths": ["apps/**"],
+  "packageRules": [
+    {
+      // Authentik bumps are NEVER routine: minor releases ship breaking DB
+      // migrations and upstream requires stepping through every intermediate
+      // release (see CLAUDE.md). Surface it on the dashboard, but never open
+      // a PR until the checkbox there is ticked deliberately.
+      "matchPackageNames": ["ghcr.io/goauthentik/server"],
+      "dependencyDashboardApproval": true,
+    },
+    // NOTE, not a rule — Forgejo: `forgejo:15` tracks the LTS major on
+    // purpose (CLAUDE.md), so Renovate offering 16/17 is expected and
+    // usually declined. Check https://forgejo.org/releases/ for which major
+    // is LTS before taking one, and bump the runner in the same sitting.
+  ],
+}
