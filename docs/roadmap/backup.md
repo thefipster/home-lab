@@ -168,10 +168,17 @@ the building.
 
 **Transport: SFTP against the Proxmox host's existing `sshd`.** restic speaks
 SFTP natively, so the drive stays mounted on the hypervisor and the repository
-is `sftp:backup@pve.thefipster.de:/restic`. A dedicated unprivileged `backup`
-user, key-only, one key per client, confined with `ChrootDirectory` +
-`ForceCommand internal-sftp` — the chroot directory must be root-owned and not
-group-writable, which is the usual thing to get wrong.
+is `sftp:resticbackup@pve.thefipster.de:/restic`. A dedicated unprivileged
+`resticbackup` user, key-only, one key per client, confined with
+`ChrootDirectory` + `ForceCommand internal-sftp` — the chroot directory must be
+root-owned and not group-writable, which is the usual thing to get wrong.
+
+**Not `backup`, and not a per-machine name.** Debian ships a stock `backup`
+system account (uid 34, `/var/backups`, used by `cron.daily`) and Proxmox VE is
+Debian, so that name is taken. The replacement is not named after a machine
+either, because the account is shared by every *client* of the repository — the
+apps VM joins it later with its own key, which is the whole point of choosing
+this transport.
 
 Three options were weighed, and the deciding factor is **who else will need this
 drive**:
@@ -303,7 +310,7 @@ reason.
    `usbbackup` pool over SFTP ([Where layer 2 writes](#where-layer-2-writes)) —
    local first, so the mechanism gets debugged without also debugging cloud
    credentials. Retention `--keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
-   weekly `restic check`. Host-side prerequisites: the `backup` user, its
+   weekly `restic check`. Host-side prerequisites: the `resticbackup` user, its
    chroot, and one authorized key per client.
    The Kuma push (phase 4) lands here rather than later: a backup nobody knows
    has stopped is decorative, and it is three lines given Kuma already exists.

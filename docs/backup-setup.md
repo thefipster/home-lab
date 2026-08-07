@@ -2,8 +2,8 @@
 
 **Runs on:** the Proxmox host shell, then the infra VM
 
-Prerequisite: [uptime-kuma-setup.md](uptime-kuma-setup.md) — the backup job
-reports to a Kuma push monitor, so Kuma has to exist first.
+**Prerequisite:** [uptime-kuma-setup.md](uptime-kuma-setup.md) complete — the
+backup job reports to a Kuma push monitor, so Kuma has to exist first.
 
 This is **layer 2** of [roadmap/backup.md](roadmap/backup.md). Layer 1 —
 whole-VM `vzdump` onto the internal `backup` mirror — is already built, in
@@ -17,7 +17,8 @@ nothing to install on the far end. It encrypts client-side, deduplicates by
 content, and speaks SFTP natively — so the repository is the **`usbbackup`
 pool** on the hypervisor ([proxmox-setup.md Part
 3](proxmox-setup.md#part-3--post-install-housekeeping)), reached over the
-Proxmox host's existing `sshd` as `sftp:backup@pve.thefipster.de:/restic`.
+Proxmox host's existing `sshd` as
+`sftp:resticbackup@pve.thefipster.de:/restic`.
 
 Three things shape everything below:
 
@@ -41,9 +42,9 @@ Three things shape everything below:
 here is in this repo — the hypervisor owns the drive, so the hypervisor owns
 the account that writes to it.
 
-What you are building: an unprivileged `backup` user that can do exactly one
-thing — SFTP into a directory on the `usbbackup` pool — and cannot get a shell,
-forward a port, or see any other part of the filesystem.
+What you are building: an unprivileged `resticbackup` user that can do exactly
+one thing — SFTP into a directory on the `usbbackup` pool — and cannot get a
+shell, forward a port, or see any other part of the filesystem.
 
 > **You need one thing from the infra VM first: root's public key.**
 > `scripts/init-backup.sh` generates and prints it, and its **first** run stops
@@ -65,20 +66,29 @@ chown root:root /usbbackup/chroot && chmod 755 /usbbackup/chroot
 Create the user, then the one writable directory *inside* the chroot:
 
 ```bash
-useradd --system --home-dir /usbbackup/chroot --shell /usr/sbin/nologin backup
+useradd --system --home-dir /usbbackup/chroot --shell /usr/sbin/nologin resticbackup
 ```
 
 ```bash
-mkdir -p /usbbackup/chroot/restic && chown backup:backup /usbbackup/chroot/restic && chmod 700 /usbbackup/chroot/restic
+mkdir -p /usbbackup/chroot/restic && chown resticbackup:resticbackup /usbbackup/chroot/restic && chmod 700 /usbbackup/chroot/restic
 ```
+
+> **Not `backup`, and not `infrabackup` either.** Debian ships a stock `backup`
+> system account — uid 34, home `/var/backups`, used by `cron.daily` — and
+> Proxmox VE is Debian, so `useradd … backup` refuses before it starts. The
+> replacement is deliberately *not* named after a machine: this account is
+> shared by every **client** of the repository, not owned by one of them. The
+> apps VM joins the same repository later with its own key, and `run.sh` already
+> passes `--group-by host,tags` so two hosts can share one repo — `infrabackup`
+> would be wrong the day that happens.
 
 > **The two `chown`/`chmod` lines above are the step that fails silently.** The
 > chroot directory itself must be **root-owned and not group-writable** —
 > sshd refuses to chroot into anything else, and the entire path above it has to
 > satisfy the same rule. The writable part is `restic/` *inside* it, owned by
-> `backup`. Get it wrong and the session is closed the instant it opens, with
-> nothing useful in the client's output: restic reports only that it cannot open
-> the repository, and the reason is in the *host's* journal.
+> `resticbackup`. Get it wrong and the session is closed the instant it opens,
+> with nothing useful in the client's output: restic reports only that it cannot
+> open the repository, and the reason is in the *host's* journal.
 
 That `restic/` is also why the repository path is `/restic` and not
 `/usbbackup/chroot/restic` — inside the chroot, the chroot **is** the root.
@@ -92,13 +102,13 @@ mkdir -p /etc/ssh/authorized_keys && chmod 755 /etc/ssh/authorized_keys
 ```
 
 ```bash
-nano /etc/ssh/authorized_keys/backup
+nano /etc/ssh/authorized_keys/resticbackup
 ```
 
 Paste the single `ssh-ed25519 …` line, then:
 
 ```bash
-chown root:root /etc/ssh/authorized_keys/backup && chmod 644 /etc/ssh/authorized_keys/backup
+chown root:root /etc/ssh/authorized_keys/resticbackup && chmod 644 /etc/ssh/authorized_keys/resticbackup
 ```
 
 One key per client, one line each — the apps VM joins the same repository later
@@ -111,10 +121,10 @@ nano /etc/ssh/sshd_config.d/backup-sftp.conf
 ```
 
 ```
-Match User backup
+Match User resticbackup
     ChrootDirectory /usbbackup/chroot
     ForceCommand internal-sftp
-    AuthorizedKeysFile /etc/ssh/authorized_keys/backup
+    AuthorizedKeysFile /etc/ssh/authorized_keys/resticbackup
     PasswordAuthentication no
     AllowTcpForwarding no
     X11Forwarding no
@@ -123,8 +133,8 @@ Match User backup
 > **A `Match` block claims every line after it, to the end of the file.** There
 > is no "end match" directive — the next `Match`, or EOF, is what closes it. Put
 > this in `sshd_config` directly and any option that happens to follow it
-> silently becomes backup-only; put something after it later and you have
-> reconfigured a user you did not mean to touch. A drop-in file keeps the block
+> silently applies to `resticbackup` only; put something after it later and you
+> have reconfigured a user you did not mean to touch. A drop-in keeps the block
 > contained by construction, which is why this guide never edits `sshd_config`.
 >
 > **It is still the one step in this guide that can lock you out of the
@@ -154,7 +164,7 @@ forced into `internal-sftp` on the next login — that is a locked-out hyperviso
 Then the same question in the positive:
 
 ```bash
-sshd -T -C user=backup | grep -iE 'chrootdirectory|forcecommand'
+sshd -T -C user=resticbackup | grep -iE 'chrootdirectory|forcecommand'
 ```
 
 Expected: `chrootdirectory /usbbackup/chroot` and `forcecommand internal-sftp`.
@@ -214,7 +224,7 @@ The script installs restic, creates `/opt/backup` mode 700, seeds
 if it does not exist. Then it does two things that need you:
 
 **It prints the public key.** That is the one Part 1 wants in
-`/etc/ssh/authorized_keys/backup`.
+`/etc/ssh/authorized_keys/resticbackup`.
 
 **It records the Proxmox host key, and shows you the fingerprint.** A systemd
 timer cannot answer a trust-on-first-use prompt, so the key has to be accepted
@@ -454,11 +464,11 @@ setup and data disk, followed by [coolify-setup.md](coolify-setup.md) and
 
 **`Fatal: unable to open repository`.** Three causes, all on the SFTP path:
 the Proxmox host key is not in `/root/.ssh/known_hosts`, the public key is not
-in `/etc/ssh/authorized_keys/backup`, or the chroot permissions are wrong. Test
+in `/etc/ssh/authorized_keys/resticbackup`, or the chroot permissions are wrong. Test
 the transport on its own:
 
 ```bash
-sudo ssh -i /root/.ssh/id_ed25519 backup@pve.thefipster.de
+sudo ssh -i /root/.ssh/id_ed25519 resticbackup@pve.thefipster.de
 ```
 
 **It should refuse a shell but not refuse the connection.** Getting as far as
@@ -504,11 +514,25 @@ backup, it is missing from there first.
 the stack rather than warning. Intentional: a backup quietly missing a directory
 is worse than a backup that says it failed.
 
-**`restic check` fails on Sunday.** The repository is not readable — the drive,
-not the job. Check pool health on the hypervisor first (`zpool status
-usbbackup`); the **Hypervisor Storage** monitor covers `usbbackup` by name
-precisely because a pool whose device fell off the USB bus does not appear in
-`zpool list` at all.
+**`restic check` fails on Sunday — and nothing tells you.** Only `run.sh`
+pushes to Kuma; `restic-check.service` has no heartbeat and no Grafana rule, so
+a repository that has stopped being readable is silent. **Looking is the only
+way to find out**, and it is worth doing after a drive is unplugged and
+replugged:
+
+```bash
+systemctl status restic-check.service
+```
+
+```bash
+journalctl -u restic-check.service -n 50
+```
+
+When it does fail, suspect the drive before the job. Check pool health on the
+hypervisor first (`zpool status usbbackup`); the **Hypervisor Storage** monitor
+covers `usbbackup` by name precisely because a pool whose device fell off the
+USB bus does not appear in `zpool list` at all — so that monitor, not this one,
+is what catches the common cause.
 
 **The clock, after a rollback.** A restored or rolled-back guest resumes with a
 stale clock and every TLS client fails with "certificate has expired or is not
@@ -591,8 +615,11 @@ layer 1's whole-VM archive contains the current night's dumps rather than the
 previous night's — the two layers stack instead of merely coexisting. It is also
 clear of the 04:30 unattended-upgrades reboot window. `Persistent=true` means a
 VM that was down at 01:00 catches up on boot rather than skipping a night, and
-the weekly check runs Sunday 03:00 so the three jobs never contend for the same
-USB drive.
+the weekly check runs Sunday 03:00 so it never overlaps that night's backup on
+the USB drive. `vzdump` is not a third contender for that drive — it writes to
+the internal `backup` mirror — but it is still worth being an hour behind: the
+spacing is about host I/O, and about layer 1 finding the current night's dumps
+already on disk.
 
 **Why `check --read-data-subset=10%`.** A repository that cannot be read is not
 a backup, and the only way to know is to read it. A rotating tenth per week
@@ -619,14 +646,17 @@ the machine it protects. That is a real second copy and it is the only one that
 can physically leave the building, but it is not offsite until someone points
 restic at B2, netcup Storage Space or rclone — client-side encryption means that
 step is credentials and a bandwidth check, not a redesign
-([roadmap/backup.md](roadmap/backup.md#phases) phase 3). And **until a restore
-drill has actually been run, treat all of this as untested**; that is phase 5,
-and it belongs in `docs/review/` as a dated finding when it happens.
+([roadmap/backup.md](roadmap/backup.md#phases) phase 3). **The weekly check has
+no deadman**: `run.sh` pings Kuma, `restic check` does not, so a repository that
+has quietly become unreadable stays quiet — the monitor proves the backup ran,
+not that it can be restored from. And **until a restore drill has actually been
+run, treat all of this as untested**; that is phase 5, and it belongs in
+`docs/review/` as a dated finding when it happens.
 
 ## Next
 
 **[apps-vm-setup.md](apps-vm-setup.md)** — the second machine. It joins this
 same restic repository later with one more key in
-`/etc/ssh/authorized_keys/backup` and an `.env` value, which is why the
+`/etc/ssh/authorized_keys/resticbackup` and an `.env` value, which is why the
 transport was chosen the way it was. The full sequence is the
 [README build order](../README.md#build-order).

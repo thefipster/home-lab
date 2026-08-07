@@ -7,9 +7,9 @@
 # enables the two timers.
 #
 # Build order: LAST on the infra VM. Needs Uptime Kuma for the push monitor URL,
-# and needs the HOST-side prerequisites (the `backup` user and its chroot) to
-# already exist — that is Part 1 of docs/backup-setup.md and runs on the
-# Proxmox host, not here.
+# and needs the HOST-side prerequisites (the `resticbackup` user and its
+# chroot) to already exist — that is Part 1 of docs/backup-setup.md and runs on
+# the Proxmox host, not here.
 #
 # Usage (from the repo root):
 #   scripts/init-backup.sh
@@ -79,7 +79,7 @@ if ! run_root test -f /root/.ssh/id_ed25519; then
 fi
 
 echo
-echo "Public key — install this in the backup user's authorized_keys on ${PVE_HOST}:"
+echo "Public key — install this in the resticbackup user's authorized_keys on ${PVE_HOST}:"
 run_root cat /root/.ssh/id_ed25519.pub
 echo
 
