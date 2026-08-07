@@ -312,14 +312,22 @@ Expected: `BACKUP_STAGE is not set — run this through infra/backup/run.sh` on 
 
 - [ ] **Step 4: Prove `include` records paths and rejects missing ones**
 
+`lib.sh` must be sourced from a **real script file**, not from a `bash -c` string: `$STACK` is derived from `${BASH_SOURCE[1]}`, which only exists when there is a calling script frame. Sourcing from `bash -c` leaves it unset — the reference sits inside `$(...)`, so it prints an error without aborting and `$STACK` silently becomes `.`. Prefix-assigned variables also do not survive a `source` call, since `source` is a special builtin. Use a throwaway script:
+
 ```bash
-mkdir -p /tmp/bkstage && bash -c 'set -euo pipefail
-BACKUP_STAGE=/tmp/bkstage REPO_ROOT="$PWD" source infra/backup/lib.sh
-include "$PWD/README.md"
-include /nope/does/not/exist' ; echo "exit=$?" ; cat /tmp/bkstage/paths.txt
+mkdir -p /tmp/bkstage/infra/probe && cat > /tmp/bkstage/infra/probe/backup.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../lib.sh"
+echo "STACK=$STACK"
+include "$REPO_ROOT/README.md"
+include /nope/does/not/exist
+EOF
+chmod +x /tmp/bkstage/infra/probe/backup.sh && cp infra/backup/lib.sh /tmp/bkstage/lib.sh
+BACKUP_STAGE=/tmp/bkstage REPO_ROOT="$PWD" /tmp/bkstage/infra/probe/backup.sh ; echo "exit=$?" ; cat /tmp/bkstage/paths.txt
 ```
 
-Expected: `! include: /nope/does/not/exist does not exist` on stderr, `exit=1`, and `paths.txt` containing exactly the README path.
+Expected: `STACK=probe`, then `! include: /nope/does/not/exist does not exist` on stderr, `exit=1`, and `paths.txt` containing exactly the README path.
 
 - [ ] **Step 5: Fix the file mode and commit**
 
