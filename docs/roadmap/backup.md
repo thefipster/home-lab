@@ -358,9 +358,11 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — Authentik only.** A real drill has now
-   run on the infra VM: a user was created *after* a backup, `restore.sh` ran,
-   and that user was correctly gone while everything else kept working. That is
+5. **Prove it.** ⚠️ **Partly done — Authentik only**, recorded in
+   [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
+   A real drill has run on the infra VM: a user was created *after* a backup,
+   `restore.sh` ran, and that user was correctly gone while everything else
+   kept working. That is
    the coupling this design exists to protect, demonstrated rather than
    asserted — the restored database is the backup's database, and
    `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so the `.env` and
@@ -377,9 +379,9 @@ reason.
    with its providers intact, Forgejo serving a `docker pull`, Kuma with its
    monitors.
 
-   Record each drill in `docs/review/` as a dated finding, the same way the
-   guide replay was. **Treat every phase as untested for the parts this drill
-   did not cover.** Re-run yearly.
+   Record each further drill in `docs/review/` as its own dated finding, the
+   same way the guide replays were. **Treat every phase as untested for the
+   parts no drill has covered.** Re-run yearly.
 
 ## Constraints & notes
 
