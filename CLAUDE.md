@@ -213,12 +213,15 @@ directory is `monitoring` and its database is `grafana`, hence
 `dump_postgres monitoring db grafana grafana`. The dump is still named after
 the stack, which is what keeps the restore path uniform.
 
-**It is also the only NARROW restore.** `infra/monitoring/restore.sh` moves
+**It is also the only NARROW restore, and that generalises.** A stack with
+Tier-3 directories sitting beside its Tier-1 ones **cannot** use the
+whole-tree restore the other scripts do. `infra/monitoring/restore.sh` moves
 `postgres/` aside and nothing else, because the five directories beside it
 (`prometheus/`, `loki/`, `tempo/`, `alloy/`, `grafana/`) are Tier 3 and not in
-the snapshot. Moving the whole tree the way the other restore scripts do would
-destroy live data this backup never promised to return, and would discard the
-per-directory ownership `scripts/init-monitoring.sh` sets.
+the snapshot: moving them would destroy live data this backup never promised
+to return, and discard the per-directory ownership
+`scripts/init-monitoring.sh` sets. Monitoring is the only such stack today —
+check for the pattern before copying a restore script.
 
 Each stack gets its **own restic snapshot, tagged with the stack name**, so
 restoring one is `restic restore latest --tag <stack>` and the stack's couplings

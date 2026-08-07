@@ -51,8 +51,8 @@ Stated plainly, because the temptation is to read the above as broader than it
 is:
 
 - **Every other stack.** At the time of this drill only Authentik had a
-  `backup.sh`, and six remained. Uptime Kuma landed later the same day — see
-  the addendum — leaving five.
+  `backup.sh`, and six remained. Uptime Kuma and monitoring both landed later
+  the same day and were drilled the same way — see the addenda — leaving four.
 - **A VM-rollback drill.** This was an in-place restore on a working VM. The
   phase-5 drill described in the roadmap rolls the infra VM back to a snapshot
   first, which is a materially harder test — it is also where the
@@ -209,9 +209,10 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Five `backup.sh` files**, Vaultwarden first — it is the stack whose loss is
+1. **Four `backup.sh` files**, Vaultwarden first — it is the stack whose loss is
    unrecoverable by any other means, and it is one file. (Was six; Uptime Kuma
-   landed the same day — see the addendum below.)
+   and monitoring both landed the same day — see the addenda below. The four
+   that remain carry no new decisions.)
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.
@@ -284,3 +285,54 @@ comment was stale; the drill disproves that reading. No theory here is worth
 writing down as fact. It is harmless — the restore is robust either way,
 because it never sets ownership itself — but it is the one observation from
 this bring-up that nothing accounts for.
+
+---
+
+## Addendum: monitoring wired and drilled — same day
+
+Taken third, ahead of the four mechanical stacks, because it was the last one
+with a decision in it. It turned out to carry **two** exceptions rather than
+the one the roadmap predicted.
+
+**The known one: the names do not match.** Every other Postgres stack satisfies
+`POSTGRES_USER == POSTGRES_DB == <directory>`, which is what `dump_postgres`'s
+single-argument form assumes. Monitoring's directory is `monitoring` and its
+database is `grafana`, so it is the only caller of the override arguments —
+`dump_postgres monitoring db grafana grafana`. The dump is still named after
+the *stack*, which is what keeps every restore path uniform.
+
+**The unforeseen one: this restore has to be narrow.** Every other
+`restore.sh` moves the whole `/opt/<stack>` tree aside. Doing that here would
+be actively destructive: five of the six directories under `/opt/monitoring`
+(`prometheus/`, `loki/`, `tempo/`, `alloy/`, `grafana/`) are Tier 3 and were
+never in the snapshot, so moving them aside would destroy live observability
+data the backup never promised to return — and discard the per-directory
+ownership `scripts/init-monitoring.sh` sets (grafana 472, prometheus 65534,
+loki and tempo 10001). So this script touches `postgres/` alone and says so at
+the confirmation prompt.
+
+That is worth naming as a general rule the design had not stated: **a stack
+with Tier-3 directories beside its Tier-1 ones cannot use the whole-tree
+restore.** It is the only such stack today.
+
+### The drill
+
+Backup, then **switch the Grafana theme from dark to light**, then restore. The
+theme came back dark.
+
+The marker is better than the one originally suggested (a throwaway user), and
+for a reason worth reusing: Grafana stores the theme as a per-user *preference
+row*, so it proves the database was replaced, is unambiguous at a glance, and
+needs no cleanup afterwards — unlike a drill user, which has to be remembered
+and deleted.
+
+**The check unique to this stack passed:** Prometheus, Loki and Tempo still
+returned data from before the restore. That is what proves the narrow restore
+did what it claims and left those five directories alone — no previous drill
+had exercised it, because no previous stack had anything to leave alone.
+
+One trap this drill confirmed and the guide now states: Grafana's dashboards
+and datasources are **provisioned from this repo**, so they return on a
+completely empty database. Verifying against them proves the stack started, not
+that the restore worked. Only hand-made objects — users, tokens, preferences,
+browser-built dashboards — prove anything.
