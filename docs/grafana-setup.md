@@ -30,8 +30,8 @@ Proxmox host, and then verify each capability in turn.
 > would show you why. The password is `GRAFANA_ADMIN_PASSWORD` in
 > `infra/monitoring/.env`. Never set `GF_AUTH_DISABLE_LOGIN_FORM`.
 
-> **RAM:** this adds six containers to a VM already running Traefik, Authentik,
-> Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 24 GB for
+> **RAM:** this adds six containers to a VM already running Traefik,
+> Vaultwarden, Authentik, Forgejo and Dockge. [proxmox-setup.md](proxmox-setup.md) provisions 24 GB for
 > exactly this reason; at 4 GB an OOM kill would most likely take Authentik
 > with it.
 
@@ -775,7 +775,7 @@ genuinely see duplicates, look for a second Alloy instance.
 **Alloy won't start / won't load its config.** Syntax-check it:
 
 ```bash
-docker run --rm -v ~/home-lab/infra/monitoring/alloy/config.alloy:/c.alloy:ro grafana/alloy:v1.18.0 fmt /c.alloy
+docker run --rm -v ~/home-lab/infra/monitoring/alloy/config.alloy:/c.alloy:ro grafana/alloy:v1.18.1 fmt /c.alloy
 ```
 
 `fmt` exits non-zero on a syntax error. Component and argument mistakes appear
@@ -878,8 +878,8 @@ which costs nothing at ingest. Useful starters:
 sum by (compose_service) (rate({job="docker"}[5m]))
 ```
 
-**Metric targets use the idiomatic `job` label** (both host exporters as
-`job="node"`, told apart by `instance` — `infra` and `pve`), which is exactly
+**Metric targets use the idiomatic `job` label** (all three host exporters as
+`job="node"`, told apart by `instance` — `infra`, `pve` and `apps`), which is exactly
 what community dashboards assume — that is why the two vendored dashboards work
 unmodified. Both come from grafana.com (Node Exporter Full #1860 rev 45, Traefik
 #17346 rev 9) with their datasource UIDs rewired. Updating one means
@@ -887,9 +887,9 @@ re-vendoring the JSON in the repo, not editing in the browser.
 
 **The Proxmox host is scraped natively, not through a container.** It runs
 Debian's `prometheus-node-exporter` as a systemd unit, so the hypervisor stays
-a hypervisor with no Docker on it — which makes it the only scrape target in
-the lab that is not a container, and the only one addressed by hostname rather
-than by Docker service name. An LXC container would have been the "native
+a hypervisor with no Docker on it — one of the lab's three scrape targets that
+are not containers and are addressed by hostname rather than by Docker service
+name (the apps VM's exporter and Home Assistant are the other two). An LXC container would have been the "native
 Proxmox" option and reports the wrong numbers: PVE virtualizes `/proc` through
 lxcfs, so the exporter would measure the container rather than the host. A
 second Alloy on the hypervisor would work and would also bring PVE's journald

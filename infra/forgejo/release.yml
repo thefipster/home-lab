@@ -207,7 +207,7 @@ jobs:
     container:
       # Node actions AND the docker CLI in one image — the plain node image has
       # no docker binary and login-action fails with "docker: not found".
-      image: ghcr.io/catthehacker/ubuntu:act-22.04
+      image: ghcr.io/catthehacker/ubuntu:act-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -272,7 +272,7 @@ jobs:
       # Needs npm AND the docker CLI, so the act image rather than the node
       # one. Its bundled node is for the actions runtime; the site build pins
       # its own version in the next step.
-      image: ghcr.io/catthehacker/ubuntu:act-22.04
+      image: ghcr.io/catthehacker/ubuntu:act-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -372,8 +372,9 @@ jobs:
     container:
       # PlatformIO publishes NO official Docker image — the Docker Hub ones are
       # community builds. Upstream's own documented CI recipe is a pip install.
-      # Pinned major.minor because the bare `python:3` tag moves.
-      image: python:3.12-bookworm
+      # Pinned major.minor because the bare `python:3` tag moves. 3.14 needs
+      # PlatformIO core >= 6.1.19 (the pip install always takes the latest).
+      image: python:3.14-bookworm
     strategy:
       fail-fast: false
       matrix:

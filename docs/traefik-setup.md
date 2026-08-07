@@ -137,9 +137,10 @@ GET, 308 does not.
 
 ## Next
 
-**[authentik-setup.md](authentik-setup.md)** — SSO. It is the first stack
-Traefik actually serves, and it provides the forward-auth middleware that
-makes the dashboard (and later Dockge) reachable.
+**[vaultwarden-setup.md](vaultwarden-setup.md)** — the password manager, and
+the first stack Traefik actually serves. It comes before SSO on purpose: it
+joins no Authentik pattern, and every guide after it generates a secret worth
+keeping.
 
 ## Troubleshooting
 
@@ -278,6 +279,6 @@ running unattended you are unlikely to need it.
 
 ## Next
 
-**[authentik-setup.md](authentik-setup.md)** — SSO, and the first stack served
-through this proxy. The full sequence is in the
+**[vaultwarden-setup.md](vaultwarden-setup.md)** — the password manager, and
+the first stack served through this proxy. The full sequence is in the
 [README build order](../README.md#build-order).

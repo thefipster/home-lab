@@ -80,6 +80,26 @@ more truthful signal.
 Traefik is nonetheless covered end-to-end many times over: **every** HTTP monitor
 below traverses it, so a Traefik failure turns most of this registry red at once.
 
+## Vault — vaultwarden
+
+| Name | Type | Target |
+|---|---|---|
+| Vault Web | HTTP(s) | `https://vault.thefipster.de` |
+| Vault Backend | Docker | `vaultwarden-vaultwarden-1` |
+| Vault Storage | Docker | `vaultwarden-db-1` |
+
+The one stack where **`Vault Web` alone would be misleading**. Vaultwarden
+serves its web vault from cached assets and answers `/` with 200 even when
+Postgres is unreachable — the failure only shows up at login, which is a page
+Kuma never reaches. `Vault Storage` is what turns "the vault is fine" into a
+claim about the database too.
+
+Set `Vault Web` to expect **200**; there is no gate in front of it to redirect,
+because [Vaultwarden joins no SSO
+pattern](sso-applications.md#vaultwarden-deliberately-not-joined). That makes it
+the only Web monitor here whose green state does not also depend on Authentik —
+which is the same property the service itself was placed in the build order for.
+
 ## Identity — authentik
 
 | Name         | Type | Target |
@@ -310,9 +330,9 @@ write down.
 
 Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
-(`Gateway`, `Identity`, `Git`, `Stack management`, `Observability`,
+(`Gateway`, `Vault`, `Identity`, `Git`, `Stack management`, `Observability`,
 `App platform`, `Home automation`, `Hypervisor storage`) makes the status page
-collapse to eight rows that expand on demand, instead of twenty-two flat
+collapse to nine rows that expand on demand, instead of twenty-five flat
 entries.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups

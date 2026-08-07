@@ -1,0 +1,122 @@
+# Vaultwarden — Bitwarden-compatible password manager for the INFRA VM.
+#
+# vaultwarden + a DEDICATED postgres, the fourth in the lab (Authentik, Forgejo
+# and Grafana have their own for the same reason: each stack version-pins and
+# backs up independently). Routed by Traefik at vault.thefipster.de under the
+# one wildcard cert — no per-router TLS labels.
+#
+# NO SSO, and that is a DELIBERATE DEVIATION from the repo convention. Unlike
+# Uptime Kuma and Home Assistant, which have no OIDC at all, Vaultwarden HAS
+# had OIDC since 1.35.0 — so the convention's "anything with native OIDC uses
+# it" rule points straight at it. It is still not applied: this is where the
+# credentials for repairing Authentik live, so a vault that dies with the
+# identity provider is the one outage you cannot recover from. Break-glass
+# would mean SSH while locked out of the thing holding the SSH key's
+# passphrase. There is no `middlewares` label below and no OIDC block, both
+# deliberate. Recorded in docs/sso-applications.md.
+#
+# It sits BEFORE Authentik in the build order for the same reason: from the
+# next stack onward every guide generates a secret worth keeping, and this is
+# where they go.
+#
+# Deploy (on the infra VM): scripts/init-vaultwarden.sh, mint the ADMIN_TOKEN,
+# then compose up — see docs/vaultwarden-setup.md.
+
+name: vaultwarden
+
+services:
+  db:
+    image: postgres:18-alpine        # major pin, same policy as the other three
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vaultwarden
+      POSTGRES_PASSWORD: ${VAULTWARDEN_DB_PASSWORD:?set VAULTWARDEN_DB_PASSWORD in .env — run scripts/init-vaultwarden.sh}
+      POSTGRES_DB: vaultwarden
+      # See infra/forgejo/compose.yaml: Postgres 18 made the image's default
+      # PGDATA version-specific. Pinned back to the flat path so
+      # /opt/vaultwarden/postgres holds PGDATA directly.
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - /opt/vaultwarden/postgres:/var/lib/postgresql/data
+    networks:
+      - vaultwarden-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultwarden"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vaultwarden:
+    # FULL PATCH PIN, unlike the major-only policy the repo prefers. Verified
+    # against the registry: vaultwarden/server publishes `latest`, `alpine` and
+    # `X.Y.Z` (+ `X.Y.Z-alpine`) and NO bare `1` or `1.37` tag at all, so there
+    # is no coarser pin to take — the same reason grafana/alloy and
+    # grafana/tempo carry full versions. Check https://github.com/dani-garcia/
+    # vaultwarden/releases before bumping; the release notes are where breaking
+    # config changes are announced.
+    image: vaultwarden/server:1.37.1
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # What the server thinks it is called. NOT cosmetic: attachment and Send
+      # URLs, email links and the WebAuthn/passkey relying-party ID are all
+      # derived from it, and a wrong value breaks second factors specifically.
+      DOMAIN: https://vault.thefipster.de
+      # Postgres, not the default SQLite — the lab's standard datastore. The
+      # value is a URI parsed by libpq, so the password must be URL-safe;
+      # init-vaultwarden.sh generates hex for exactly that reason (see its
+      # header). A base64 password like the other stacks use would need
+      # percent-encoding here and fail confusingly if it didn't get it.
+      DATABASE_URL: postgresql://vaultwarden:${VAULTWARDEN_DB_PASSWORD:?set VAULTWARDEN_DB_PASSWORD in .env — run scripts/init-vaultwarden.sh}@db:5432/vaultwarden
+      # Closed from the FIRST boot, not flipped after the first account exists:
+      # the stack is reachable on the LAN the moment it starts, and an open
+      # signup form on a password manager is a race you don't need to run. The
+      # admin page below is how the first account is created instead.
+      SIGNUPS_ALLOWED: "false"
+      # Org admins may not invite either. The /admin invite still works
+      # regardless of both flags — that is upstream's documented behaviour and
+      # it is the whole bring-up path in docs/vaultwarden-setup.md.
+      INVITATIONS_ALLOWED: "false"
+      # Argon2id PHC string, minted by hand (docs/vaultwarden-setup.md step 3)
+      # because `vaultwarden hash` prompts for the password twice on a TTY and
+      # cannot be driven from the init script. In .env the value MUST be
+      # SINGLE-QUOTED: Compose interpolates unquoted and double-quoted .env
+      # values, so the `$argon2id$v=19$...` string would be silently eaten and
+      # the admin page would reject the password it just printed.
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:?set VAULTWARDEN_ADMIN_TOKEN in .env — see docs/vaultwarden-setup.md step 3}
+      # Three defaults are deliberately left alone and worth knowing:
+      #   IP_HEADER=X-Real-IP / IP_HEADER_TRUSTED_PROXIES=local — Traefik sets
+      #     X-Real-Ip and dials from the container network, which `local`
+      #     accepts, so the login and /admin rate limits see the real client.
+      #   ENABLE_WEBSOCKET=true — since 1.31 websockets ride the main HTTP
+      #     port; there is no 3012 to publish and no extra router to write.
+      #   PUSH_ENABLED=false — mobile push relays through Bitwarden's cloud and
+      #     needs an installation id/key from bitwarden.com/host. The apps sync
+      #     on open and on a timer without it; nothing else in the lab phones
+      #     home, so this one doesn't either.
+    volumes:
+      # DATA_FOLDER=/data in the image: SQLite is unused here, but attachments,
+      # Sends, icon cache, the config the admin page writes, and `rsa_key.pem`
+      # — which signs every access token — all live under it. The image runs as
+      # ROOT, so this needs no chown (like Uptime Kuma and Alloy).
+      - /opt/vaultwarden/data:/data
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.vaultwarden.rule: Host(`vault.thefipster.de`)
+      traefik.http.routers.vaultwarden.entrypoints: websecure
+      # The image sets ROCKET_PORT=80 and EXPOSEs it; websockets share it.
+      traefik.http.services.vaultwarden.loadbalancer.server.port: "80"
+      # Deliberately NO middlewares label — see the header. The vault must be
+      # reachable when Authentik is not, and that includes /admin, which is the
+      # page you would need in order to repair anything.
+    networks:
+      - vaultwarden-net
+      - proxy
+
+networks:
+  vaultwarden-net:
+    driver: bridge
+  proxy:
+    external: true

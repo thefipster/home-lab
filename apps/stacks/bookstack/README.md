@@ -6,7 +6,7 @@ Self-hosted wiki / documentation platform, backed by MariaDB.
 |---|---|
 | Image | `lscr.io/linuxserver/bookstack:26.05.3` |
 | Internal port | `80` |
-| Database | `mariadb:11.8` (BookStack requires MariaDB ≥ 10.6 or MySQL ≥ 8.0) |
+| Database | `mariadb:12.3` (the current LTS line; BookStack requires MariaDB ≥ 10.6 or MySQL ≥ 8.0) |
 | Domain | `https://wiki.thefipster.de` |
 | Data | `/data/bookstack/` on the apps VM |
 | Docs | <https://www.bookstackapp.com/docs/> · <https://docs.linuxserver.io/images/docker-bookstack/> |

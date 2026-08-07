@@ -33,6 +33,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │
     ├─ infra VM · 12 vCPU · 24 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
+    │    Vaultwarden   password manager · local login, no SSO — built before it
     │    Authentik     SSO / identity provider (OIDC + forward-auth)
     │    Forgejo       git · CI · container registry
     │    Dockge        compose management UI
@@ -54,7 +55,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
 | Layer | Runs | Purpose |
 |-------|------|---------|
 | **Proxmox host** | the bare server | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra VM** | Traefik + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Kuma, deliberately, so an Authentik outage stays visible. |
+| **infra VM** | Traefik + Vaultwarden + Authentik + Forgejo + Dockge + Grafana + Uptime Kuma | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
 | **apps VM** | Coolify | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
 | **home-assistant VM** | Home Assistant OS | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
@@ -111,6 +112,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── dns-records.md            Registry: every DNS record the lab needs
 │   ├── infra-vm-setup.md         infra VM: checkout, clock, guest agent, Docker
 │   ├── traefik-setup.md          Traefik + Let's Encrypt via netcup DNS-01
+│   ├── vaultwarden-setup.md      Password manager — before SSO, joins no SSO
 │   ├── authentik-setup.md        SSO with Authentik (OIDC + forward-auth)
 │   ├── sso-applications.md       Registry: the infra VM's SSO applications
 │   ├── dockge-setup.md           Dockge, the compose management UI
@@ -128,6 +130,7 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   ├── init-docker.sh            Docker Engine + compose plugin (infra VM only)
 │   ├── init-unattended-upgrades.sh   Automatic security updates (both VMs)
 │   ├── init-traefik.sh           Traefik prep: proxy network, ACME dir, .env
+│   ├── init-vaultwarden.sh       Vaultwarden: data tree, DB password
 │   ├── init-authentik.sh         Authentik: data tree, generate secrets
 │   ├── init-dockge.sh            Bring up the Dockge management UI
 │   ├── init-forgejo.sh           Forgejo prep: data tree, .env secrets
@@ -140,6 +143,9 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   ├── compose.yaml          Traefik v3 — TLS termination + routing
 │   │   ├── .env.example          netcup API credentials template
 │   │   └── dynamic/ha.yaml       File-provider router for the HA VM (off-box)
+│   ├── vaultwarden/
+│   │   ├── compose.yaml          Vaultwarden + Postgres — no SSO, deliberately
+│   │   └── .env.example          DB password / argon2 admin token template
 │   ├── authentik/
 │   │   ├── compose.yaml          Authentik SSO (server, worker, postgres)
 │   │   └── .env.example          secret-key / DB / bootstrap template
@@ -161,9 +167,10 @@ challenge against the netcup DNS API — nothing is exposed to the internet. See
 │   │   └── grafana/provisioning/ Datasources, dashboards + alerts as code
 │   └── uptime-kuma/
 │       └── compose.yaml          Uptime Kuma (black-box monitoring + alerts)
-├── apps/                        Apps VM (Coolify) — no compose, by design
+├── apps/                        Apps VM (Coolify) — no deployed compose, by design
 │   ├── README.md                 What lives here and what deliberately doesn't
 │   ├── services.md               Catalog: third-party apps this VM runs
+│   ├── stacks/                   Compose drafts, deleted once pushed to Forgejo
 │   └── .env.example              netcup names Coolify's own proxy needs
 └── home-assistant/              HA VM (Home Assistant OS) — no compose, no script
     ├── README.md                 Why an appliance has neither
@@ -191,17 +198,17 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
-   `home-assistant` VM's specs are in the same table but it is built in step 12,
+   `home-assistant` VM's specs are in the same table but it is built in step 13,
    since it needs an imported disk image rather than an ISO. Its last part —
    the pool-health monitor — is done at the end, since it needs a Kuma that
-   does not exist until step 9; everything before it, the whole-VM backup job
+   does not exist until step 10; everything before it, the whole-VM backup job
    included, is done now.
 2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate. The one exception is
-   `homeassistant.thefipster.de`, whose target VM does not exist until step 12
+   `homeassistant.thefipster.de`, whose target VM does not exist until step 13
    and which that guide adds.
 
 ### infra VM — everything the other two lean on
@@ -213,36 +220,41 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 4. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The certificate is requested at startup; expect
    the ~10–15 min netcup propagation wait on first issuance.
-5. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
+5. **[Vaultwarden](docs/vaultwarden-setup.md)** — the password manager, and the
+   first stack Traefik serves. Before SSO on purpose, and the only service in
+   the lab that declines an SSO pattern it qualifies for: it holds the
+   credentials for repairing Authentik, so it must not depend on it. Everything
+   from here on generates a secret worth keeping.
+6. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
    gates: the Traefik dashboard and Dockge reference its forward-auth
    middleware, so their routers do not load until it runs. Each service that
    joins SSO gets its row in the registry,
    **[docs/sso-applications.md](docs/sso-applications.md)**, first.
-6. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
+7. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
    after Authentik (it has no ports published and its route is gated), and
    before the remaining stacks so they can be driven from a browser.
-7. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
+8. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
    to Authentik by OIDC.
-8. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
+9. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
    (container logs, service + host metrics, OTLP with traces, dashboards and
    alerts).
-9. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
-   monitoring and the lab's notification layer. Last on purpose: it watches
-   everything above it, and it is a separate stack precisely so it does not
-   share a lifecycle with the monitoring pipeline it also checks. The monitors
-   themselves are the registry,
-   **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
-   service gets its rows there.
+10. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
+    monitoring and the lab's notification layer. Last on purpose: it watches
+    everything above it, and it is a separate stack precisely so it does not
+    share a lifecycle with the monitoring pipeline it also checks. The monitors
+    themselves are the registry,
+    **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
+    service gets its rows there.
 
 ### apps VM — your own applications
 
-10. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
+11. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
     and host scripts: `init-host.sh` and `init-unattended-upgrades.sh`, but
     **not** `init-docker.sh` — Coolify's own installer brings the Engine. Also
     mounts the 300 GB second disk at `/data`, which has to happen *before*
     Coolify exists rather than after.
-11. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
+12. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
     admin account *immediately*: a fresh instance is unauthenticated on a LAN
     port with nothing in front of it. Its bundled proxy needs switching from
     HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
@@ -250,7 +262,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### home-assistant VM — home automation
 
-12. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+13. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
@@ -263,6 +275,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Proxmox host + the infra and apps VMs | ✅ deployed |
 | DNS (UDR split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
+| Vaultwarden password manager | 📄 stack + guide written, not yet built — pinned `1.37.1`, [guide](docs/vaultwarden-setup.md) |
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2026.5`, [guide](docs/authentik-setup.md) |
 | Dockge management UI | ✅ deployed — [guide](docs/dockge-setup.md) |
 | Forgejo CI + registry | ✅ deployed — [guide](docs/forgejo-setup.md) |
@@ -283,6 +296,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 | Sizing for the target hardware (12 threads / 96 GB / 4 pools) | 📄 documented — [Why these sizes](docs/proxmox-setup.md#why-these-sizes) |
 
 `✅` runs today · `📄` written and reviewed, waiting on hardware or a build step ·
-`⬜` not started. The three `📄` rows above are why the guides can describe
-machines you cannot yet log into: the repo documents the lab it is being built
-into, and each guide is verified by reading until the box exists to run it on.
+`⬜` not started. The three machine-shaped `📄` rows — Coolify, the third-party
+apps, the HA VM — are why the guides can describe machines you cannot yet log
+into: the repo documents the lab it is being built into, and each guide is
+verified by reading until the box exists to run it on. Vaultwarden is the same
+state on a machine that *does* exist: its stack and guide are written and the
+build order now runs through them, but nothing on the infra VM has been brought
+up against them yet.

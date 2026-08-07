@@ -94,18 +94,24 @@ services:
       traefik.http.routers.ak-outpost-traefik.rule: Host(`traefik.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
       traefik.http.routers.ak-outpost-traefik.entrypoints: websecure
       traefik.http.routers.ak-outpost-traefik.service: authentik
-      # TWO HOSTS ARE DELIBERATELY ABSENT FROM THE LIST ABOVE, and neither is an
+      # THREE HOSTS ARE DELIBERATELY ABSENT FROM THE LIST ABOVE, and none is an
       # oversight to fix:
+      #   vault.thefipster.de  — Vaultwarden holds the credentials for
+      #     repairing THIS stack, so it must stay reachable when this stack is
+      #     not. It is also the only service in the lab with real OIDC support
+      #     that declines to use it, for the same reason. /admin is not gated
+      #     either: that is the page you would need in order to repair
+      #     anything.
       #   uptime.thefipster.de — Kuma's whole job is telling you what is down,
       #     so gating it here would make an Authentik outage the one failure you
       #     cannot see.
       #   ha.thefipster.de     — forward auth would break Home Assistant's
       #     companion app, webhooks and every local API caller, which
       #     authenticate with tokens against the same endpoints a browser uses.
-      # Both keep their own local login. The matching absences are a missing
-      # `middlewares` label in infra/uptime-kuma/compose.yaml and a missing
-      # `middlewares` key in infra/traefik/dynamic/ha.yaml. Reasoning:
-      # docs/sso-applications.md.
+      # All three keep their own local login. The matching absences are missing
+      # `middlewares` labels in infra/vaultwarden/compose.yaml and
+      # infra/uptime-kuma/compose.yaml, and a missing `middlewares` key in
+      # infra/traefik/dynamic/ha.yaml. Reasoning: docs/sso-applications.md.
     networks:
       authentik-net:
       proxy:

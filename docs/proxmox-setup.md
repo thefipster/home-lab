@@ -6,7 +6,7 @@ Turns the bare server into a hypervisor running three VMs:
 
 ```
 Proxmox VE  ·  pve.thefipster.de          ← this guide
- ├─ VM: infra            → Traefik + Authentik + Forgejo + Dockge + monitoring
+ ├─ VM: infra            → Traefik + Vaultwarden + Authentik + Forgejo + Dockge + monitoring
  ├─ VM: apps             → Coolify + your apps
  └─ VM: home-assistant   → Home Assistant OS (Supervisor + add-ons)
 ```
@@ -697,7 +697,8 @@ against, so spending part of the reserve there later is equally fair game.
 Per-VM, the numbers and why:
 
 - **infra 24 GB.** The Forgejo Actions runner *compiles*, beside six monitoring
-  containers, Authentik, two Postgres instances, Traefik and Dockge. It is also
+  containers, Authentik, Vaultwarden, three Postgres instances, Traefik and
+  Dockge. It is also
   the machine with the worst failure mode: an OOM kill here takes SSO and
   routing down with the thing that would have shown you why.
 - **infra 150 GB.** Prometheus 15 d, Loki 14 d, Tempo 7 d, Docker image layers,

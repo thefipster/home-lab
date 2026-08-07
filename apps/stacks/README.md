@@ -15,7 +15,7 @@ in this repo.
 |---|---|---|---|---|
 | [mealie](mealie/) | `mealie` | `mealie.thefipster.de` | 9000 | PostgreSQL 18 |
 | [lubelogger](lubelogger/) | `lubelogger` | `lube.thefipster.de` | 8080 | PostgreSQL 18 |
-| [bookstack](bookstack/) | `bookstack` | `wiki.thefipster.de` | 80 | MariaDB 11.8 |
+| [bookstack](bookstack/) | `bookstack` | `wiki.thefipster.de` | 80 | MariaDB 12.3 |
 | [paperless](paperless/) | `paperless` | `paperless.thefipster.de` | 8000 | PostgreSQL 18, Valkey 9 |
 
 Domains match [apps/services.md](../services.md), which is the registry for them.
