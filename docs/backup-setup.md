@@ -618,15 +618,21 @@ that output means the files were captured and the database dump was not. Treat
 it as a snapshot you would rather not restore from — see [Last resort: the raw
 PGDATA](#last-resort-the-raw-pgdata) — and fix the dump before the next night.
 
-**The Kuma monitor is red but the run printed `OK`.** **Check the query string
-first**: `KUMA_PUSH_URL` must end at the token, with nothing from the `?`
-onward. Kuma displays it *with* a query string, and pasting that verbatim is
-the failure that produces exactly this symptom — the `&` is a command
-separator to the shell that sources this file, the assignment vanishes into a
-background subshell, `KUMA_PUSH_URL` is empty, and the emptiness guard skips
-the push without printing anything. Cut it back to
-`https://uptime.thefipster.de/api/push/TOKEN` and confirm what the shell
-actually sees:
+**The run fails with `KUMA_PUSH_URL is set in .env but arrived EMPTY`.** The
+value still carries Kuma's query string. Kuma displays the URL *with* one, and
+pasting it verbatim is the single most likely misconfiguration here: `&` is a
+command separator to the shell that sources this file, so the assignment runs
+in a background subshell and never reaches `run.sh`. Cut it back to
+`https://uptime.thefipster.de/api/push/TOKEN`.
+
+`run.sh` treats this as **fatal on purpose**, rather than skipping the push
+quietly. An unnoticed empty value is the deadman failing to arm — backups
+succeed nightly, the monitor stays red, and the one troubleshooting entry that
+matches sends you looking at Kuma. Failing loudly puts the reason in
+`journalctl -u restic-backup.service` instead. A genuinely empty value is a
+supported choice (heartbeat disabled) and does not trip it.
+
+Confirm what the shell actually sees:
 
 ```bash
 sudo bash -c 'set -a; . infra/backup/.env; set +a; echo "[$KUMA_PUSH_URL]"'

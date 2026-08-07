@@ -56,6 +56,21 @@ fi
 
 failed=()
 
+# KUMA_PUSH_URL arriving EMPTY while .env plainly sets it means the value still
+# carries Kuma's query string. `&` is a command separator to the shell that
+# sourced the file, so the assignment ran in a background subshell and never
+# reached us — and the emptiness guard at the end would then skip the push
+# without a word. That is the deadman silently failing to arm, which is the one
+# failure this entire mechanism exists to prevent, so it is loud and it is
+# fatal. A genuinely empty value is a supported choice (heartbeat disabled) and
+# does not trip this.
+if [ -z "${KUMA_PUSH_URL:-}" ] && grep -qE '^KUMA_PUSH_URL=.+' "${SCRIPT_DIR}/.env"; then
+  echo "  ! KUMA_PUSH_URL is set in .env but arrived EMPTY." >&2
+  echo "  ! Cut the query string: it must end at the token, with nothing" >&2
+  echo "  ! from '?' onward. run.sh builds the query itself." >&2
+  failed+=("kuma-push-url")
+fi
+
 for stack in "${stacks[@]}"; do
   script="${REPO_ROOT}/infra/${stack}/backup.sh"
 
