@@ -22,12 +22,17 @@ bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
 > give is a granular restore, an off-premises copy, or the ability to recover
 > the vault without rolling the entire VM back.
 >
-> **Phase 2 now exists, and the vault has not joined it.** The mechanism is
-> built and running ([backup-setup.md](../backup-setup.md)), but the only stack
-> wired up is Authentik — `infra/vaultwarden/backup.sh` is the next file to
-> write, and it is one file. Until it exists, "the vault is backed up" is still
-> true only in the coarse sense, for a different reason than before. Keep the
-> master password somewhere outside the lab either way.
+> **The vault has now joined phase 2.** `infra/vaultwarden/backup.sh` and its
+> `restore.sh` exist, so the vault has a granular restore, an encrypted
+> off-machine copy, and a recovery path that does not roll the whole VM back —
+> the three things layer 1 could not give it. That closes the gap this note was
+> written about.
+>
+> Two things it does **not** change. `RESTIC_PASSWORD` still cannot live only
+> in the vault, because the vault is inside the backup — keep the
+> authoritative copy outside the lab, on paper or in an account that survives
+> the building. The same goes for the Vaultwarden master password, for the same
+> reason.
 
 ## What needs a backup
 
@@ -322,9 +327,10 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **The recipe set is complete and every exception is spent.** Three stacks
-   are wired, and they were chosen in that order deliberately — each one was
-   the last remaining unknown of its kind:
+   **The recipe set is complete and every exception is spent.** Four stacks
+   are wired. The first three were chosen in that order deliberately — each
+   was the last remaining unknown of its kind — and the fourth is the one the
+   whole phase was prioritised for:
 
    - **Authentik** — the Postgres shape, and the DB↔secret-key coupling the
      per-stack design exists for.
@@ -339,10 +345,16 @@ reason.
      snapshot and destroying them would throw away live data the backup never
      promised to return.
 
-   **What remains is four files and no new decisions**: Vaultwarden, Forgejo,
-   Traefik and Dockge. All four are the single-argument or include-only forms.
-   Vaultwarden is the one to write first, for the reason at the top of this
-   file.
+   - **Vaultwarden** — the plainest mechanics of the four (single-argument
+     `dump_postgres`, two includes, `include_env`) and the highest stakes.
+     `rsa_key.pem` under `data/` signs every access token; the database holds
+     what those tokens address. Restore one without the other and you get a
+     working server, an intact vault, and every client logged out with no way
+     to prove anything — so `restore.sh` checks for `rsa_key.pem` by name
+     rather than trusting that `data/` exists.
+
+   **What remains is three files and no new decisions**: Forgejo, Traefik and
+   Dockge. All three are the single-argument or include-only forms.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a

@@ -31,10 +31,10 @@ Three things shape everything below:
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Authentik, monitoring and Uptime Kuma are wired up end to end**, database
-  dump, restore script and all. Between them they cover every shape there is:
-  Postgres, SQLite, and the one stack whose directory and database names
-  differ. The rest of the tier-1 table in
+- **Authentik, monitoring, Uptime Kuma and Vaultwarden are wired up end to
+  end**, database dump, restore script and all. Between them they cover every
+  shape there is: Postgres, SQLite, the one stack whose directory and database
+  names differ, and the vault. The rest of the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
   follows the same recipes when each gets its file, with no new decisions in
   them.
@@ -365,13 +365,13 @@ sudo infra/backup/run.sh
 ```
 
 Expect a `staging` / `snapshot` pair per wired stack — `authentik`,
-`monitoring` and `uptime-kuma` today, in that order, since the runner globs
-them alphabetically — then `==> forget + prune`, then a final
-`OK: authentik monitoring uptime-kuma`. Each staging step declares that
-stack's directories and runs its dump through the stack's **own** container:
-`pg_dump` in the `db` service for the two Postgres stacks, `sqlite3` in Kuma's
-single service. The snapshot step hands restic the path list that step
-produced, and nothing else.
+`monitoring`, `uptime-kuma` and `vaultwarden` today, in that order, since the
+runner globs them alphabetically — then `==> forget + prune`, then a final
+`OK: authentik monitoring uptime-kuma vaultwarden`. Each staging step declares
+that stack's directories and runs its dump through the stack's **own**
+container: `pg_dump` in the `db` service for the three Postgres stacks,
+`sqlite3` in Kuma's single service. The snapshot step hands restic the path
+list that step produced, and nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
 > has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
@@ -411,7 +411,8 @@ Sunday at 03:00.
 - [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
-- [ ] `sudo infra/backup/run.sh` ends in `OK: authentik monitoring uptime-kuma`
+- [ ] `sudo infra/backup/run.sh` ends in
+      `OK: authentik monitoring uptime-kuma vaultwarden`
 - [ ] A snapshot is listed for each tag — `authentik` and `uptime-kuma`
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
@@ -462,6 +463,27 @@ datasources are **provisioned from this repo**, so they come back on an empty
 database too. They prove the stack started, not that the restore worked. The
 things that actually prove it are the hand-made ones — users, API tokens,
 starred dashboards, anything built in the browser rather than committed.
+
+**Vaultwarden restores like Authentik**, with `sudo infra/vaultwarden/restore.sh`
+— whole tree aside, `postgres/` left empty, dump loaded into a fresh cluster.
+What differs is what it checks and what proves it worked.
+
+Its staged-snapshot check names **`data/rsa_key.pem` by itself**, rather than
+trusting that `data/` exists. That file signs every access token the server
+issues, and the database holds what those tokens address; restore one without
+the other and you get a working server, an intact vault, and every client
+logged out with no way to prove anything against it. A missing `rsa_key.pem`
+therefore has to stop the restore before it moves anything, not surface later
+as clients mysteriously demanding fresh logins.
+
+So the check that actually proves this restore is **logging in from a client
+that was already paired** — a browser extension or phone app you have not
+re-authenticated. Opening the web vault in a fresh browser session proves much
+less: it would work even if the key and the database had come from different
+snapshots. Two things beyond the database are also worth confirming, because
+they live in `data/` and not in Postgres: an attachment opens, and any setting
+you changed through `/admin` is still as you left it (those are written to
+`data/config.json`, which **overrides** the compose environment).
 
 > **The check comes before the move, and that ordering is the whole point.**
 > `data/`, `templates/`, `certs/`, the `.env` and the SQL dump are all verified
