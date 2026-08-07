@@ -178,9 +178,20 @@ Then the question that matters — does the block leak onto anyone else?
 sshd -T -C user=root | grep -iE 'chrootdirectory|forcecommand'
 ```
 
-Expected: **no output.** If anything prints here, root would be chrooted and
-forced into `internal-sftp` on the next login — that is a locked-out hypervisor.
-**Do not restart sshd.** Fix the drop-in first.
+Expected: **both lines present, and both reading `none`** — in either order:
+
+```
+chrootdirectory none
+forcecommand none
+```
+
+`sshd -T` dumps the *effective* configuration including defaults, so these two
+keywords always print; `none` is what "no chroot, no forced command" looks like.
+It is the **value** you are checking, not whether a line appeared.
+
+If either shows a real value instead, root would be chrooted and forced into
+`internal-sftp` on the next login — that is a locked-out hypervisor. **Do not
+restart sshd.** Fix the drop-in first.
 
 Then the same question in the positive:
 
@@ -189,8 +200,8 @@ sshd -T -C user=resticbackup | grep -iE 'chrootdirectory|forcecommand'
 ```
 
 Expected: `chrootdirectory /usbbackup/chroot` and `forcecommand internal-sftp`.
-If *this* one is empty while the root check was also empty, the drop-in is not
-being read at all — check that `sshd_config` still carries its
+If *this* one also reads `none` for both, the drop-in is not being read at
+all — check that `sshd_config` still carries its
 `Include /etc/ssh/sshd_config.d/*.conf` line, and that the filename ends in
 `.conf`.
 
@@ -374,8 +385,8 @@ Sunday at 03:00.
 
 ### Checklist
 
-- [ ] `sshd -T -C user=root` prints nothing about chroot or forced commands, and
-      a fresh root login to the hypervisor still works
+- [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
+      none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
 - [ ] `sudo infra/backup/run.sh` ends in `OK: authentik`
 - [ ] One snapshot tagged `authentik` is listed
