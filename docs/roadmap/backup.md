@@ -42,7 +42,7 @@ that make it openable.
 | Authentik data/templates/certs | `/opt/authentik/data`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
 | Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The monitor registry ([uptime-kuma-monitors.md](../uptime-kuma-monitors.md)) makes it *re-creatable*, by hand, one form at a time. |
 | Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
-| All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring}/.env`, `/opt/stacks/dockge/.env` | netcup API credentials, four Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
+| All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring}/.env` | netcup API credentials, four Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
 
 Three couplings in that table decide the shape of the whole thing:
 
@@ -59,6 +59,16 @@ Three couplings in that table decide the shape of the whole thing:
 - **Postgres keeps the password its data dir was first initialized with** —
   the `.env.example` files already say so. Restore a `postgres` directory
   next to a regenerated `.env` and the stack cannot log into its own database.
+- **The `.env` files are reachable only through the checkout, not through
+  `/opt/stacks`.** `/opt/stacks/<stack>` are *symlinks* into
+  `~/home-lab/infra/<stack>`, and restic stores a symlink as a symlink rather
+  than descending into it. Backing up `/opt/stacks` therefore captures the
+  links and none of the secrets. The paths in the diagram below name
+  `infra/*/.env` separately for exactly this reason — it is not redundancy.
+
+**Dockge's `.env` is deliberately not in that row.** It holds exactly
+`REPO_DIR=…`, rewritten by `scripts/init-dockge.sh` on every run. There is no
+secret in it and nothing to lose.
 
 ### Tier 2 — cheap to include, mildly annoying to lose
 
@@ -80,6 +90,11 @@ is a backup nobody keeps running.
   value that justifies the bytes.
 - **Alloy** `/opt/monitoring/alloy` — WAL and log positions. Self-healing; a
   restore would only replay stale offsets.
+- **Grafana's file state** `/opt/monitoring/grafana` — with
+  `GF_DATABASE_TYPE: postgres` this directory holds only the plugin dir (nothing
+  installs plugins here) and the renderer/CSV cache. There is no `grafana.db`,
+  because the backend is not SQLite. The Grafana *database* is Tier 2 above and
+  is a different path.
 - **Docker images and layers** — pullable, and CI rebuilds what it built.
 - **The repo checkout at `~/home-lab`** — it's a clone; `git clone` restores
   it. Only its untracked `.env` files matter, and those are Tier 1 above.
@@ -94,6 +109,10 @@ is a backup nobody keeps running.
   that `grafana-setup.md` installs by hand. Out of scope here; folded into
   phase 1 because the host's backup job is where whole-VM backups live anyway.
 - **The apps VM (Coolify)** — its own state, its own story. Not this roadmap.
+- **The home-assistant VM** — HAOS is an appliance and ships its own backup
+  mechanism (*Settings → System → Backups*), which is what it uses. Layer 1
+  covers its disk; nothing in this repo drives its file-level backups, the same
+  way nothing here drives its configuration.
 
 ## Decision: two layers, not one
 
@@ -188,6 +207,10 @@ used to pick Postgres over SQLite for Grafana in the first place. Running it as
 `docker compose exec -T db pg_dump` uses the container's own client, so the
 dump tool always matches the server version.
 
+There is **no MariaDB on the infra VM** — all four databases are
+`postgres:18-alpine` — so there is no MariaDB recipe. That belongs to the apps
+VM, which this roadmap scopes out.
+
 The raw `PGDATA` directories still ride *inside* the restic snapshot — the
 diagram's whole-`/opt/<stack>` paths include them, and `monitoring/postgres`
 is listed by name precisely so Grafana's database comes along while the
@@ -226,18 +249,33 @@ apps VM (later) ─── same repository, its own key ────────�
 Layer 2 is a **systemd timer**, not a compose stack — deliberately. A backup
 that runs inside Docker is a backup that stops when Docker does, and the
 alternative (a container that can stop other containers) means a sixth socket
-mount. Precedent exists: the Proxmox node exporter is a systemd unit too. The
-repo still owns the files, same as every other stack:
+mount. Precedent exists: the Proxmox node exporter is a systemd unit too.
 
 ```
 infra/backup/
-  backup.sh          dump → restic backup → forget --prune → ping Kuma
-  restic-backup.service / .timer
-  .env.example       RESTIC_REPOSITORY (sftp:backup@pve.thefipster.de:/restic),
-                     RESTIC_PASSWORD, KUMA_PUSH_URL
-scripts/init-backup.sh   installs the unit, creates /opt/backup, seeds .env, restic init
-docs/backup-setup.md     the guide, once phase 2 lands
+  lib.sh             the recipes: include, include_env, dump_postgres
+  run.sh             glob infra/*/backup.sh → stage → snapshot --tag <stack> → forget --prune → ping Kuma
+  restic-backup.service / .timer   nightly 01:00
+  restic-check.service / .timer    weekly restic check
+  .env.example       RESTIC_REPOSITORY, RESTIC_PASSWORD, KUMA_PUSH_URL
+infra/<stack>/
+  backup.sh          what THIS stack's backup consists of — one file per stack
+  restore.sh         the inverse, with guardrails
+scripts/init-backup.sh   installs the units, creates /opt/backup, seeds .env, restic init
+docs/backup-setup.md     the guide
 ```
+
+**A stack's backup is defined beside the stack, not in the runner.** Each
+`infra/<stack>/backup.sh` sources `lib.sh` and declares what that stack
+consists of; the runner finds them by globbing `infra/*/backup.sh`, so adding a
+stack is one file and no list to keep in sync. This is the shape the couplings
+argue for: Authentik's DB↔`AUTHENTIK_SECRET_KEY` and Vaultwarden's
+DB↔`rsa_key.pem` are *per-stack facts*, and they belong where someone changing
+that stack will read them.
+
+**Each stack gets its own tagged snapshot**, so restoring one is
+`restic restore latest --tag authentik` rather than an include-list assembled
+under pressure — and the coupling comes back as one unit by construction.
 
 **The one secret that cannot be in the backup: `RESTIC_PASSWORD`.** Lose it and
 the repository is cryptographically gone. It belongs in a password manager and
@@ -266,8 +304,11 @@ reason.
    local first, so the mechanism gets debugged without also debugging cloud
    credentials. Retention `--keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
    weekly `restic check`. Host-side prerequisites: the `backup` user, its
-   chroot, and one authorized key per client. **Vaultwarden is the reason this
-   phase is the next one done** — see the note at the top.
+   chroot, and one authorized key per client.
+   The Kuma push (phase 4) lands here rather than later: a backup nobody knows
+   has stopped is decorative, and it is three lines given Kuma already exists.
+   **Vaultwarden is the reason this phase is the next one done** — see the
+   note at the top.
 3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
@@ -277,14 +318,11 @@ reason.
    protects. Unplugging it and carrying it elsewhere is a valid third copy only
    for as long as someone actually does — and nothing here can alert on a human
    step that didn't happen.
-4. **Notice when it stops.** A silent backup failure is indistinguishable
-   from a backup. `backup.sh` curls an **Uptime Kuma push monitor** on
-   success; Kuma alerts through ntfy when the heartbeat doesn't arrive — a
-   deadman switch built from infrastructure that already exists, and it lands
-   on the side of the split ([Kuma notifies, Grafana
-   explains](../uptime-kuma-setup.md)) that this belongs on. Optionally also
-   write a `backup_last_success_timestamp` metric for Alloy's textfile
-   collector, for the "why" half.
+4. **Notice when it stops.** ✅ folded into phase 2 — `run.sh` pings an Uptime
+   Kuma push monitor, and only a fully clean run does. What remains here is the
+   optional `backup_last_success_timestamp` metric for Alloy's textfile
+   collector, for the "why" half; it needs a `textfile` block on
+   `prometheus.exporter.unix` and has not been built.
 5. **Prove it.** Restore drill: roll the infra VM back to a snapshot, restore
    from restic, verify each stack comes up — Vaultwarden accepting a login
    from a client that was already paired (which is what proves `rsa_key.pem`
