@@ -101,11 +101,32 @@ is a place they could install their own key:
 mkdir -p /etc/ssh/authorized_keys && chmod 755 /etc/ssh/authorized_keys
 ```
 
+**The key is `root`'s on the infra VM, not your own user's.** Print it there:
+
+```bash
+sudo cat /root/.ssh/id_ed25519.pub
+```
+
+It is one line, starts `ssh-ed25519`, and ends with the comment
+`restic-backup@infra` — which is how you tell it apart from any other key you
+have lying around. `scripts/init-backup.sh` generated it and printed it on its
+first run; if you have not run that yet, see the note at the top of this part.
+
+> **Why root's and not yours.** The job is a systemd unit with `User=root`
+> (`infra/backup/restic-backup.service`), because the `/opt` trees are owned by
+> whatever UID each image runs as — postgres 999, forgejo 1000, grafana
+> 472 — so no single non-root user can read all of them, and `pg_dump` needs
+> the Docker socket anyway. Your own key would work perfectly when you test
+> the connection by hand and then fail every night at 01:00, which is the
+> worst shape a mistake can take here: it looks correct exactly once.
+
+Back on the Proxmox host, paste that single line into:
+
 ```bash
 nano /etc/ssh/authorized_keys/resticbackup
 ```
 
-Paste the single `ssh-ed25519 …` line, then:
+Then:
 
 ```bash
 chown root:root /etc/ssh/authorized_keys/resticbackup && chmod 644 /etc/ssh/authorized_keys/resticbackup
