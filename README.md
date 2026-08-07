@@ -29,7 +29,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │  rpool     2×500 GB NVMe mirror  → Proxmox + VM root disks
     │  backup    2×1 TB  SATA mirror   → vzdump whole-VM archives
     │  data      2×500 GB SATA mirror  → the apps VM's second disk
-    │  usbbackup 1×500 GB USB  NVMe    → restic container backups (offsite-capable)
+    │  usbbackup 1×1 TB USB NVMe       → restic container backups (offsite-capable)
     │
     ├─ infra VM · 12 vCPU · 24 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
@@ -41,15 +41,17 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │    Uptime Kuma   black-box status + every notification the lab sends
     │
     ├─ apps VM · 12 vCPU · 32 GB · 80 GB + 300 GB on data · Ubuntu Server 26.04
-    │    Coolify       self-hosted PaaS — owns its own Docker and its own cert
-    │    your apps     *.thefipster.de, routed by Host header — no new DNS record
-    │    third-party   self-hosted software you use — catalog in apps/services.md
-    │    node_exporter scraped by Alloy over the LAN
+    │    Coolify         self-hosted PaaS — owns its own Docker and its own cert
+    │      your apps     *.thefipster.de, routed by Host header — no new DNS record
+    │      third-party   self-hosted software you use — catalog in apps/services.md
     │
     └─ home-assistant VM · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
-         Supervisor     full HAOS — add-on store, ESPHome firmware builds
-         ha. → Traefik  proxied from the infra VM via its file provider
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
+         Supervisor     full HAOS — the add-on store the four below come from
+           ESPHome      firmware for the lab's own ESP devices, built on this VM
+           Mosquitto    the MQTT broker both Zigbee2MQTT and HA talk to
+           Zigbee2MQTT  Zigbee radios → MQTT · Ethernet coordinators, no USB passthrough
+           Node-RED     flow-based automation beside HA's own
 ```
 
 | Layer                 | Purpose |
