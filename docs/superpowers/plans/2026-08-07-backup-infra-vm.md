@@ -14,7 +14,7 @@
 
 - **This repo has no build, lint or test system.** Correctness is verified by reading, plus `bash -n` for syntax. Real verification happens on the VM and is **not** claimed by the implementer — Task 10 lists it as an operator checklist.
 - **`*.sh` must be committed LF and mode `100755`.** `.gitattributes` forces LF; a file created on Windows lands `100644`. Use `git update-index --chmod=+x` and verify with `git ls-files -s`.
-- **All shell scripts use `set -euo pipefail`** and resolve paths from `$BASH_SOURCE`, except `run.sh`, which uses `set -uo pipefail` deliberately (documented in Task 4).
+- **Executable shell scripts use `set -euo pipefail`** and resolve paths from `$BASH_SOURCE`. Two deliberate exceptions, each documented in its own task: `run.sh` uses `set -uo pipefail` (Task 4), and `lib.sh` sets nothing at all because it is sourced and inherits the caller's settings (Task 2).
 - **Never write a host IP address.** Machines are addressed by name: `pve.thefipster.de`.
 - **Image pins and paths are already fixed** — do not change any compose file. The four Postgres stacks are uniform: service `db`, `POSTGRES_USER == POSTGRES_DB == <stack>`.
 - **Guides describe a from-scratch bring-up.** No migration paths, no upgrade procedures, no phase history in guides.
