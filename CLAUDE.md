@@ -210,7 +210,7 @@ facts, and they belong in the file someone changing that stack will read —
 Authentik's is commented in `infra/authentik/backup.sh`; Vaultwarden's is the
 next one to write.
 
-Five rules that are not obvious from one file:
+Six rules that are not obvious from one file:
 
 - **`.env` files come from the CHECKOUT, never from `/opt/stacks/<stack>`** —
   those are symlinks, and restic stores a symlink as a symlink rather than
@@ -230,6 +230,13 @@ Five rules that are not obvious from one file:
   collected, named on the last line, and turned into a non-zero exit at the end.
   Only a **fully clean** run pings Kuma, so a partial success reads as red
   rather than as a green tick over a missing snapshot.
+- **Every `backup.sh` declares its file `include`s BEFORE `dump_postgres`**, and
+  that order is not cosmetic. A stack script runs under `set -e`, so a failing
+  dump aborts it — with the includes first, `paths.txt` is already non-empty and
+  `run.sh` takes a **degraded** snapshot (files yes, dump no) while still
+  recording the stack as failed. With the dump first, one broken database would
+  cost that stack its files and its `.env` too, and the raw PGDATA fallback
+  below would be unreachable in the only state it exists for.
 - **It is a systemd timer, not a compose stack.** Nothing appears in Dockge,
   there is no `/opt/stacks/backup` symlink, and `systemctl status` /
   `journalctl -u restic-backup.service` are the equivalent of reading a
@@ -616,8 +623,13 @@ Each machine's section of the build order now opens with the guide that prepares
 that machine. Do not fold them back in, and do not add a third: the Proxmox host
 has no checkout, and the HA VM is an appliance. The README's "Build order" links them in sequence,
 **grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
-and each guide ends by linking the next. The last two guides leave the infra VM:
-their `**Runs on:**` line is the quickest way to tell. `grafana-setup.md` owns
+and each guide ends by linking the next. The `**Runs on:**` line is the quickest
+way to tell which machine a guide belongs to — **with two exceptions, both of
+which name the Proxmox host and neither of which has left the infra VM
+section.** `backup-setup.md` says *the Proxmox host shell, then the infra VM*
+because its Part 1 creates the SFTP account on the machine that owns the drive,
+and `grafana-setup.md` flags its step 6 the same way for the node exporter. Read
+past the first machine named. `grafana-setup.md` owns
 **all** of monitoring — the platform *and* what it observes; an earlier split
 into a second `monitoring-setup.md` was merged away because, on a fresh
 checkout, the second guide was pure verification.

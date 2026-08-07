@@ -195,7 +195,21 @@ input to the next part.
 Its row is in
 [uptime-kuma-monitors.md](uptime-kuma-monitors.md#backup--infra-vm): **Add New
 Monitor**, type **Push**, heartbeat interval **90000 s**, retries **0**, with
-the ntfy notification attached. Copy the push URL.
+the ntfy notification attached. Copy the push URL — **and cut the query string
+off it**.
+
+> **Kuma shows the URL with a query string already attached**, like
+> `https://uptime.thefipster.de/api/push/TOKEN?status=up&msg=OK&ping=`. Keep
+> only the part up to the token; delete everything from the `?` onward.
+>
+> This is not tidiness. `infra/backup/.env` is **sourced as shell** by
+> `run.sh`, and `&` there is a command separator: the assignment runs in a
+> background subshell, never reaches the parent, and `KUMA_PUSH_URL` ends up
+> **empty**. The push is then skipped by the emptiness guard, so not even the
+> "Kuma push failed" warning prints — backups succeed every night while the
+> monitor goes red after 25 hours and stays red. `run.sh` builds the query
+> itself with `curl --get --data-urlencode`, so the part you delete was
+> redundant anyway.
 
 **90000 s is 25 hours, and the hour of slack is deliberate.** The job runs once
 a day, so the heartbeat window has to be longer than a day or a perfectly
@@ -261,11 +275,19 @@ Put it, and the Kuma push URL from Part 2, into the `.env`:
 nano infra/backup/.env
 ```
 
-`RESTIC_REPOSITORY` is already correct. Leave every line as plain `KEY=value`
-with no quoting, no `export` and no `$` — this file is read **twice**, once by
-`run.sh` as shell and once by systemd as an `EnvironmentFile` for
-`restic-check.service`, and systemd does not run a shell over it and will not
-tell you it skipped a line.
+`RESTIC_REPOSITORY` is already correct. `KUMA_PUSH_URL` ships as a shape with
+`changeme` where the token goes — replace that word, and **nothing else**, with
+the token from Part 2.
+
+Leave every line as plain `KEY=value` with no quoting, no `export`, no `$`, and
+none of `&`, `?` or `#` — this file is read **twice**, once by `run.sh` as
+shell and once by systemd as an `EnvironmentFile` for `restic-check.service`.
+systemd does not run a shell over it and will not tell you it skipped a line;
+the shell, worse, does not skip a line it dislikes — it **runs** it. `&` ends
+the command (the assignment goes to a background subshell and never reaches the
+parent), `?` is where a URL's query string starts and therefore where the `&`
+comes from, and a `#` after a space is a comment to the shell and part of the
+value to systemd.
 
 Then re-run:
 
@@ -291,9 +313,10 @@ sudo infra/backup/run.sh
 ```
 
 Expect one `==> authentik: staging` / `==> authentik: snapshot` pair, then
-`==> forget + prune`, then `OK: authentik`. The staging step runs `pg_dump`
-through Authentik's own `db` container; the snapshot step hands restic the path
-list that dump produced, and nothing else.
+`==> forget + prune`, then `OK: authentik`. The staging step declares
+Authentik's directories and then runs `pg_dump` through the stack's own `db`
+container; the snapshot step hands restic the path list that step produced, and
+nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
 > has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
@@ -393,8 +416,18 @@ The snapshot also carries `/opt/authentik/postgres` — the live data directory,
 copied while it was running. **It is never the restore path**, because a
 live-copied `PGDATA` is torn by construction. It rides along because it costs
 little for a database this size, and it is what you have when there is no dump:
-a snapshot taken while `pg_dump` was failing, or a stack whose database was
-already broken when the last good run happened.
+a **degraded snapshot**, taken on a night when `pg_dump` failed, or a stack
+whose database was already broken when the last good run happened.
+
+> **How a degraded snapshot happens is deliberate, not accidental.** Every
+> `infra/<stack>/backup.sh` declares its *file* paths before it runs the
+> database dump, so a dump that fails still leaves a non-empty `paths.txt`
+> behind it — and `run.sh` snapshots that rather than skipping the stack. You
+> get `data/`, `certs/`, the `.env` with `AUTHENTIK_SECRET_KEY` and this raw
+> `PGDATA`; you do not get `authentik.sql`. The run still reports the stack as
+> failed, still exits non-zero and still says nothing to Kuma, so it shows up
+> as red — it is a worse backup than usual, not a good one. The line to look
+> for in the journal is `snapshotting DEGRADED`.
 
 Expect it not to start. Try it anyway, in this order, and only after
 `restore.sh` has failed for want of a dump.
@@ -487,11 +520,53 @@ line. Read the detail in the journal:
 journalctl -u restic-backup.service -n 50
 ```
 
-**The Kuma monitor is red but the run printed `OK`.** `KUMA_PUSH_URL` is empty
-or wrong in `infra/backup/.env`. A failed push is reported but does not fail the
-run — the backup succeeding matters more than the notification about it. Paste
-the URL from the monitor's page again; it is a bearer token in a query string,
-so a truncated copy looks like a valid URL.
+A failed stack may still have produced a snapshot: `snapshotting DEGRADED` in
+that output means the files were captured and the database dump was not. Treat
+it as a snapshot you would rather not restore from — see [Last resort: the raw
+PGDATA](#last-resort-the-raw-pgdata) — and fix the dump before the next night.
+
+**The Kuma monitor is red but the run printed `OK`.** **Check the query string
+first**: `KUMA_PUSH_URL` must end at the token, with nothing from the `?`
+onward. Kuma displays it *with* a query string, and pasting that verbatim is
+the failure that produces exactly this symptom — the `&` is a command
+separator to the shell that sources this file, the assignment vanishes into a
+background subshell, `KUMA_PUSH_URL` is empty, and the emptiness guard skips
+the push without printing anything. Cut it back to
+`https://uptime.thefipster.de/api/push/TOKEN` and confirm what the shell
+actually sees:
+
+```bash
+sudo bash -c 'set -a; . infra/backup/.env; set +a; echo "[$KUMA_PUSH_URL]"'
+```
+
+Expected: the full token URL between the brackets. Empty brackets, or a
+truncated value, is the bug above.
+
+If it is intact, the value is simply wrong — a wrong or deleted token. A failed
+push *is* reported (`! Kuma push failed`) but does not fail the run: the backup
+succeeding matters more than the notification about it.
+
+**`repository is already locked` / `unable to create lock`.** A restic run that
+was killed part-way — a reboot at the wrong moment, a `systemctl stop`, a VM
+snapshot rollback — leaves its lock behind. Nothing expires it on its own, so
+**every** later backup and the weekly check fail the same way, the monitor goes
+red and stays red, and the transport tests perfectly clean (which is what sends
+people down the SFTP path above by mistake). Look first:
+
+```bash
+sudo bash -c 'set -a; . infra/backup/.env; set +a; restic list locks'
+```
+
+Make sure no `restic-backup.service` or `restic-check.service` is actually
+running (`systemctl is-active restic-backup.service`) — the lock is doing its
+job if one is — then remove the stale ones:
+
+```bash
+sudo bash -c 'set -a; . infra/backup/.env; set +a; restic unlock'
+```
+
+`restic unlock` removes stale locks only; add `--remove-all` only when you are
+certain nothing is running, on any client.
 
 **Re-running one stack without waiting for the others:**
 
@@ -512,7 +587,9 @@ backup, it is missing from there first.
 
 **`include: /opt/… does not exist`.** A declared path is gone, and that aborts
 the stack rather than warning. Intentional: a backup quietly missing a directory
-is worse than a backup that says it failed.
+is worse than a backup that says it failed. Anything declared *before* the
+failing line is still snapshotted, as a degraded snapshot — the stack is
+reported failed either way.
 
 **`restic check` fails on Sunday — and nothing tells you.** Only `run.sh`
 pushes to Kuma; `restic-check.service` has no heartbeat and no Grafana rule, so
@@ -610,6 +687,11 @@ exit at the end. `-u` and `-o pipefail` still apply. The Kuma push is guarded by
 that same exit path, which is what makes a partial success look like a failure
 rather than a green tick.
 
+The same reasoning runs one level deeper, *inside* a stack: a stack script that
+aborts still gets its snapshot taken if it declared any paths before it died.
+Failing loudly and backing up nothing are two different things, and only the
+first one is wanted.
+
 **Why 01:00.** One hour **before** the 02:00 `vzdump` job on the hypervisor, so
 layer 1's whole-VM archive contains the current night's dumps rather than the
 previous night's — the two layers stack instead of merely coexisting. It is also
@@ -622,14 +704,28 @@ spacing is about host I/O, and about layer 1 finding the current night's dumps
 already on disk.
 
 **Why `check --read-data-subset=10%`.** A repository that cannot be read is not
-a backup, and the only way to know is to read it. A rotating tenth per week
-covers the whole repository in about ten weeks without reading all of it every
-night — the trade between proving the bytes are there and spending a night on
-the USB bus doing it.
+a backup, and the only way to know is to read it. The structural half of
+`restic check` — every index, every snapshot, every tree — runs **in full**
+every week; `--read-data-subset` is about how much of the actual pack data gets
+hashed on top of that, and 10% is the trade between proving the bytes are there
+and spending a night on the USB bus doing it.
+
+**It samples, it does not rotate.** restic's `n%` form picks a *random* subset
+each run; only the `n/t` form (`--read-data-subset=3/10`) selects a
+deterministic slice, and rotating one would mean a different `n` each week,
+which a static unit file cannot express without wrapping the command in a
+shell. So do not read this as "the whole repository every ten weeks" — nothing
+guarantees a given pack has ever been read. It is a weekly spot check, and the
+thing it reliably catches is a repository that has gone broadly unreadable,
+which is the failure that actually happens to a USB drive.
 
 **Why the raw `PGDATA` rides along but is never the restore path.** It is in the
 snapshot because it costs almost nothing for a database this size, and because
-"no dump exists" is a real state to be in. It is not the restore path because a
+"no dump exists" is a real state to be in — one the runner deliberately keeps
+*reachable*, by declaring file paths before the dump and snapshotting whatever
+was declared when a stack script dies. Without that ordering a failed
+`pg_dump` would take the whole snapshot down with it and this directory would
+never be there on the night it is wanted. It is not the restore path because a
 `PGDATA` copied from a running server is torn by construction — the dump is the
 consistent artefact, and a second path that *looks* equally valid is how a
 restore goes wrong. This is the first thing to reconsider if snapshots ever get

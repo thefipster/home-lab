@@ -276,7 +276,12 @@ green tick over a missing snapshot. That is the whole point: silence is the
 signal.
 
 The job and its timer live on the infra VM — [backup-setup.md](backup-setup.md).
-Create this monitor first and paste its URL into `infra/backup/.env`.
+Create this monitor first and paste its URL into `infra/backup/.env` — **up to
+the token only**. Kuma displays it with `?status=up&msg=OK&ping=` attached, and
+that file is sourced as shell, where `&` is a command separator: pasted whole,
+`KUMA_PUSH_URL` silently ends up empty and this monitor never goes green again.
+`run.sh` builds the query itself. See
+[backup-setup.md Part 2](backup-setup.md#part-2--the-kuma-push-monitor).
 
 **The weekly `restic check` has no monitor here, and that is a gap rather than
 a decision.** Only the nightly run pushes; a repository that has quietly become
