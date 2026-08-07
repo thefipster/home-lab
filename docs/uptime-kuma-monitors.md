@@ -222,10 +222,11 @@ machine). Pinging `ha.` would pointlessly ping the infra VM —
 |---|---|---|
 | Hypervisor Storage | Push | *(push URL — the host calls Kuma)* |
 
-The one monitor here that watches a **condition** rather than a service, and the
-only one whose target is not something Kuma dials. Set the heartbeat interval to
-**300 s** with 2 retries; a timer on the Proxmox host calls the push URL on that
-cadence. Create the monitor first, then paste its URL into
+The **first** of the two monitors here that watch a **condition** rather than a
+service — [Backup](#backup--infra-vm) below is the other — and neither one's
+target is something Kuma dials. Set the heartbeat interval to **300 s** with 2
+retries; a timer on the Proxmox host calls the push URL on that cadence. Create
+the monitor first, then paste its URL into
 [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades),
 which is where the script and its systemd timer live — on the hypervisor, because
 that is the machine with the pools.

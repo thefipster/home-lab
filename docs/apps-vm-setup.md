@@ -2,9 +2,8 @@
 
 **Runs on:** apps VM
 
-**Prerequisite:** [uptime-kuma-setup.md](uptime-kuma-setup.md) complete — the
-infra VM is finished, so this machine has TLS, SSO, CI and monitoring to lean
-on.
+**Prerequisite:** [backup-setup.md](backup-setup.md) complete — the infra VM is
+finished, so this machine has TLS, SSO, CI and monitoring to lean on.
 
 This is the first time you open a shell on the second VM. It gets the same host
 treatment as the infra VM — clock policy, guest agent, automatic security

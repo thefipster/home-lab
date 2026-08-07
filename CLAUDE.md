@@ -616,13 +616,11 @@ Each machine's section of the build order now opens with the guide that prepares
 that machine. Do not fold them back in, and do not add a third: the Proxmox host
 has no checkout, and the HA VM is an appliance. The README's "Build order" links them in sequence,
 **grouped by machine** (lab foundation → infra VM → apps VM → home-assistant VM),
-and each guide ends by linking the next. The last two guides leave the infra VM,
-and `backup-setup.md` starts on the Proxmox host before returning to it: the
-`**Runs on:**` line is the quickest way to tell, and it is the only one naming
-two machines. `grafana-setup.md` owns **all** of monitoring —
-the platform *and* what it observes; an earlier split into a second
-`monitoring-setup.md` was merged away because, on a fresh checkout, the second
-guide was pure verification.
+and each guide ends by linking the next. The last two guides leave the infra VM:
+their `**Runs on:**` line is the quickest way to tell. `grafana-setup.md` owns
+**all** of monitoring — the platform *and* what it observes; an earlier split
+into a second `monitoring-setup.md` was merged away because, on a fresh
+checkout, the second guide was pure verification.
 
 Three **registries** centralize the manual operations that live outside the repo:
 `dns-records.md` (every UDR DNS record), `sso-applications.md` (every Authentik
