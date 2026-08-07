@@ -210,9 +210,9 @@ Two consequences worth carrying into the remaining six stacks:
 
 ## Follow-ups this leaves open
 
-1. **Two `backup.sh` files** — Traefik and Dockge, both the include-only form,
-   neither with a database. (Was six. The other four all landed and were
-   drilled the same day — see the addenda below.)
+1. ~~**Six `backup.sh` files.**~~ ✅ all seven stacks are wired. The four
+   drilled the same day have addenda below; Traefik and Dockge landed last and
+   are **written but not yet drilled**.
 2. ~~**`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar.~~ ✅ done the
    same day. The image ships `/usr/bin/sqlite3`; no sidecar. See the addendum.

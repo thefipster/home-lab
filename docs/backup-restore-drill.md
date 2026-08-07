@@ -96,8 +96,10 @@ not a whole-tree copy, because its restore is narrow.
 | Stack | Marker | The check that proves it |
 |---|---|---|
 | **authentik** | Create a user after the backup | The user is gone, and Dockge still redirects through Authentik and back |
+| **dockge** | Create a second Dockge account | It is gone, and your original account still logs in |
 | **forgejo** | **Delete a package** from the registry | It is back afterwards, and `docker pull` of it works |
 | **monitoring** | Switch the Grafana theme (dark ↔ light) | The theme reverts, **and** Prometheus/Loki/Tempo still return pre-restore data |
+| **traefik** | *(none — see below)* | The served certificate is the restored one, not a fresh reissue |
 | **uptime-kuma** | Create a throwaway monitor | It is gone, and heartbeat history survived |
 | **vaultwarden** | A new item **and** an attachment on an existing one | A login from an **already-paired** client still works |
 
@@ -107,6 +109,23 @@ The user's absence proves the restored database is the backup's. Dockge
 redirecting proves more: the forward-auth outpost and its token survived, so
 `AUTHENTIK_SECRET_KEY` still decrypts what is inside that database — the `.env`
 and the dump came back as one unit.
+
+### dockge
+
+The smallest drill in the set, and the one with the least at stake — Dockge's
+own accounts are kilobytes and re-creatable through its first-run form. Make a
+second account as the marker; your original still logging in afterwards is what
+proves the restore rather than an empty database.
+
+**Its restore is narrow, and for a reason unique to this stack.** Dockge is the
+one stack *copied* into `/opt/stacks` rather than symlinked, so
+`/opt/stacks/dockge` also holds a `compose.yaml` and a `.env` written by
+`scripts/init-dockge.sh`. Neither is in the backup, and the compose is what the
+stack is started from — so `restore.sh` touches `data/` alone. Confirm those two
+files are still there afterwards.
+
+The stack list Dockge shows proves nothing: it is read from `/opt/stacks` at
+runtime, so it would look identical if the restore had done nothing at all.
 
 ### forgejo
 
@@ -156,6 +175,40 @@ deliberately **narrow**, touching `postgres/` alone and leaving `prometheus/`,
 and were never in the snapshot. So *Explore → Prometheus* still returning data
 from before the restore is what proves the script left them alone. If they are
 empty, the restore was too aggressive.
+
+### traefik
+
+**The only stack with no useful marker, and the reason is worth understanding.**
+Almost everything about Traefik comes back whether the restore worked or not:
+its routing is labels on other stacks' containers plus files under
+`infra/traefik/dynamic/`, all of which are in git. The dashboard will load,
+every router will be listed, every backend will resolve. None of that came from
+the snapshot.
+
+The backup holds exactly two things — `acme.json` and the netcup credentials —
+so there is exactly one check:
+
+```bash
+echo | openssl s_client -connect git.thefipster.de:443 -servername git.thefipster.de 2>/dev/null | openssl x509 -noout -issuer -dates
+```
+
+**Compare `notBefore` against the snapshot's date.** A timestamp from minutes
+ago means `acme.json` did *not* come back and Traefik simply went and got a new
+certificate — which looks like a perfect success and is a failed restore that
+also burned one of five weekly duplicate-certificate issuances. `restore.sh`
+also prints a `docker compose logs traefik | grep -i acme` check: a restored
+store means Traefik has no challenge work to do at startup.
+
+The netcup credentials in the `.env` are not exercised by anything until a
+renewal, roughly 30 days before expiry. A wrong `.env` is therefore invisible
+for months. Nothing in a drill can surface that; the staging-CA line commented
+out in `infra/traefik/compose.yaml` is what exists for testing issuance
+deliberately.
+
+> **Traefik terminates TLS for the whole lab.** While it is down nothing is
+> reachable by name — including Authentik, which everything else authenticates
+> against, and Kuma, which will have nothing to report to. Drill this one when
+> an outage is acceptable.
 
 ### uptime-kuma
 

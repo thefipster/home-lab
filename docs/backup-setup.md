@@ -31,13 +31,13 @@ Three things shape everything below:
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Authentik, Forgejo, monitoring, Uptime Kuma and Vaultwarden are wired up
-  end to end**, database dump, restore script and all. Between them they cover
-  every shape there is: Postgres, SQLite, the one stack whose directory and
-  database names differ, and the vault. The rest of the tier-1 table in
+- **Every stack on this VM is wired up end to end**, each with a `backup.sh`
+  and a `restore.sh` beside its compose file. Between them they cover every
+  shape there is: four Postgres stacks, one SQLite, two with no database at
+  all, and two whose restores are deliberately narrow. Every row of the tier-1
+  table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
-  follows the same recipes when each gets its file, with no new decisions in
-  them.
+  is covered.
 
 ## Part 1 — The host side: a user, a chroot, and one sshd block
 
@@ -365,12 +365,13 @@ sudo infra/backup/run.sh
 ```
 
 Expect a `staging` / `snapshot` pair per wired stack — `authentik`,
-`forgejo`, `monitoring`, `uptime-kuma` and `vaultwarden` today, in that order,
-since the runner globs them alphabetically — then `==> forget + prune`, then a
-final `OK: authentik forgejo monitoring uptime-kuma vaultwarden`. Each staging
-step declares that stack's directories and runs its dump through the stack's own
-container: `pg_dump` in the `db` service for the four Postgres stacks,
-`sqlite3` in Kuma's single service. The snapshot step hands restic the path
+`dockge`, `forgejo`, `monitoring`, `traefik`, `uptime-kuma` and `vaultwarden`,
+in that order, since the runner globs them alphabetically — then
+`==> forget + prune`, then a final `OK:` line naming all seven. Each staging
+step declares that stack's directories and runs its dump through the stack's
+own container: `pg_dump` in the `db` service for the four Postgres stacks,
+`sqlite3` in Kuma's single service. Traefik and Dockge have no database, so
+their staging step only declares paths. The snapshot step hands restic the path
 list that step produced, and nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
@@ -411,9 +412,8 @@ Sunday at 03:00.
 - [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
-- [ ] `sudo infra/backup/run.sh` ends in
-      `OK: authentik forgejo monitoring uptime-kuma vaultwarden`
-- [ ] A snapshot is listed for each tag — `authentik` and `uptime-kuma`
+- [ ] `sudo infra/backup/run.sh` ends in an `OK:` line naming all seven stacks
+- [ ] `restic snapshots` lists one snapshot per tag — seven in all
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
 - [ ] `RESTIC_PASSWORD` is written down **outside the lab**, not only in

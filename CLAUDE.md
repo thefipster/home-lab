@@ -199,10 +199,10 @@ and declares what that stack consists of using four recipes:
 `include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
-it. **Authentik**, **Forgejo**, **Uptime Kuma**, **monitoring** and
-**Vaultwarden** are wired up today, and between them they exercise every
-recipe and every exception there is. Only **Traefik** and **Dockge** remain,
-and both are the include-only form.
+it. **Every stack is wired** — Authentik, Dockge, Forgejo, monitoring,
+Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2 row in
+`docs/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
+compose file.
 
 **Forgejo's `.env` holds `DOCKER_GID`, the one machine-specific value in this
 repo** — `scripts/init-forgejo.sh` reads it from `getent group docker`. A
@@ -225,15 +225,22 @@ directory is `monitoring` and its database is `grafana`, hence
 `dump_postgres monitoring db grafana grafana`. The dump is still named after
 the stack, which is what keeps the restore path uniform.
 
-**It is also the only NARROW restore, and that generalises.** A stack with
-Tier-3 directories sitting beside its Tier-1 ones **cannot** use the
-whole-tree restore the other scripts do. `infra/monitoring/restore.sh` moves
-`postgres/` aside and nothing else, because the five directories beside it
-(`prometheus/`, `loki/`, `tempo/`, `alloy/`, `grafana/`) are Tier 3 and not in
-the snapshot: moving them would destroy live data this backup never promised
-to return, and discard the per-directory ownership
-`scripts/init-monitoring.sh` sets. Monitoring is the only such stack today —
-check for the pattern before copying a restore script.
+**Two stacks need a NARROW restore, for two different reasons.** The rule:
+where a stack's `/opt` directory holds anything that is **not** in its
+snapshot, moving the whole tree aside destroys it. Check for that before
+copying a restore script — the two cases here were both found that way, the
+second one after this rule was written.
+
+- **monitoring** — `restore.sh` moves `postgres/` aside and nothing else,
+  because the five directories beside it (`prometheus/`, `loki/`, `tempo/`,
+  `alloy/`, `grafana/`) are Tier 3 and not in the snapshot. Moving them would
+  destroy live data this backup never promised to return, and discard the
+  per-directory ownership `scripts/init-monitoring.sh` sets.
+- **dockge** — `restore.sh` touches `data/` alone. Dockge is the one stack
+  **copied** into `/opt/stacks` rather than symlinked, so
+  `/opt/stacks/dockge` also holds a `compose.yaml` and a `.env` written by
+  `scripts/init-dockge.sh`. Neither is in the backup, and the compose is what
+  the stack is started from.
 
 Each stack gets its **own restic snapshot, tagged with the stack name**, so
 restoring one is `restic restore latest --tag <stack>` and the stack's couplings
