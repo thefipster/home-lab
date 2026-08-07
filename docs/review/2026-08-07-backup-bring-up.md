@@ -57,9 +57,19 @@ is:
   clock-skew-after-rollback failure would appear.
 - **The unattended timer.** Every run so far was started by hand.
 - **The weekly `restic check`.** Never fired.
-- **The Kuma deadman.** It has never delivered a heartbeat — see finding 4. It
-  was *misconfigured for the whole bring-up*, which means the one alarm covering
-  all of this was silently absent while the rest was being verified.
+- **The deadman's *silent* half.** The push path is confirmed — see below — but
+  nothing has yet observed the monitor going **red** because a heartbeat did
+  not arrive, which is the property the whole arrangement exists for. Breaking
+  one stack's `backup.sh` deliberately and watching the run exit non-zero and
+  stay silent is the cheap way to test it.
+
+> **Confirmed later the same day: the Kuma push works.** With the query string
+> removed from `KUMA_PUSH_URL`, a run delivered its heartbeat and the monitor
+> went green — so `run.sh` → `curl` → Kuma is proven end to end. Recorded here
+> rather than by editing finding 4, because the state this document describes
+> is the one the bring-up was actually conducted in: the alarm covering all of
+> the above was **absent while everything else was being verified**, and that
+> remains the fact worth remembering about this drill.
 
 ## 1. The `authorized_keys` step never said whose key
 
@@ -202,8 +212,10 @@ Two consequences worth carrying into the remaining six stacks:
 2. **`dump_sqlite`**, whose open question is whether `sqlite3` ships inside
    `louislam/uptime-kuma:2` or wants a small `alpine` sidecar on the same bind
    mount.
-3. **Confirm the deadman actually fires** once the push URL is corrected — it
-   has never delivered a heartbeat, so nothing about it is verified.
+3. ~~**Confirm the deadman actually fires.**~~ ✅ done the same day, once the
+   query string was cut: the heartbeat arrived and the monitor went green.
+   What remains is the negative case — break a stack deliberately, confirm the
+   run exits non-zero, stays silent, and the monitor turns red.
 4. **A VM-rollback drill**, which is the phase-5 test this one was not, and
    where the clock-skew-after-rollback failure would surface.
 5. **A heartbeat for the weekly `restic check`**, which currently has none:

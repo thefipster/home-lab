@@ -368,11 +368,16 @@ reason.
    `AUTHENTIK_SECRET_KEY` still decrypts what is inside it, so the `.env` and
    the dump came back as one unit.
 
+   The **Kuma push is confirmed** too: found misconfigured during the same
+   bring-up (the query string trap in phase 4), corrected, and a run then
+   delivered its heartbeat and turned the monitor green.
+
    Still unproven, and not to be claimed until it is: every other stack (none
    are wired yet), a **VM-rollback** drill rather than an in-place restore,
    the nightly timer firing unattended, the weekly `restic check`, and the
-   Kuma deadman — which was found *misconfigured* during this bring-up and has
-   never delivered a heartbeat. The full drill still reads: roll the infra VM
+   deadman's *silent* half — nothing has yet watched the monitor go **red**
+   because a heartbeat did not arrive, which is the property the arrangement
+   exists for. The full drill still reads: roll the infra VM
    back to a snapshot, restore from restic, verify each stack comes up —
    Vaultwarden accepting a login from a client that was already paired (which
    is what proves `rsa_key.pem` and the database came back together), Authentik
