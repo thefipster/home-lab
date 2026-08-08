@@ -34,11 +34,21 @@ with known-critical holes.
    arrives when something *verifies* signatures — park it until the apps VM
    deploys from the registry.
 
-## The re-scan gap
+## The re-scan gap, and why nothing is coming for it
 
-Scanning at build time misses CVEs published *after* the build. Once the
-scheduled builds from [ci-triggers.md](ci-triggers.md) exist, the **nightly
-job is the natural vehicle**: rescan the published `latest` images each
-night and surface findings via the step summary (or an alert through the
-monitoring stack). Until then, re-running the workflow by hand rebuilds and
-rescans in one go.
+Scanning at build time misses CVEs published *after* the build. A release that
+is still current can rot without anything noticing.
+
+An earlier version of this file parked that on a **nightly rebuild** — rescan
+the published `latest` images every night, surface findings in the step summary
+or as an alert. That nightly is **dropped**, not deferred: the lab runs no CI
+schedule at all, because GitHub is primary and Forgejo pull-mirrors it, so
+nothing event-driven or timed reaches these workflows from either direction
+([timetable.md](../timetable.md#deliberate-absences) records the absence).
+
+So the re-scan gap has **no automated answer and is not waiting for one.**
+Re-dispatching the build by hand rebuilds and rescans in one go, and that is
+the whole procedure. If the gap ever starts to bite, the honest fix is a
+scanner that runs somewhere a schedule *can* reach — a timer on the infra VM
+pointed at the registry, not a workflow — and that would be a new roadmap
+entry rather than a revival of this one.
