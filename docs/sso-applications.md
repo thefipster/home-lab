@@ -42,29 +42,39 @@ declines a pattern it qualifies for.
 |---------|--------|------------------|-----------|
 | Traefik dashboard | forward-auth | Authentik only | [authentik-setup.md, step 3](authentik-setup.md#3-gate-the-traefik-dashboard-forward-auth) |
 | Dockge | forward-auth | Authentik only | [dockge-setup.md, step 1](dockge-setup.md#1-create-the-dockge-application-in-authentik) |
+| Homepage | forward-auth | Authentik only | [homepage-setup.md, step 2](homepage-setup.md#2-create-the-authentik-provider-and-application) |
 | Forgejo | OIDC | Authentik + Forgejo admin UI + `infra/forgejo/compose.yaml` | [forgejo-setup.md, step 5](forgejo-setup.md#5-join-sso-oidc-via-authentik) |
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](grafana-setup.md#5-join-sso-oidc-via-authentik) |
 | Vaultwarden | **none** (deliberate) | Vaultwarden's own master-password login | [vaultwarden-setup.md, step 5](vaultwarden-setup.md#5-create-your-account) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
 | Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik) |
 
-## Forward-auth: Dockge & Traefik dashboard
+## Forward-auth: Dockge, Traefik dashboard & Homepage
 
 Provider type **Proxy Provider**, mode **Forward auth (single application)**,
 authorization flow `default-provider-authorization-implicit-consent`. Both
 providers must be attached to the **authentik Embedded Outpost**.
 
-| | Dockge | Traefik dashboard |
-|-|--------|-------------------|
-| Provider name | `dockge-forwardauth` | `traefik-forwardauth` |
-| External host | `https://dockge.thefipster.de` | `https://traefik.thefipster.de` |
-| Application name / slug | `Dockge` / `dockge` | `Traefik` / `traefik` |
+| | Dockge | Traefik dashboard | Homepage |
+|-|--------|-------------------|----------|
+| Provider name | `dockge-forwardauth` | `traefik-forwardauth` | `homepage-forwardauth` |
+| External host | `https://dockge.thefipster.de` | `https://traefik.thefipster.de` | `https://home.thefipster.de` |
+| Application name / slug | `Dockge` / `dockge` | `Traefik` / `traefik` | `Homepage` / `homepage` |
 
 The Traefik side ships in the repo: the shared `authentik@docker` middleware
 and the per-host `/outpost.goauthentik.io/` routers are labels on the
 Authentik `server` container (`infra/authentik/compose.yaml`), and the
 protected routers carry the `middlewares: authentik@docker` label
-(`infra/dockge/compose.yaml`, `infra/traefik/compose.yaml`).
+(`infra/dockge/compose.yaml`, `infra/traefik/compose.yaml`,
+`infra/homepage/compose.yaml`).
+
+**Homepage is the clearest case the pattern has.** Dockge and the Traefik
+dashboard both keep some notion of their own underneath; Homepage has no
+authentication of any kind, so the middleware is the only thing between the LAN
+and a page that lists every service in the lab. It is not one of the three
+stated exceptions because nothing about repairing the lab depends on it: it is a
+page of links whose targets can be typed by hand, and Kuma — the thing you
+actually need mid-incident — is deliberately un-gated.
 
 ## Forgejo (OIDC)
 

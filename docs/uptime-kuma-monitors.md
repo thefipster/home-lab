@@ -150,6 +150,23 @@ the web UI.
 `infra/dockge/compose.yaml` is the only stack with no `name:` key, so its project
 name comes from the directory `init-dockge.sh` copies it into.
 
+## Start page — homepage
+
+| Name | Type | Target |
+|---|---|---|
+| Start Page | Docker | `homepage-homepage-1` |
+
+**No Web monitor** — forward-auth gated, same 302 reasoning as the Gateway and
+Dockge.
+
+One row, because Homepage is one container with no database, no worker and no
+state. It is also the only stack whose *content* can rot without the container
+noticing: a renamed container elsewhere leaves a permanently grey tile on the
+page and nothing here goes red. That is a documentation problem, not a
+monitoring one — the container names live in
+`infra/homepage/config/services.yaml` and in this file, and the two are meant to
+be changed together.
+
 ## Observability — monitoring
 
 | Name | Type | Target |
@@ -319,6 +336,25 @@ ping monitor accepts hostnames, so there is no reason to hardcode anything here
 > ```bash
 > docker compose exec uptime-kuma ping -c1 apps.thefipster.de
 > ```
+
+## The `homelab` status page
+
+Not a monitor, but Kuma state that lives only in Kuma's SQLite — so it belongs
+in this registry for the same reason everything above does.
+
+| Slug | URL | Read by |
+|---|---|---|
+| `homelab` | `https://uptime.thefipster.de/status/homelab` | Homepage's `uptimekuma` service widget |
+
+**It is a dependency, not decoration.** Uptime Kuma has no full API, so
+Homepage's widget can only read a **public status page** — there is no
+token-based path to the same data. Delete or rename this page and the widget on
+`home.thefipster.de` goes blank with no other symptom.
+
+**It answers without a login**, which every other Kuma surface does not. That is
+inherent to a status page and bounded by the lab being LAN-only; it is the price
+of the one widget on the start page that reports something a container's state
+cannot.
 
 ## Deliberately not monitored
 

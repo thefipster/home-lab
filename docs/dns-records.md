@@ -41,6 +41,7 @@ All entries are type **Host (A)**:
 | `*.thefipster.de` | `apps ip` | every app on the apps VM (Coolify routes by HTTP `Host` header) |
 | `git.thefipster.de` | `infra ip` | Forgejo web + registry (via Traefik) |
 | `dockge.thefipster.de` | `infra ip` | Dockge UI (via Traefik) |
+| `home.thefipster.de` | `infra ip` | Homepage start page (gated by Authentik) |
 | `auth.thefipster.de` | `infra ip` | Authentik SSO portal (via Traefik) |
 | `vault.thefipster.de` | `infra ip` | Vaultwarden password manager (via Traefik) |
 | `traefik.thefipster.de` | `infra ip` | Traefik dashboard (gated by Authentik) |
