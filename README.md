@@ -212,3 +212,11 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 What actually runs today versus what is only written down is its own document:
 **[docs/status.md](docs/status.md)** — one row per piece of the lab, with the
 guide or roadmap entry each one points at.
+
+## Schedules
+
+What runs on a clock, and when, is its own document too:
+**[docs/timetable.md](docs/timetable.md)** — the night window where the two
+backup layers and the reboot slot are staggered, the short-interval jobs, and
+the arithmetic for sizing a Kuma heartbeat. Read it before adding a timer, so a
+new job is placed around what is already there instead of on top of it.
