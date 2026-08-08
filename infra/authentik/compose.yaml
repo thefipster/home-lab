@@ -12,12 +12,13 @@
 # This stack also declares — as labels on the `server` container — the pieces
 # that let OTHER stacks use Authentik for forward-auth:
 #   * the shared `authentik@docker` forwardauth middleware, and
-#   * one /outpost.goauthentik.io/ router per protected host (dockge, traefik),
-#     required because single-application forward auth runs its handshake on
-#     each app's own domain.
+#   * one /outpost.goauthentik.io/ router per protected host (dockge, traefik,
+#     homepage), required because single-application forward auth runs its
+#     handshake on each app's own domain.
 # Deploy (on the infra VM): scripts/init-authentik.sh, fill .env, compose up -d.
-# Authentik must be RUNNING before Dockge/Traefik reference authentik@docker,
-# or Traefik logs an "undefined middleware" error and those routers won't load.
+# Authentik must be RUNNING before Dockge/Traefik/Homepage reference
+# authentik@docker, or Traefik logs an "undefined middleware" error and those
+# routers won't load.
 
 name: authentik
 
@@ -94,6 +95,9 @@ services:
       traefik.http.routers.ak-outpost-traefik.rule: Host(`traefik.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
       traefik.http.routers.ak-outpost-traefik.entrypoints: websecure
       traefik.http.routers.ak-outpost-traefik.service: authentik
+      traefik.http.routers.ak-outpost-homepage.rule: Host(`home.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
+      traefik.http.routers.ak-outpost-homepage.entrypoints: websecure
+      traefik.http.routers.ak-outpost-homepage.service: authentik
       # THREE HOSTS ARE DELIBERATELY ABSENT FROM THE LIST ABOVE, and none is an
       # oversight to fix:
       #   vault.thefipster.de  — Vaultwarden holds the credentials for
