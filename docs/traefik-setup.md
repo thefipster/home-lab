@@ -224,8 +224,11 @@ connection is ever made to the lab, so ports 80 and 443 stay reachable only
 from the LAN. Traefik's ACME client drives the netcup API to create and delete
 those records itself, at first issuance and at every renewal, forever.
 
-**Split-horizon DNS.** The public netcup zone holds no A records for the lab;
-the UniFi router answers the lab's names locally
+**Split-horizon DNS.** The public netcup zone holds no address records for the
+lab — no A and no AAAA, the second half being the one that is easy to leave
+behind, since the router answers A only and forwards AAAA upstream
+([dns-records.md](dns-records.md#no-aaaa-records-anywhere)). The UniFi router
+answers the lab's names locally
 ([wildcard-dns-udr.md](wildcard-dns-udr.md)). Publicly the names resolve to
 nothing. The only fingerprint visible to the internet is the Certificate
 Transparency entry for `*.thefipster.de` — and a wildcard keeps the individual
