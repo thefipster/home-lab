@@ -147,16 +147,18 @@ acceptable only because the box is single-tenant.
 
 ### Config
 
-Five files in `infra/homepage/config/`, all git-tracked, all bind-mounted
-read-only:
+Nine files in `infra/homepage/config/`, all git-tracked, all bind-mounted
+read-only — upstream's full skeleton set, because a missing file under a
+read-only mount makes Homepage exit rather than warn:
 
 | File | Holds |
 |---|---|
 | `settings.yaml` | title, theme, group layout |
 | `docker.yaml` | the socket declaration the service entries reference |
 | `services.yaml` | the five purpose groups, each entry with its href and (for infra VM stacks) its container |
-| `widgets.yaml` | the resource widget and the Uptime Kuma widget |
+| `widgets.yaml` | deliberately empty — the Kuma widget is a *service* widget and lives in `services.yaml`; the `resources` widget would report the container's figures, not the VM's |
 | `bookmarks.yaml` | links with no service behind them |
+| `kubernetes.yaml`, `proxmox.yaml`, `custom.css`, `custom.js` | unused stubs. A missing file under the read-only mount makes Homepage `process.exit(1)`, so all nine of upstream's skeleton files must be present |
 
 ## Build order
 
@@ -198,7 +200,7 @@ is wired" sentence needs the exception named in place.
 **Edited**
 
 - `infra/authentik/compose.yaml` — `ak-outpost-homepage` routers
-- `infra/uptime-kuma/compose.yaml` — the "last stack" comment
+- `scripts/init-uptime-kuma.sh` — it claims Kuma is "the only stack with no `.env`"
 - `README.md` — build order
 - `CLAUDE.md` — build order, the socket-consumer list, the no-`.env` note, the
   "every stack is wired" exception

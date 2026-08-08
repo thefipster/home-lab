@@ -1,0 +1,4 @@
+# Unused. Homepage's Proxmox integration wants an API token, and every widget
+# in this stack is deliberately token-free — Proxmox is a plain link in
+# services.yaml. Present only because the read-only mount requires it; see
+# kubernetes.yaml for the mechanism.

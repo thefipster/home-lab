@@ -1,0 +1,87 @@
+# Homepage — the lab's start page.
+#
+# Runs on the INFRA VM. One page listing every service in the lab, with live
+# container state for this VM's stacks (read from the Docker API) and plain
+# links for everything on the other two machines.
+#
+# WHY HERE AND NOT THE APPS VM: the socket below is the deciding argument. The
+# daemon with the lab's stacks on it is this one; the apps VM's belongs to
+# Coolify, whose container names are generated and which cannot see this
+# machine at all. Homepage also ships NO authentication of its own, and the
+# forward-auth middleware that fixes that exists only on this VM's Traefik.
+# Full reasoning: docs/superpowers/specs/2026-08-08-homepage-design.md.
+#
+# Deploy (on the infra VM): scripts/init-homepage.sh, then bring it up —
+# see docs/homepage-setup.md.
+#   UI: https://home.thefipster.de   (via the Traefik stack — see infra/traefik)
+#   Build order: Traefik and Authentik must be up FIRST — the router below is
+#   gated by authentik@docker, so without them it won't load at all.
+#   Break-glass: comment the middlewares label and recreate.
+#
+# NO .env and no .env.example — the second stack in the lab with none, after
+# Uptime Kuma. Every widget is token-free (container state from the socket,
+# service health from Kuma's status page), so there is no secret to seed. The
+# two environment values below are neither secret nor machine-specific.
+#
+# NO /opt/homepage either, and this is the FIRST stack in the repo with no
+# persistent data directory at all: everything Homepage owns is the git-tracked
+# YAML in ./config. That is also why it has no backup.sh — see
+# docs/roadmap/backup.md.
+
+name: homepage
+
+services:
+  homepage:
+    # Major-only pin, per repo policy. Verified against the registry: a bare
+    # `v1` tag IS published (unlike alloy/tempo, which need a full patch pin).
+    image: ghcr.io/gethomepage/homepage:v1
+    restart: unless-stopped
+    environment:
+      # MANDATORY since v1.0 — Homepage rejects requests whose Host header is
+      # not listed here, so an empty value is a 400 on every page load. No port:
+      # Traefik forwards the bare name on the default HTTPS port.
+      HOMEPAGE_ALLOWED_HOSTS: home.thefipster.de
+      # Load-bearing, not tidiness. Homepage's default is to write a logfile
+      # into /app/config/logs, which the read-only mount below makes impossible.
+      # Sending logs to stdout instead is also what puts them in Loki, since
+      # Alloy already tails this VM's socket.
+      LOG_TARGETS: stdout
+    volumes:
+      # The repo IS the source of truth for this stack — same arrangement as
+      # infra/traefik/dynamic/ and infra/forgejo/config.yml. Read-only so the
+      # container can never write into the checkout.
+      #
+      # CAUTION: :ro means every file Homepage expects must already exist.
+      # Upstream copies a skeleton file in when one is missing and calls
+      # process.exit(1) when that copy fails, so a missing config file here is a
+      # boot loop rather than a warning. All NINE skeleton files ship in
+      # ./config for exactly that reason; four of them are stubs.
+      - ./config:/app/config:ro
+      # Container discovery and state for this VM's stacks. The SIXTH socket
+      # mount in the lab, after Dockge, the Forgejo runner, Traefik, Alloy and
+      # Uptime Kuma, and it carries the same caveat: `:ro` makes the MOUNT
+      # read-only, NOT the API behind it. This is root-equivalent control of the
+      # VM's Docker. Acceptable only because this is a single-tenant box.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.homepage.rule: Host(`home.thefipster.de`)
+      traefik.http.routers.homepage.entrypoints: websecure
+      traefik.http.services.homepage.loadbalancer.server.port: "3000"
+      # Gate the UI behind Authentik (per-app forward auth). Homepage has NO
+      # login of its own, which is exactly the case this pattern exists for —
+      # same as Dockge and the Traefik dashboard. The middleware and the
+      # /outpost.goauthentik.io/ router for this host live on the Authentik
+      # `server` container (infra/authentik). Authentik must be up first, else
+      # Traefik reports an undefined middleware and this router won't load.
+      # Break-glass: comment this line and `docker compose up -d` to bypass.
+      traefik.http.routers.homepage.middlewares: authentik@docker
+    networks:
+      # `proxy` only. The Kuma widget reaches http://uptime-kuma:3001 across
+      # this network — container to container, no TLS hop, no trip through
+      # Traefik. Everything else on the page is a link.
+      - proxy
+
+networks:
+  proxy:
+    external: true

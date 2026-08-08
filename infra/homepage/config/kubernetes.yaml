@@ -1,0 +1,6 @@
+# Unused — there is no Kubernetes in this lab and there is not going to be.
+#
+# The file exists because the config mount is READ-ONLY: upstream copies a
+# skeleton file in when one is missing and calls process.exit(1) when that copy
+# fails, so an absent file here is a boot loop rather than a warning. Same
+# reason for proxmox.yaml, custom.css and custom.js.

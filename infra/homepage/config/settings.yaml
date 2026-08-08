@@ -1,0 +1,32 @@
+# Homepage global settings — https://gethomepage.dev/configs/settings/
+#
+# Bind-mounted READ-ONLY from the checkout. Edit here, commit, then recreate the
+# stack; never edit inside the container.
+
+title: home-lab
+
+# Group order and shape. Groups render in this order; anything in services.yaml
+# that is not named here still renders, but in file order with default styling.
+layout:
+  Infrastructure & Identity:
+    style: row
+    columns: 5
+  Monitoring:
+    style: row
+    columns: 2
+  Development:
+    style: row
+    columns: 1
+  Applications:
+    style: row
+    columns: 5
+  Home:
+    style: row
+    columns: 1
+
+headerStyle: boxed
+statusStyle: dot
+
+# The version string is a link to a release page nobody follows from here, and
+# it is one more thing that changes on every image bump.
+hideVersion: true

@@ -1,0 +1,9 @@
+# The infra VM's own Docker socket, bind-mounted read-only by compose.yaml.
+#
+# `infra` is the name every `server:` field in services.yaml refers to. It is
+# named after the MACHINE, not after Docker, because a second entry here could
+# only ever be another machine — and there will not be one: the apps VM's daemon
+# belongs to Coolify and is not reachable from here.
+
+infra:
+  socket: /var/run/docker.sock
