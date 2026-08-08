@@ -634,6 +634,34 @@ metrics arrive on the next scrape and
 [grafana-setup.md](grafana-setup.md#what-diskalmostfull-sees-under-zfs) has the
 queries and the alert.
 
+**The unit fails with `status=22` and `curl: (22) ... error: 404`.** Exit 22 is
+`curl -f` on any status at or above 400, and `-f` together with `-s` discards the
+response body — which is the only part that says *who* answered. Ask again by
+hand, keeping the body:
+
+```bash
+set -a; . /etc/default/zfs-health-push; set +a; curl -i --get "$PUSH_URL" --data-urlencode "status=up" --data-urlencode "msg=manual test"
+```
+
+A 404 **carrying Kuma's JSON** (`{"ok":false,"msg":"Monitor not found or not
+active."}`) means the request arrived and the token did not match an active push
+monitor: it was never saved, it was regenerated in the edit form, or the monitor
+is paused. A 404 with **no JSON** means the request never reached Kuma at all —
+either the Kuma container is down, which withdraws its Traefik router along with
+it and so produces a 404 rather than a 502, or the name resolved to the apps VM
+and you are looking at Coolify's 404 behind a valid certificate.
+
+Check both address families before believing the token is wrong:
+
+```bash
+getent ahostsv4 uptime.thefipster.de; echo ---; getent ahostsv6 uptime.thefipster.de
+```
+
+The IPv6 half is the one worth running. A public AAAA sends this push out to the
+internet and back with nothing in `/etc/default/zfs-health-push` looking any
+different — [dns-records.md](dns-records.md#no-aaaa-records-anywhere) has the
+invariant and the sweep.
+
 **What this covers, and what it doesn't.** A degraded or faulted pool pushes
 `down` *with the pool name in the notification*, so ntfy tells you which drive to
 look at. If the script breaks, the host loses power, or the network goes, nothing

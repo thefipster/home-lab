@@ -109,7 +109,8 @@ everything else ([docs/proxmox-setup.md, Part
 
 Everything sits on the LAN behind a UniFi Dream Router. Names are real
 subdomains of `thefipster.de`, resolved **locally** by the router (split
-horizon — the public zone holds no A records): exact host records send the
+horizon — the public zone holds no address records, A **or** AAAA): exact host
+records send the
 infra services (`git.`, `auth.`, `grafana.`, …) to the infra VM, and the
 `*.thefipster.de` wildcard sends everything else to the apps VM, where
 Coolify's proxy routes each hostname to the right app by the HTTP `Host`

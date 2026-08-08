@@ -65,7 +65,10 @@ guides and one config fragment each; treat their machine state as authoritative
 over anything written here.
 
 DNS is split-horizon: real subdomains of `thefipster.de` resolved locally by the
-router; the public zone holds no A records. `git.` / `dockge.` → infra VM,
+router; the public zone holds no address records of **either** family — the
+router answers A only and forwards AAAA upstream, so one public AAAA would win
+on every dual-stack client and route the whole lab out through it
+(`dns-records.md`). `git.` / `dockge.` → infra VM,
 `*.thefipster.de` → apps VM. TLS everywhere is a genuine Let's Encrypt **wildcard**
 issued via DNS-01 against the netcup API — nothing is exposed to the internet.
 

@@ -9,7 +9,10 @@ repo — so this registry is the record of what must exist. How to add them
 [wildcard-dns-udr.md](wildcard-dns-udr.md).
 
 This is **split-horizon DNS**: these names resolve only on the LAN, answered
-by the UDR. The public `thefipster.de` zone at netcup holds no A records.
+by the UDR. The public `thefipster.de` zone at netcup holds **no address records
+of either family** — no A, and no AAAA either, which is a stricter requirement
+than it sounds and has its own section:
+[No AAAA records, anywhere](#no-aaaa-records-anywhere).
 
 ## Hosts
 
@@ -94,6 +97,36 @@ above — which it needs anyway, so the wildcard does not answer with the apps V
 and send Alloy to scrape the wrong machine. One name, two consumers, and the
 scrape is the one that would fail loudly first.
 
+## No AAAA records, anywhere
+
+**The UDR answers A records only, so a single public AAAA takes the whole lab
+off the LAN at once.** Every row above is an IPv4 record on the router. The
+router does not synthesise an AAAA to go with it and does not suppress the
+question either — it forwards the AAAA query upstream, where whatever the public
+zone says is the answer. A dual-stack client prefers IPv6, so it never asks for
+the A record it would have been given locally.
+
+This is the wildcard trap one address family over, and it is worse in one
+specific way. The reasoning above turns on whether a name wants the apps VM;
+here it does not matter what the name wants, because the local answer is not in
+the running at all. Nor is it one name: **every** name below `thefipster.de` is
+affected simultaneously, `nonsense.thefipster.de` included, which is exactly
+what makes the sweep in [Verify](#verify) able to see it.
+
+The concrete shape this took was a leftover `*.thefipster.de` AAAA in the public
+zone pointing at an unrelated public host. Every lab name resolved to that host
+over IPv6, the hypervisor's ZFS heartbeat
+([proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades))
+left the LAN and came back in, and nothing said so — the requests succeeded.
+That is the failure mode to expect here: not an outage, but internal traffic
+quietly depending on a machine that is not in the topology.
+
+So the invariant is **no AAAA for `thefipster.de` or any name under it**, and it
+is a property of the *public* zone rather than of the router — nothing on the
+UDR can enforce it, which is why it is written down here instead. Giving the lab
+real IPv6 would mean local AAAA records on the router, which is a different piece
+of work; until that exists, this absence is what keeps the split horizon honest.
+
 ## Home Assistant has two names, on purpose
 
 They are not interchangeable, and swapping them breaks the route:
@@ -152,6 +185,28 @@ for n in git dockge auth vault traefik grafana otlp uptime ha homeassistant pve 
 
 Everything through `ha` should share one address, `homeassistant` and `pve`
 should each differ from it, and `nonsense` should match the apps VM.
+
+**Then run the same sweep for IPv6, because the one above cannot see the failure
+that matters most.** `getent hosts` returns whichever family the resolver
+prefers, so a wrong AAAA hides behind a correct A record and shows up only as
+traffic taking a route you did not intend:
+
+```bash
+for n in git dockge auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
+```
+
+Every row must come back as `::ffff:` followed by the same address the sweep
+above gave. That prefix means **no AAAA was found** and glibc mapped the A
+record instead — it is the passing result, not a fallback worth investigating. A
+real IPv6 address in any row means the public zone is answering and that name
+leaves the LAN ([No AAAA records, anywhere](#no-aaaa-records-anywhere));
+`nonsense` is the row that catches a wildcard, which is the form this actually
+takes.
+
+Run it from a LAN client rather than from the Proxmox host if you have the
+choice. There, the `pve` row answers out of `/etc/hosts` — the installer writes
+the FQDN into it — so that one row passes without consulting DNS and proves
+nothing about the zone.
 
 The full three-layer verification (workstation, VM, inside a container) is in
 [wildcard-dns-udr.md](wildcard-dns-udr.md#verify-at-all-three-layers).
