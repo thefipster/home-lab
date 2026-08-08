@@ -8,9 +8,10 @@
 # below brings its own Engine. Steps:
 #   1. Preflight: OS family, Docker Engine version IF one is present, disk, RAM.
 #   2. Create a swapfile if none is active.
-#   3. Fetch Coolify's official installer to a temp file, show where it came
-#      from and its sha256, then run it.
-#   4. Seed apps/.env from apps/.env.example if missing.
+#   3. Point Docker's data-root at /data/docker, BEFORE any Engine exists.
+#   4. Fetch Coolify's official installer to a temp file, show where it came
+#      from and its sha256, then run it — then re-check the data-root survived.
+#   5. Seed apps/.env from apps/.env.example if missing.
 #
 # Unlike every other init script in this repo, this one does NOT produce a
 # compose stack: Coolify owns this VM's Docker and manages applications through
@@ -30,6 +31,9 @@ APPS_DIR="${REPO_ROOT}/apps"
 INSTALLER_URL="https://cdn.coollabs.io/coolify/install.sh"
 SWAPFILE="/swapfile"
 SWAP_SIZE_MB=4096
+DATA_MOUNT="/data"
+DOCKER_DATA_ROOT="/data/docker"
+DAEMON_JSON="/etc/docker/daemon.json"
 
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
@@ -132,7 +136,83 @@ else
   fi
 fi
 
-# --- 3. install -------------------------------------------------------------
+# --- 3. Docker's data-root --------------------------------------------------
+
+# Left alone, Coolify's installer brings up the Engine with the default
+# /var/lib/docker — on the 64 GB root disk. Images, layers, containers and
+# build cache are the part of this machine that actually grows, and this repo
+# assigns that growth to the 300 GB `data` mirror, so the data-root is pointed
+# there BEFORE any Engine exists. Afterwards means moving a live data
+# directory, the same trap docs/apps-vm-setup.md names for /data/coolify.
+#
+# /data/docker is the one directory on that disk which is DELIBERATELY
+# disposable: every byte in it is pullable or rebuildable. That is also why the
+# disk carries backup=0 on the hypervisor, and why the file-level backup job
+# that eventually covers this VM must walk /data/coolify and /data/<stack>
+# rather than /data.
+echo "==> Pointing Docker's data-root at ${DOCKER_DATA_ROOT}"
+
+# Not cosmetic. If /data is an ordinary directory on the root filesystem, then
+# writing the data-root here recreates the exact problem this step exists to
+# fix — and it would look like it worked.
+if ! mountpoint -q "$DATA_MOUNT"; then
+  echo "${DATA_MOUNT} is not a mountpoint — mount the 300 GB data disk first" >&2
+  echo "(docs/apps-vm-setup.md, step 4)." >&2
+  exit 1
+fi
+
+# The preflight's Docker check above is deliberately soft, so an Engine that is
+# already running is REACHABLE here. Switching the data-root under one orphans
+# every image, volume and container it holds, so change nothing and say why.
+if [ -d /var/lib/docker ] \
+   && [ -n "$(run_root find /var/lib/docker -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo "    WARNING: /var/lib/docker exists and is not empty."
+  echo "             Leaving ${DAEMON_JSON} alone — changing the data-root under"
+  echo "             a live Engine orphans everything it holds. To move it on"
+  echo "             purpose: stop docker, move the tree, then set \"data-root\""
+  echo "             in ${DAEMON_JSON} by hand."
+elif ! command -v python3 >/dev/null 2>&1; then
+  echo "    WARNING: python3 not found, so ${DAEMON_JSON} cannot be edited"
+  echo "             without risking whatever else is in it. Set"
+  echo "             \"data-root\": \"${DOCKER_DATA_ROOT}\" by hand, then re-run."
+else
+  run_root mkdir -p "$DOCKER_DATA_ROOT" /etc/docker
+
+  # MERGE, never overwrite. On a re-run this file already holds whatever
+  # Coolify's installer put in it, and clobbering that would be a silent
+  # regression somewhere else. python3 is in Ubuntu Server's base install;
+  # the branch above covers its absence rather than assuming.
+  run_root python3 - "$DAEMON_JSON" "$DOCKER_DATA_ROOT" <<'PY'
+import json, os, sys
+
+path, root = sys.argv[1], sys.argv[2]
+
+try:
+    with open(path) as fh:
+        cfg = json.load(fh)
+except FileNotFoundError:
+    cfg = {}
+except json.JSONDecodeError as exc:
+    sys.exit(f"{path} is not valid JSON ({exc}); fix it by hand and re-run.")
+
+if cfg.get("data-root") == root:
+    print(f"    {path} already sets data-root to {root} — nothing to do")
+    sys.exit(0)
+
+cfg["data-root"] = root
+
+# Write beside the target and rename, so an interrupted run cannot leave the
+# Engine with a half-written config it refuses to start on.
+tmp = path + ".new"
+with open(tmp, "w") as fh:
+    json.dump(cfg, fh, indent=2)
+    fh.write("\n")
+os.replace(tmp, path)
+print(f"    wrote data-root={root} to {path}")
+PY
+fi
+
+# --- 4. install -------------------------------------------------------------
 
 # Deliberately NOT `curl ... | sudo bash`. Same operation, but the script lands
 # on disk first so its origin and checksum are printed and it can be read before
@@ -156,7 +236,21 @@ echo "==> Running the installer as root (this takes a few minutes)"
 # Coolify requires root and documents non-root as not fully supported.
 run_root bash "$TMP_INSTALLER"
 
-# --- 4. .env ----------------------------------------------------------------
+# Coolify's installer writes /etc/docker/daemon.json for its own reasons, and
+# whether it merges or replaces is not documented — so verify rather than
+# assume. A clobbered data-root sends every future image layer back to the
+# 64 GB root disk, and nothing else would look wrong for weeks.
+ACTUAL_ROOT="$(run_root docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+if [ "$ACTUAL_ROOT" = "$DOCKER_DATA_ROOT" ]; then
+  echo "    data-root confirmed: ${ACTUAL_ROOT}"
+else
+  echo "    WARNING: Docker reports data-root '${ACTUAL_ROOT:-unknown}', not"
+  echo "             ${DOCKER_DATA_ROOT}. The installer probably rewrote"
+  echo "             ${DAEMON_JSON}. Put the key back, then:"
+  echo "             sudo systemctl restart docker"
+fi
+
+# --- 5. .env ----------------------------------------------------------------
 
 if [ ! -f "${APPS_DIR}/.env" ]; then
   echo "==> Seeding ${APPS_DIR}/.env from .env.example"
