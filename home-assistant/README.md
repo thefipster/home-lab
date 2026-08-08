@@ -19,7 +19,7 @@ have one each, the apps VM has four, this has none.
 
 | File | Purpose |
 |------|---------|
-| `configuration.yaml` | A **fragment** to *append* to `/config/configuration.yaml` inside the VM. Two blocks: `http:` (so HA trusts Traefik's proxy hop) and `prometheus:` (so Alloy can scrape it). Same idea as `infra/forgejo/build-and-push.yml` — a real file in the repo that lives somewhere else. |
+| `configuration.yaml` | A **fragment** to *append* to `/config/configuration.yaml` inside the VM. Two blocks: `http:` (so HA trusts Traefik's proxy hop) and `prometheus:` (so Alloy can scrape it). The **only** file in this repo that belongs on a machine the repo cannot write to — the Forgejo workflow templates were the other one, and they were deleted once the real workflows lived in the app repo. This one has no other repo to move to. |
 
 **Append it, never copy it over.** A fresh HAOS install ships
 `configuration.yaml` with `default_config:`; replacing that file strips the whole

@@ -147,28 +147,24 @@ new one). Local username/password login still works.
 
 ### 7. Add the pipeline to your repo
 
-The workflow and Dockerfile must live in the repo being built, and the Forgejo
-copy is a read-only mirror, so commit them to **GitHub** and let them mirror
-in. In your app repo on GitHub, add:
+The workflows and Dockerfile live in the repo being built — **this repo ships no
+copies of them**, deliberately: a second copy of a live workflow drifts from the
+one actually running, and there is nothing here that could keep the two honest.
+What this guide owns is the runner, the registry and the tokens the workflows
+authenticate with.
 
-- a `Dockerfile` for the app, and
-- both workflow templates under `.forgejo/workflows/`, from
-  [`infra/forgejo/build-and-push.yml`](../infra/forgejo/build-and-push.yml) and
-  [`infra/forgejo/release.yml`](../infra/forgejo/release.yml) here.
+The Forgejo copy of your app repo is a read-only mirror, so the workflow files
+are committed to **GitHub** and mirror in, at `.forgejo/workflows/`. Two of
+them, doing different jobs:
 
-The two do different jobs:
-
-| Template | Builds | Tags images |
+| Workflow | Builds | Tags images |
 |---|---|---|
-| `build-and-push.yml` | whatever the mirror last synced | by commit SHA — a **dev** build |
-| `release.yml` | a `<component>-v<semver>` git tag you name | `latest`, `1.2.3`, `1.2`, `1` — a **release** |
+| the **dev** builder | whatever the mirror last synced | by commit SHA |
+| the **release** builder | a `<component>-v<semver>` git tag you name | `latest`, `1.2.3`, `1.2`, `1` |
 
-Both carry three jobs, one per toolchain, because `container:` is a per-job
-setting and .NET, PlatformIO and Node cannot share one. Both include a
-**matrix** of PlatformIO projects: in the dev builder that is the `project:`
-list, in the release workflow the `COMPONENTS` table in its `plan` job. Adding
-a board is one entry in each. Every repo path and PlatformIO environment in
-both files is a marked placeholder — those are the only edits you should need.
+Both are `workflow_dispatch`-only — see [CI is manual-only](#how-it-works) — and
+both carry one job per toolchain, because `container:` is a per-job setting and
+.NET, PlatformIO and Node cannot share one.
 
 Then create **two access tokens** under the Forgejo account at **Settings →
 Applications → Manage Access Tokens → Generate Token**, and add each to the app
@@ -177,11 +173,17 @@ repo's **Settings → Actions → Secrets**:
 | Secret | Scope | Used by |
 |---|---|---|
 | `REGISTRY_TOKEN` | `write:package` | both workflows, for the container **and** generic registries |
-| `REPOSITORY_TOKEN` | `write:repository` | `release.yml` only, to trigger the mirror sync |
+| `REPOSITORY_TOKEN` | `write:repository` | the release builder only, to trigger the mirror sync |
 
 One scope covers both registries, so the non-Docker jobs need no token of their
 own. Keep the two separate: `REGISTRY_TOKEN` is handed to third-party actions
 (`docker/login-action`), so it stays minimal.
+
+> **A secret's name may not begin with `FORGEJO`.** That prefix is reserved for
+> the variables Forgejo injects into a run itself, and the Secrets form rejects
+> the name outright — which is why the mirror-sync token is `REPOSITORY_TOKEN`
+> and not the `FORGEJO_API_TOKEN` its job would suggest. Same rule for any third
+> secret added later.
 
 Push, then wait for the mirror interval (or **Settings → Mirror Settings →
 Synchronize Now** in Forgejo).
@@ -194,10 +196,9 @@ HEAD, logs into the registry, builds and pushes. The runner is `capacity: 1`, so
 the jobs you leave ticked run one after another.
 
 Then check the image landed: the owner's **Packages** tab should list a
-container package — named `<repo>/blazor` by the shipped template — with
+container package — named `<repo>/blazor` by the workflow's tag list — with
 `latest` and a SHA tag. Or pull it from any LAN machine with no daemon
-configuration at all. The path follows the `tags:` you set in step 7; as shipped
-that is:
+configuration at all:
 
 ```bash
 docker login git.thefipster.de
@@ -297,7 +298,7 @@ docker compose up -d --remove-orphans
 
 **`docker: not found` inside a CI job.** The job image must contain **both**
 Node (for the checkout/login/build-push actions) **and** the `docker` CLI with
-buildx. A plain `node` image fails; the shipped workflow uses
+buildx. A plain `node` image fails; the app repo's Docker-building jobs use
 `ghcr.io/catthehacker/ubuntu:act-24.04`, which has both. The first run pulls it
 (~1.5 GB) onto the host daemon and caches it.
 
@@ -396,20 +397,35 @@ it. Mirrors update Git data without firing `push` events, and the lab is
 LAN-only so GitHub cannot call in either — no event-driven design is possible.
 Both workflows are therefore `workflow_dispatch`-only, and they split the work:
 
-- **`build-and-push.yml`** rebuilds the mirrored HEAD and tags by commit SHA.
-  There is no change detection — a run with no new commits simply rebuilds the
-  same code, so trigger it when something changed.
-- **`release.yml`** takes the release tags as its input, POSTs `mirror-sync`
-  itself, and waits for exactly those refs before building. A dispatched run can
-  therefore check out a tag that did not exist when it started: the dispatch
-  pins only *which workflow file* runs, not what it fetches.
+- The **dev builder** rebuilds the mirrored HEAD and tags by commit SHA. There
+  is no change detection — a run with no new commits simply rebuilds the same
+  code, so trigger it when something changed.
+- The **release builder** takes the release tags as its input, POSTs
+  `mirror-sync` itself, and waits for exactly those refs before building. A
+  dispatched run can therefore check out a tag that did not exist when it
+  started: the dispatch pins only *which workflow file* runs, not what it
+  fetches.
 
-A scheduled reconciler — cron, list the tags, ask the registry what is already
-built, build the difference — was designed and **rejected**. Every part of it
-existed to reconcile drift between git and the registry, and tagging is already
-a deliberate manual act: dispatching the build in the same sitting means drift
-never accumulates. The reasoning is in
-[the design spec](superpowers/specs/2026-08-05-forgejo-release-workflow-design.md).
+Two scheduled jobs were designed for this and both were **rejected**. A
+*reconciler* — cron, list the tags, ask the registry what is already built,
+build the difference — existed entirely to reconcile drift between git and the
+registry, and tagging is already a deliberate manual act: dispatching the build
+in the same sitting means drift never accumulates
+([design spec](superpowers/specs/2026-08-05-forgejo-release-workflow-design.md)).
+A *nightly rebuild* went the same way; its last remaining purpose was
+re-scanning published images for CVEs disclosed after the build, and that gap is
+stated without an automated answer in
+[roadmap/ci-supply-chain.md](roadmap/ci-supply-chain.md). The lab therefore runs
+**no CI schedule at all**, which
+[timetable.md](timetable.md#deliberate-absences) records as a decision rather
+than an omission.
+
+**The workflow files are not in this repository.** They live in the app repo,
+where they run. This repo used to carry annotated example copies under
+`infra/forgejo/`; they were removed once the real ones existed, because two
+copies of a live workflow drift and nothing here can tell you which one is
+current. What stays on this side is the runner (`infra/forgejo/config.yml`), the
+registry, and the tokens above.
 
 **`/metrics` is open on the LAN.** `FORGEJO__metrics__ENABLED` serves metrics
 on port 3000 — the same port Traefik publishes — so

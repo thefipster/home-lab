@@ -1,35 +1,37 @@
-# Roadmap: CI — code analysis
+# Roadmap: CI — code analysis history
 
-Goal: the pipeline flags code problems, not just compile errors — without
-adding heavyweight infrastructure until it earns its keep.
+Compiler-level analysis has **landed**. Roslyn analyzers with `.editorconfig`
+severities, `TreatWarningsAsErrors`, and a `dotnet format --verify-no-changes`
+gate all run in the app repo's own workflow, so drift fails the run — and the
+severities live beside the code, which is what makes the IDE and CI agree by
+construction rather than through a CI-only rule set. Tests and coverage landed
+in the same pass: a failing test fails the run, and the coverage report is
+rendered into the run summary.
 
-## Phases
+That was the phase worth doing first, and it needed no new service. **One
+decision is still open**, and it is the only part of code analysis that would
+ever be *this* repo's work rather than the app repo's.
 
-1. **Compiler-level, zero new services (do this first).**
-   - Roslyn analyzers + `.editorconfig` severities in the app repo;
-     `TreatWarningsAsErrors=true` (or `/warnaserror`) in the CI build so drift
-     fails the run.
-   - `dotnet format --verify-no-changes` as a cheap style gate.
-   - Optionally add analyzer packages with real signal for a web app:
-     `Microsoft.CodeAnalysis.NetAnalyzers` (built in, raise the level),
-     `SonarAnalyzer.CSharp` (works standalone, no SonarQube server needed).
+## SonarQube — only if history is wanted
 
-   This is 90 % of the value for one workflow step and zero containers.
+Both of the pieces that landed above are **per-run**: the analyzer output is a
+list of warnings in one build, and the coverage number is a summary on one run
+page. Neither answers "is this getting better or worse?" A SonarQube Community
+Edition stack at `infra/sonarqube` would — issue, coverage and duplication
+*trends*, plus a browsable UI — and it would answer that question once for both,
+which is why the coverage-history option and the analysis-history option are
+the same decision and not two.
 
-2. **SonarQube server — only if history/browsing is wanted.** Community
-   edition as an `infra/sonarqube` stack would add issue/coverage/duplication
-   *trends* and a browsable UI, and would also solve the history question
-   from [ci-testing.md](ci-testing.md). Costs: ~2–3 GB RAM on a 4 GB VM
-   (needs the RAM bump from the [monitoring roadmap](monitoring.md) first),
-   its own Postgres, and it only supports its own local login in Community —
-   so it would join Authentik by the forward-auth pattern like Dockge.
+What it would cost:
 
-   **Recommendation: stay on phase 1 until the analyzer output feels
-   insufficient.** A one-person lab rarely needs trend dashboards for issues.
+- ~2–3 GB of RAM on the infra VM, and its own Postgres beside the four already
+  running.
+- Community Edition supports only its own local login, so it would join
+  Authentik by the **forward-auth** pattern like Dockge — a DNS row, an SSO row
+  and a Kuma row, like any other gated UI.
+- A scanner step in the workflow that already produces coverage files, in the
+  app repo, not here.
 
-## Notes
-
-- Analyzer severities live in the app repo (`.editorconfig`), so IDE and CI
-  agree by construction — no CI-only rule set.
-- If SonarQube lands, scanner steps go into the test job (it wants coverage
-  files), not the build job.
+**Recommendation: don't, yet.** A one-person lab rarely needs trend dashboards
+for its own issue count, and the per-run output has not yet felt insufficient.
+Revisit when it does — that is the trigger, not a date.

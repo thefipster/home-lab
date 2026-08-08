@@ -123,13 +123,17 @@ is why neither machine appears in the night window above.
 A gap that was decided reads differently from one that was overlooked, so both
 kinds are listed — the same rule the other registries follow.
 
-- **No CI schedule at all.** Both Forgejo workflows are `workflow_dispatch`-only,
-  because GitHub is primary and the lab is LAN-only, so nothing event-driven is
-  possible in either direction. A scheduled reconciler was designed and
-  **rejected** — dispatching by hand right after tagging means drift never
-  accumulates
-  ([spec](superpowers/specs/2026-08-05-forgejo-release-workflow-design.md)).
-  Do not re-propose it.
+- **No CI schedule at all.** The app repo's Forgejo workflows are
+  `workflow_dispatch`-only, because GitHub is primary and the lab is LAN-only,
+  so nothing event-driven is possible in either direction. Two scheduled jobs
+  were designed and both were **rejected**, not deferred: a reconciler that
+  would compare git tags against the registry and build the difference —
+  dispatching by hand right after tagging means drift never accumulates
+  ([spec](superpowers/specs/2026-08-05-forgejo-release-workflow-design.md)) —
+  and a **nightly rebuild**, whose remaining purpose was re-scanning published
+  images for CVEs disclosed after the build
+  ([roadmap/ci-supply-chain.md](roadmap/ci-supply-chain.md) states that gap and
+  why it now has no automated answer). Do not re-propose either.
 - **The weekly `restic check` has no heartbeat.** The nightly backup pings Kuma;
   the check pings nothing, so a repository that has become unreadable stays
   quiet. Known gap ([roadmap/backup.md](roadmap/backup.md)).

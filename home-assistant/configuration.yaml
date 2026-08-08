@@ -2,9 +2,11 @@
 #
 # This lives inside the HA VM at /config/configuration.yaml, which this repo
 # cannot mount: HAOS is an appliance with no shell of ours in it. So the repo
-# holds the fragment and you paste it by hand, exactly like
-# infra/forgejo/build-and-push.yml, which belongs in an app repo rather than
-# here.
+# holds the fragment and you paste it by hand. It is now the ONLY file here of
+# that kind — the Forgejo workflow templates were the other one, and they were
+# deleted once the real workflows existed in the app repo, because two copies of
+# a live file drift. This fragment survives that argument for one reason: there
+# is no repo it could live in instead.
 #
 # APPEND these blocks to the existing /config/configuration.yaml. Do NOT
 # replace that file — a fresh HAOS install ships it with `default_config:` and

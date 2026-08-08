@@ -57,8 +57,9 @@ service name and nesting them would add a `../` to every cross-guide link:
   add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
   repo cannot be its source of truth, so `home-assistant/` holds a README and a
-  `configuration.yaml` **fragment you append by hand** (the
-  `infra/forgejo/build-and-push.yml` precedent — a real file that lives elsewhere).
+  `configuration.yaml` **fragment you append by hand** — the only file left here
+  that belongs on a machine this repo cannot write to, and it stays only because
+  there is no other repo it could live in.
 
 Only the infra VM is driven from this repo. For the other two the repo holds
 guides and one config fragment each; treat their machine state as authoritative
@@ -500,16 +501,16 @@ the single source of truth; Dockge only drives start/stop/logs.
   Forgejo 13 and runner 8 both began rejecting Actions workflows that fail a
   YAML schema check, so a pair straddling those versions disagrees about what a
   valid workflow is.
-- **The runner's default job image is a Node LTS, and it is written down three
-  times.** `infra/forgejo/config.yml`'s `docker://…/node:24-bookworm` label and
-  the Astro job's `container.image` in `build-and-push.yml` name the same tag on
-  purpose — the workflow picks the image the runner has already pulled — and
-  `release.yml`'s `showcase` job pins the same major through `setup-node`
-  (it runs on the `act` image, which it needs for the docker CLI, so it cannot
-  inherit the runner default). Bump all three together, and pick an **LTS**
-  line (`24-bookworm` today; 20 went EOL 2026-04-30): a non-LTS Node major
-  loses support inside a year, which is shorter than the interval between bumps
-  here. The other toolchain jobs set their own images and are unaffected.
+- **The runner's default job image is a Node LTS, and this repo is no longer the
+  only place it is written down.** `infra/forgejo/config.yml`'s
+  `docker://…/node:24-bookworm` label sets what a job gets when it names no
+  image of its own — and the app repo's Astro jobs name the same tag on purpose,
+  so the workflow picks an image the runner has already pulled. Bumping the
+  label here therefore wants a matching bump **over there**, in a repo this one
+  cannot see; that coupling is the price of the workflows having moved out. Pick
+  an **LTS** line (`24-bookworm` today; 20 went EOL 2026-04-30): a non-LTS Node
+  major loses support inside a year, which is shorter than the interval between
+  bumps here.
 - **The four Postgres services set `PGDATA` explicitly**, which no other stack
   needs to do. Postgres 18's official image made its default PGDATA
   version-specific (`/var/lib/postgresql/18/docker`) and moved the declared
@@ -614,65 +615,43 @@ the single source of truth; Dockge only drives start/stop/logs.
   build: monitoring comes up on the infra VM before either machine exists. Left
   live rather than commented out, because `rules.yaml` provisions no contact point
   or notification policy — alerts are UI-only and send nothing outward.
-- **CI is manual-only, and it is two workflows.** GitHub is primary and Forgejo
-  pull-mirrors it, so `on: push` does not fire; the lab is LAN-only, so GitHub
-  cannot call in either. Nothing event-driven is possible, and both templates
-  are `workflow_dispatch`-only. Both live in the *app* repo at
-  `.forgejo/workflows/`, not on the infra VM, and both carry **three jobs, one
-  per toolchain** — `container:` is per-job, so Blazor, PlatformIO and Astro
-  cannot share one.
-  - `infra/forgejo/build-and-push.yml` — the **dev** builder: rebuilds the
-    mirrored HEAD, tags images by commit SHA, keeps browsable run artifacts.
-    Each job is gated by a default-on boolean input, because the runner is
-    `capacity: 1` and an unticked job is wall-clock saved. Those `if:` guards
-    compare against `true` **and** `'true'` on purpose: a `type: boolean` input
-    can arrive as the string `"false"`, which is truthy, so a bare
-    `if: inputs.x` would run the job anyway.
-  - `infra/forgejo/release.yml` — the **release** builder: its input is the
-    release tags. A `plan` job validates them, POSTs `mirror-sync`, polls
-    `git ls-remote` until those exact refs land, then emits one matrix per
-    toolchain. A dispatched run can therefore build a tag that did not exist
-    when it started — the dispatch pins only which file runs. Build jobs are
-    gated on `needs.plan.outputs.<x>_any == 'true'` so an empty matrix never
-    runs.
-  **Five components across the three toolchains** — `blazor`, `showcase`,
-  `atmos`, `terra`, `flux` — tagged `<component>-v<semver>`. The three
-  PlatformIO ones are the same recipe in a different directory, so they are a
-  matrix, never a job each; adding a board is one row in `release.yml`'s
-  `COMPONENTS` table and one in the dev builder's `project:` list.
-  A **scheduled reconciler** (cron + registry-as-ledger + a rolling-tag guard)
-  was designed and **rejected**: all of it reconciles drift, and dispatching by
-  hand right after tagging means drift never accumulates. Don't re-propose it —
-  see `docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md`.
-- **Two kinds of build output, two registries.** Images go to the container
-  registry; the PlatformIO `.bin`s and the Astro `dist.tar.gz` go to the
-  **generic package registry** (`PUT /api/packages/{owner}/generic/…` —
-  permanent, same Packages tab as the images), and in the *dev* builder also to
-  a run artifact (`forgejo/upload-artifact@v4` — the upstream v4 only speaks to
-  GitHub's backend; expires, browsable from the run page). `release.yml`
-  publishes **no run artifacts**: a release's generic-registry copy is
-  permanent and versioned, which is the point; browsable throwaways are what
-  the dev builder is for. Two gotchas both workflows handle: generic packages
-  are **owner-scoped**, hence the `verdure-` name prefix, and a PUT over an
-  existing filename **409s**, so every publish deletes first — re-dispatching
-  is normal when dispatch is the only trigger, and the delete is what makes it
-  idempotent. Nothing on the infra VM stores these specially: artifacts live
-  under Forgejo's `APP_DATA_PATH`, already inside the `/opt/forgejo/forgejo`
-  bind mount.
-- **A release publishes exactly four image tags and no SHA tag.** `latest`,
-  `X.Y.Z`, `X.Y`, `X`; the commit travels as the
-  `org.opencontainers.image.revision` label instead — traceability without tag
-  spam. That label must come from `git rev-parse HEAD` **after** checking out
-  the tag, not from `github.sha`, which on a dispatch is the default branch's
-  commit. There is deliberately **no highest-version guard**: a hand-cut
-  release is always the newest, so re-running an old tag moving `latest`
-  backwards is accepted. `showcase` publishes to **both** registries from one
-  `npm run build` — its Dockerfile is a `COPY dist/` two-liner, not
-  multi-stage, so a `capacity: 1` runner does not compile the site twice.
-  Generic packages have no rolling tags, so `latest` is a second **version**
-  whose files are rewritten each release. The dev builder's firmware stays in
-  one `verdure-firmware` package on purpose — its versions are commit SHAs and
-  must not mix into the per-component release packages.
+- **The CI workflows are not in this repository, and must not come back.** They
+  live in the *app* repo at `.forgejo/workflows/`, which is where they run. This
+  repo used to ship annotated example copies under `infra/forgejo/`; they were
+  deleted once the real ones existed, because two copies of a live workflow
+  drift and nothing on this side can say which is current. **Do not re-add an
+  example workflow, a template, or a "reference" copy** — if a workflow detail
+  needs recording here, record the *consequence* for the lab (a token, a runner
+  label, a storage path), not the YAML. What this repo owns is
+  `infra/forgejo/config.yml` (the runner), the registry, and the procedure in
+  `docs/forgejo-setup.md`.
+- **CI is manual-only, and the lab runs no CI schedule at all.** GitHub is
+  primary and Forgejo pull-mirrors it, so `on: push` does not fire; the lab is
+  LAN-only, so GitHub cannot call in either. Nothing event-driven is possible in
+  either direction, and both workflows are `workflow_dispatch`-only. Two
+  scheduled jobs were designed and **both rejected**: a *reconciler* (cron +
+  registry-as-ledger + a rolling-tag guard), because all of it reconciles drift
+  and dispatching by hand right after tagging means drift never accumulates
+  (`docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md`); and
+  a *nightly rebuild*, whose last surviving purpose was re-scanning published
+  images for CVEs disclosed after the build — that gap is now stated without an
+  automated answer in `docs/roadmap/ci-supply-chain.md`. Don't re-propose
+  either; `docs/timetable.md` records the absence as a decision.
+- **The runner is `capacity: 1`.** Jobs run one after another, so anything that
+  makes a run wider makes it longer. That is a real constraint on what to
+  suggest — it is why the dev builder gates each job behind a tick-box, and why
+  a build that could compile the same thing twice is worth restructuring.
+- **Build output lands in two registries, and neither needs anything on the infra
+  VM.** Images go to the container registry; binaries and archives go to the
+  **generic package registry** (`/api/packages/{owner}/generic/…` — permanent,
+  same Packages tab). Run artifacts expire and are browsable from the run page.
+  All three live under Forgejo's `APP_DATA_PATH`, already inside the
+  `/opt/forgejo/forgejo` bind mount, so no stack, backup script or disk-sizing
+  note treats them specially. Two properties do reach this side: generic
+  packages are **owner-scoped**, not repo-scoped, so package names carry a
+  project prefix; and a PUT over an existing filename **409s**, which is why
+  every publish deletes first — re-dispatching the same build is normal when
+  dispatch is the only trigger.
 - **Line endings:** `.gitattributes` forces LF repo-wide, and `*.sh` **must**
   stay LF even on Windows (CRLF breaks shebangs). Don't let an editor rewrite
   them to CRLF.
