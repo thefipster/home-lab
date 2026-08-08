@@ -282,7 +282,7 @@ Suggested specs for all three — the reasoning is in
 | `cpuunits` | 100 (default) | 50 | 200 |
 | Memory | 24576 MB | 32768 MB | 8192 MB |
 | Ballooning | off | off | off |
-| Root disk | 150 GB on `local-zfs` | 80 GB on `local-zfs` | 64 GB on `local-zfs` |
+| Root disk | 150 GB on `local-zfs` | 64 GB on `local-zfs` | 64 GB on `local-zfs` |
 | Second disk | — | **300 GB on `data`**, `backup=0` | — |
 | BIOS / machine | SeaBIOS / `q35` | SeaBIOS / `q35` | **OVMF** / `q35` |
 | Network | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO | bridge `vmbr0`, VirtIO |
@@ -736,16 +736,26 @@ Per-VM, the numbers and why:
   and Forgejo's container registry, which today gains an image per CI run.
   Registry retention is owned by the CI roadmap rather than by a disk size, so
   150 GB buys comfortable time rather than absorbing growth forever.
-- **apps 32 GB, and 80 + 300 GB across two pools.** This is where real user
-  workloads live, and the largest allocation on the box for that reason — though
-  it is also the least evidenced one, since the VM has run nothing measurable
-  yet. It is the first line to trim back if the reserve is ever wanted
-  elsewhere, and the number to decide by measurement rather than argument:
-  `node_memory_MemAvailable_bytes{instance="apps"}` is already scraped. The
-  **root** disk carries the OS and Coolify itself — its installer demands 30 GB
-  free before it will run, so 80 GB is roomy — while app volumes, databases,
-  build cache and image layers go on the `data` mirror, because that is the part
-  that grows without asking.
+- **apps 32 GB, and 64 + 300 GB across two pools.** This is where real user
+  workloads live, and the largest **memory** allocation on the box for that
+  reason — though it is also the least evidenced one, since the VM has run
+  nothing measurable yet. It is the first line to trim back if the reserve is
+  ever wanted elsewhere, and the number to decide by measurement rather than
+  argument: `node_memory_MemAvailable_bytes{instance="apps"}` is already
+  scraped. The **root** disk carries the OS, a 4 GB swapfile and Coolify
+  itself — and nothing that grows, because `scripts/init-coolify.sh` points
+  Docker's data-root at `/data/docker` before any Engine starts, so app
+  volumes, databases, build cache and image layers all land on the `data`
+  mirror.
+- **Why the apps root disk is 64 GB and not 40.** Its floor is not the OS. The
+  30 GB-free check on `/` runs **twice** — once in `scripts/init-coolify.sh` so
+  the failure names its cause before anything is downloaded, and again inside
+  the vendor installer, that time *after* the swapfile exists. 10 GB of Ubuntu
+  plus 4 GB of swap plus 30 GB free is 44 GB, so **a 40 GB root disk fails a
+  check that has nothing to do with the OS fitting** — which is the trap here,
+  because 40 looks like the obvious number once the layers move off. 48 GB is
+  the smallest figure that passes with margin; 64 leaves room for journald, the
+  apt cache and an OS that grows, on a pool that is 40% empty.
 - **home-assistant 8 GB / 64 GB.** The smallest allocation on the box, and
   deliberately so even with a reserve sitting free. HAOS idles near 2 GB; its
   spike is ESPHome firmware builds and add-ons, which are CPU- and disk-bound —

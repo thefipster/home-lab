@@ -30,8 +30,9 @@ scripts/init-coolify.sh
 ```
 
 It preflights the box (Debian family, Engine ≥ 24, 30 GB free, RAM), creates a
-4 GB swapfile if none is active, then downloads Coolify's official installer
-**to a file** and prints its source URL and sha256 before running it as root.
+4 GB swapfile if none is active, points Docker's data-root at `/data/docker`,
+then downloads Coolify's official installer **to a file** and prints its source
+URL and sha256 before running it as root.
 That last part is the only real deviation from upstream's `curl … | sudo bash`:
 same operation, but you can read the script that is about to own your machine.
 
@@ -46,6 +47,16 @@ Expect a few minutes and a lot of image pulls.
 > **On Ubuntu 26.04 the script warns.** Coolify officially lists Ubuntu
 > 20.04/22.04/24.04 and Debian 11/12. The installer is Debian-family generic, so
 > the warning is expected and the script continues on purpose.
+
+> **The data-root is written before the Engine exists, and verified after.**
+> Left alone, Coolify's installer would put `/var/lib/docker` on the 64 GB root
+> disk. The script writes `{"data-root": "/data/docker"}` into
+> `/etc/docker/daemon.json` first — merging, so it keeps whatever else is in
+> there — and then re-reads `docker info` once the installer has finished,
+> because the installer writes that same file for its own reasons and whether it
+> merges is not documented. **If that check warns, fix the key and
+> `sudo systemctl restart docker` before deploying anything:** a lost data-root
+> is invisible for weeks and then fills the root disk.
 
 ### 2. Create the admin account — immediately
 
@@ -224,6 +235,7 @@ there lands you on **this** box and produces the same 404.
 | What | Where |
 |------|-------|
 | The data disk | `/data` — mounted in [apps-vm-setup.md](apps-vm-setup.md#4-mount-the-data-disk) |
+| Docker's data-root | `/data/docker` — images, layers, containers, build cache. Set by `init-coolify.sh` |
 | Coolify itself | `/data/coolify/` — source of truth for everything it manages |
 | Coolify's compose | `/data/coolify/source/` — installed, not from this repo |
 | The proxy's compose | Coolify's own store, edited at *Servers → Proxy* — **not** in this repo |
@@ -241,6 +253,15 @@ reason: a backup job needs a path it can walk. That disk is excluded from whole-
 `vzdump` (`backup=0`) and the file-level layer is still roadmap, so treat
 everything under `/data` as unbacked. Directories are created by hand before a
 deploy; each stack's README carries the exact `mkdir`.
+
+**`/data/docker/` is the one directory on this disk that must STAY unbacked.**
+Every byte in it is pullable or rebuildable — images, layers, containers, build
+cache — which is part of why the disk carries `backup=0` on the hypervisor. It
+also means the file-level job above has to walk `/data/coolify` and
+`/data/<stack>` **by name**: point it at `/data` and it swallows every image
+layer on the machine. Any Docker **named** volume would land in here too,
+unbacked, which is the other half of why the third-party stacks bind-mount under
+`/data/<stack>` instead ([apps/stacks/README.md](../apps/stacks/README.md)).
 
 ## How it works
 

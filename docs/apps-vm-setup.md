@@ -85,12 +85,18 @@ Coolify owns, bouncing every app on the box.
 
 ### 4. Mount the data disk
 
-This VM has **two** disks: an 80 GB root on the hypervisor's NVMe mirror, and a
+This VM has **two** disks: a 64 GB root on the hypervisor's NVMe mirror, and a
 300 GB second disk on the `data` mirror
-([proxmox-setup.md Part 5](proxmox-setup.md#part-5--create-the-vms)). Coolify
-keeps everything it manages under **`/data/coolify`**, so the second disk gets
-mounted at `/data` **before** the installer runs — afterwards means moving a
-live data directory.
+([proxmox-setup.md Part 5](proxmox-setup.md#part-5--create-the-vms)). Two things
+live on the second one: Coolify keeps everything it manages under
+**`/data/coolify`**, and [`scripts/init-coolify.sh`](../scripts/init-coolify.sh)
+points Docker's own data-root at **`/data/docker`** so images, layers and build
+cache land here rather than on the root disk.
+
+Both are why the second disk gets mounted at `/data` **before** the installer
+runs — afterwards means moving a live data directory. The script refuses to
+write the data-root at all while `/data` is not a mountpoint, for exactly that
+reason.
 
 Find it. It is the one with no mountpoint and no children:
 
@@ -124,7 +130,7 @@ echo 'LABEL=coolify-data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fsta
 sudo systemctl daemon-reload && sudo mount -a
 ```
 
-Verify — it must show ~300 GB, not the root disk's 80:
+Verify — it must show ~300 GB, not the root disk's 64:
 
 ```bash
 df -h /data
@@ -137,7 +143,7 @@ df -h /data
 - [ ] `systemctl is-active qemu-guest-agent` → `active`, and the VM's IP shows
       on its Proxmox **Summary** page
 - [ ] `unattended-upgrade --dry-run --debug` lists security origins only
-- [ ] `df -h /data` shows ~300 GB — **not** 80
+- [ ] `df -h /data` shows ~300 GB — **not** 64
 - [ ] `docker` is **not** installed yet, and that is correct
 
 ## Next
