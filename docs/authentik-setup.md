@@ -8,15 +8,15 @@ that does not depend on what you are about to build.
 
 [Authentik](https://goauthentik.io) is the lab's identity provider, at
 **`https://auth.thefipster.de`**. It must run before the services it gates: the
-Traefik dashboard and Dockge reference a forward-auth middleware that Authentik
-provides, so their routers do not load without it.
+Traefik dashboard, Dockge and Homepage reference a forward-auth middleware that
+Authentik provides, so their routers do not load without it.
 
 Services join SSO by **one of two patterns, never both**:
 
 - **OIDC** — for services with real SSO support, or that authenticate
   non-browser traffic (`git push`, `docker login`, CI). Forgejo and Grafana.
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support at
-  all. The Traefik dashboard and Dockge.
+  all. The Traefik dashboard, Dockge and Homepage.
 
 Three services join **neither**, deliberately — Vaultwarden, Uptime Kuma and
 Home Assistant. The first of those is already running by the time you get here,
@@ -85,9 +85,10 @@ bootstrap password from step 1.
 
 ### 3. Gate the Traefik dashboard (forward-auth)
 
-This is the click-path for **every** forward-auth service; Dockge repeats it
-later with its own values. All per-service values are in the registry:
-[sso-applications.md](sso-applications.md#forward-auth-dockge--traefik-dashboard).
+This is the click-path for **every** forward-auth service; Dockge and Homepage
+repeat it later with their own values. All per-service values are in the
+registry:
+[sso-applications.md](sso-applications.md#forward-auth-dockge-traefik-dashboard--homepage).
 
 1. **Create the provider.** **Admin → Applications → Providers → Create →
    Proxy Provider**. Set the name, authorization flow, mode
@@ -142,7 +143,7 @@ restrict one:
 Do this for every application in the [registry](sso-applications.md) as it is
 created. What "denied" means depends on the pattern:
 
-- **Forward-auth** (Traefik dashboard, Dockge): enforced at the proxy — the
+- **Forward-auth** (Traefik dashboard, Dockge, Homepage): enforced at the proxy — the
   user authenticates but gets Authentik's access-denied page instead of the
   service.
 - **OIDC** (Forgejo, Grafana): gates only the "Sign in with authentik" path.
@@ -218,7 +219,7 @@ user (step 5).
   That prints a one-time login link; open it and set a new password from the
   akadmin user settings.
 
-- **Traefik dashboard / Dockge** — comment the
+- **Traefik dashboard / Dockge / Homepage** — comment the
   `traefik.http.routers.*.middlewares: authentik@docker` label and
   `docker compose up -d` to bypass the gate. Dockge's own login remains
   underneath; drive Docker over SSH meanwhile.

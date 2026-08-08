@@ -143,7 +143,7 @@ Services join it by **one of two patterns**, never both:
   Authentik. Local login stays enabled (break-glass). Anything with native
   OIDC uses it — forward-auth is only for UIs that have no SSO at all.
 - **Forward-auth** — for plain web UIs with no SSO support (Dockge, the Traefik
-  dashboard). Per application: the shared `authentik@docker` `forwardauth`
+  dashboard, Homepage). Per application: the shared `authentik@docker` `forwardauth`
   middleware plus a per-host `/outpost.goauthentik.io/` router — both declared as
   labels on the Authentik `server` container — and a `...middlewares:
   authentik@docker` label on the protected router. Authentik must be running or
@@ -202,10 +202,12 @@ and declares what that stack consists of using four recipes:
 `include <path>`, and `include_env`. There is **no
 central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
-it. **Every stack is wired** — Authentik, Dockge, Forgejo, monitoring,
-Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2 row in
-`docs/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
-compose file.
+it. **Every stack that holds state is wired** — Authentik, Dockge, Forgejo,
+monitoring, Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2
+row in `docs/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
+compose file. **Homepage is the one stack with neither, deliberately**: it has
+no `/opt` directory and no `.env`, so every byte it owns is already in this
+repo and a snapshot of it would be a snapshot of a checkout.
 
 **Forgejo's `.env` holds `DOCKER_GID`, the one machine-specific value in this
 repo** — `scripts/init-forgejo.sh` reads it from `getent group docker`. A
@@ -402,12 +404,23 @@ section, for the reasons under [Docs layout](#docs-layout).
    wired (`GRAFANA_OIDC_ENABLED=false`), which is how it's meant to be
    verified first.
 10. `scripts/init-uptime-kuma.sh` — creates `/opt/uptime-kuma`, symlinks the
-   stack. The only stack with **no `.env` and no `.env.example`**: Kuma has no
+   stack. One of two stacks with **no `.env` and no `.env.example`** (Homepage
+   is the other): Kuma has no
    database and creates its admin through its own first-run web form, so there
    is nothing to seed. No `chown`
-   either — the default image runs as root, like Alloy. **Last stack** on
-   purpose; it watches everything above it.
-11. `scripts/init-backup.sh` — the only step that is **not a compose stack**:
+   either — the default image runs as root, like Alloy. **Last monitored
+   stack** on purpose; it watches everything above it. Only Homepage comes
+   after, and it watches nothing.
+11. `scripts/init-homepage.sh` — ensures the `proxy` network and symlinks the
+   stack. **The thinnest init script here**, because Homepage is the only stack
+   with **no `/opt/<stack>` data directory at all**: its entire state is the
+   git-tracked YAML in `infra/homepage/config`, bind-mounted read-only. Second
+   stack with **no `.env`**, after Kuma, because every widget is token-free. The
+   config mount being read-only has a consequence worth knowing: Homepage copies
+   a skeleton file in when one is missing and `exit(1)`s when that copy fails,
+   so **all nine** of its config files must exist — four ship as stubs. Last
+   stack on this VM: it links every one above it and nothing links it.
+12. `scripts/init-backup.sh` — the only step that is **not a compose stack**:
    installs restic, creates `/opt/backup` mode 700, seeds `infra/backup/.env`,
    generates `/root/.ssh/id_ed25519`, records the Proxmox host key, then
    `restic init` and installs four systemd units with `@REPO_ROOT@` substituted
@@ -422,7 +435,7 @@ section, for the reasons under [Docs layout](#docs-layout).
 That sequence is the **infra VM**. The other two machines follow it, and the
 build order in the README is grouped by machine for exactly this reason:
 
-12. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
+13. `scripts/init-coolify.sh` on the **apps VM** — preflight (Debian family,
    30 GB free, and Docker Engine ≥ 24 **only if an Engine is already there**),
    a swapfile if none is active, then Coolify's
    official installer **fetched to a temp file with its source URL and sha256
@@ -434,13 +447,13 @@ build order in the README is grouped by machine for exactly this reason:
    gate: the apps VM skips `init-docker.sh`, so on a first run there is no
    Engine yet and the installer is what provides it. Making that gate hard
    deadlocks the only machine that needs the script.
-13. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
+14. `scripts/init-node-exporter.sh` — machine-agnostic, but the **apps VM is its
    only caller**. Explicitly **not** folded into `init-host.sh`: that runs on the
    infra VM too, where Alloy's embedded `prometheus.exporter.unix` already
    collects host metrics, so a second exporter there would be a duplicate target.
    The Proxmox host wants one as well but has no checkout, so it stays a
    documented `apt install`.
-14. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+15. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
     per `docs/home-assistant-setup.md`.
 
@@ -533,7 +546,8 @@ the single source of truth; Dockge only drives start/stop/logs.
   `scalable-single-binary` target.
 - **`.env` is gitignored**; every stack whose `.env` holds hand-filled values
   ships a `.env.example` (Dockge's `.env` is machine-generated by its init
-  script, so it ships none; Uptime Kuma has no `.env` at all). Secrets
+  script, so it ships none; Uptime Kuma and Homepage have no `.env` at all).
+  Secrets
   (netcup creds, `DOCKER_GID`) live only in the VM's `.env`. Compose uses
   `${VAR:?message}` to fail fast when one is missing — preserve those guards.
   **Five values are deliberately `${VAR:-}` instead**, each with a comment in
@@ -557,7 +571,8 @@ the single source of truth; Dockge only drives start/stop/logs.
   force-recreating.
 - **Mounted `docker.sock` is root-equivalent** and used deliberately by Dockge,
   the Forgejo runner, Traefik (read-only there), Alloy (container discovery
-  + log tailing) and Uptime Kuma (container-state monitors — it is what lets
+  + log tailing), Homepage (the container state on its tiles) and Uptime Kuma
+  (container-state monitors — it is what lets
   Kuma report on stacks it shares no network with, which is why adding it
   changed no other stack's networks). `:ro` is **not** a security boundary for
   a socket — the mount
@@ -668,7 +683,8 @@ the single source of truth; Dockge only drives start/stop/logs.
 `proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
 `traefik-setup.md` → `vaultwarden-setup.md` → `authentik-setup.md` →
 `dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
-`uptime-kuma-setup.md` → `backup-setup.md` → **`apps-vm-setup.md`** →
+`uptime-kuma-setup.md` → `homepage-setup.md` → `backup-setup.md` →
+**`apps-vm-setup.md`** →
 `coolify-setup.md` → `home-assistant-setup.md`.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is

@@ -25,20 +25,22 @@ Three things shape everything below:
 
 - **It is a systemd timer, not a compose stack.** A backup that runs inside
   Docker stops when Docker does, and the alternative — a container allowed to
-  stop other containers — means a sixth root-equivalent socket mount for
+  stop other containers — means a seventh root-equivalent socket mount for
   scheduling a timer already does. Precedent: the Proxmox node exporter.
 - **A stack's backup is defined beside the stack.** `infra/<stack>/backup.sh`
   says what that stack consists of; `infra/backup/run.sh` finds them by
   globbing `infra/*/backup.sh` and takes one snapshot per stack, **tagged with
   the stack name**. There is no list to keep in sync, and adding a stack is one
   file.
-- **Every stack on this VM is wired up end to end**, each with a `backup.sh`
-  and a `restore.sh` beside its compose file. Between them they cover every
-  shape there is: four Postgres stacks, one SQLite, two with no database at
-  all, and two whose restores are deliberately narrow. Every row of the tier-1
-  table in
+- **Every stack on this VM that holds state is wired up end to end**, each with
+  a `backup.sh` and a `restore.sh` beside its compose file. Between them they
+  cover every shape there is: four Postgres stacks, one SQLite, two with no
+  database at all, and two whose restores are deliberately narrow. Every row of
+  the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
-  is covered.
+  is covered. **Homepage is the one stack with neither file** — it has no `/opt`
+  directory and no `.env`, so a snapshot of it would be a snapshot of a git
+  checkout ([homepage-setup.md](homepage-setup.md#design-notes)).
 
 ## Part 1 — The host side: a user, a chroot, and one sshd block
 

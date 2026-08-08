@@ -25,7 +25,7 @@ proxy. Follow the same click-path as the Traefik dashboard
 ([authentik-setup.md, step 3](authentik-setup.md#3-gate-the-traefik-dashboard-forward-auth)) —
 create a **Proxy Provider**, then an **Application**, then attach it to the
 embedded outpost — using the Dockge column of the registry:
-[sso-applications.md](sso-applications.md#forward-auth-dockge--traefik-dashboard).
+[sso-applications.md](sso-applications.md#forward-auth-dockge-traefik-dashboard--homepage).
 
 The Traefik half is already in the repo: the `authentik@docker` middleware and
 the `dockge.thefipster.de` outpost router are labels on the Authentik `server`
