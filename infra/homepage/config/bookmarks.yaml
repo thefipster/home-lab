@@ -1,0 +1,24 @@
+# Links with no service behind them. Kept short on purpose: a bookmark that
+# duplicates a services.yaml entry is a second place to update when a name
+# changes.
+#
+# The UniFi Dream Router is NOT here. It has no DNS name in
+# docs/dns-records.md, and the only other way to link it would be a literal
+# address — which this repo does not write down anywhere.
+
+- Source:
+    - home-lab:
+        - abbr: HL
+          href: https://github.com/thefipster/home-lab
+          description: This repository — GitHub is primary, Forgejo pull-mirrors it
+
+- Reference:
+    - Traefik docs:
+        - abbr: TR
+          href: https://doc.traefik.io/traefik/
+    - Authentik docs:
+        - abbr: AK
+          href: https://docs.goauthentik.io/
+    - Homepage docs:
+        - abbr: HP
+          href: https://gethomepage.dev/

@@ -108,6 +108,10 @@ is a backup nobody keeps running.
 - **Docker images and layers** — pullable, and CI rebuilds what it built.
 - **The repo checkout at `~/home-lab`** — it's a clone; `git clone` restores
   it. Only its untracked `.env` files matter, and those are Tier 1 above.
+- **The Homepage stack** — `infra/homepage/` and nothing else. It has no `/opt`
+  directory and no `.env`; its compose and all nine config files are tracked in
+  this repo. It is the only stack with no `backup.sh` and no `restore.sh`, and
+  the reason is the bullet above: backing it up would be backing up a clone.
 
 ### Not on the infra VM, but part of the same story
 
@@ -163,7 +167,7 @@ Why not just one:
 | Borg | Better compression/dedup ratios, but wants `borg` installed on the remote for efficient SSH transport, which rules out plain object storage without an extra layer. |
 | duplicity | Full+incremental chains make a restore only as good as the whole chain. A corrupt increment poisons everything after it. |
 | rsnapshot / rsync+hardlinks | No encryption at all — disqualifying for `.env` and ACME private keys on an off-site target. |
-| `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a sixth root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
+| `offen/docker-volume-backup` | Genuinely tempting: a compose container, which matches how everything else here is shaped. But it wants the **docker socket** for its stop/start hooks — a seventh root-equivalent socket mount for scheduling that a systemd timer already does — and its Postgres story still bottoms out at "run your own dump". |
 | Proxmox Backup Server | The right answer *if a second machine exists* — dedup, incremental, verify jobs, and it makes layer 1 genuinely offsite. Running PBS as a VM on the host it protects is the classic anti-pattern. Revisit when there is a NAS or a mini-PC to put it on. |
 
 ### Where layer 2 writes
@@ -265,7 +269,7 @@ apps VM (later) ─── same repository, its own key ────────�
 
 Layer 2 is a **systemd timer**, not a compose stack — deliberately. A backup
 that runs inside Docker is a backup that stops when Docker does, and the
-alternative (a container that can stop other containers) means a sixth socket
+alternative (a container that can stop other containers) means a seventh socket
 mount. Precedent exists: the Proxmox node exporter is a systemd unit too.
 
 ```

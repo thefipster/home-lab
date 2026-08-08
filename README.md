@@ -39,6 +39,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │    Dockge        compose management UI
     │    Grafana       metrics · logs · traces (Prometheus · Loki · Tempo · Alloy)
     │    Uptime Kuma   black-box status + every notification the lab sends
+    │    Homepage      the start page — every service on one page, no state
     │
     ├─ apps VM · 12 vCPU · 32 GB · 64 GB + 300 GB on data · Ubuntu Server 26.04
     │    Coolify         self-hosted PaaS — owns its own Docker and its own cert
@@ -57,7 +58,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
 | Layer                 | Purpose |
 |-----------------------|---------|
 | **proxmox-host**      | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
-| **infra-vm**          | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
+| **infra-vm**          | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications, and a start page that puts all of it one click away. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
 | **apps-vm**           | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
 | **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
 
@@ -132,7 +133,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
-   `home-assistant` VM's specs are in the same table but it is built in step 14,
+   `home-assistant` VM's specs are in the same table but it is built in step 15,
    since it needs an imported disk image rather than an ISO. Its last part —
    the pool-health monitor — is done at the end, since it needs a Kuma that
    does not exist until step 10; everything before it, the whole-VM backup job
@@ -142,7 +143,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate. The one exception is
-   `homeassistant.thefipster.de`, whose target VM does not exist until step 14
+   `homeassistant.thefipster.de`, whose target VM does not exist until step 15
    and which that guide adds.
 
 ### infra VM — everything the other two lean on
@@ -160,7 +161,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    credentials for repairing Authentik, so it must not depend on it. Everything
    from here on generates a secret worth keeping.
 6. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
-   gates: the Traefik dashboard and Dockge reference its forward-auth
+   gates: the Traefik dashboard, Dockge and Homepage reference its forward-auth
    middleware, so their routers do not load until it runs. Each service that
    joins SSO gets its row in the registry,
    **[docs/sso-applications.md](docs/sso-applications.md)**, first.
@@ -180,7 +181,12 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     themselves are the registry,
     **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
     service gets its rows there.
-11. **[Backup](docs/backup-setup.md)** — layer 2: file-level `restic` backups,
+11. **[Homepage](docs/homepage-setup.md)** — the lab's start page: every service
+    on one page, with live container state for this VM's stacks read from the
+    Docker API. Last stack on the infra VM, because it links every one of them
+    and nothing links it. It gets a DNS record and an SSO row like any gated UI,
+    and — uniquely — **no backup**, because everything it owns is in this repo.
+12. **[Backup](docs/backup-setup.md)** — layer 2: file-level `restic` backups,
     one snapshot per stack, onto the hypervisor's USB pool over SFTP. Last on
     the infra VM because it backs up everything above it and reports through a
     Kuma push monitor. Part 1 runs on the **Proxmox host** — the machine that
@@ -191,12 +197,12 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### apps VM — your own applications
 
-12. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
+13. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
     and host scripts: `init-host.sh` and `init-unattended-upgrades.sh`, but
     **not** `init-docker.sh` — Coolify's own installer brings the Engine. Also
     mounts the 300 GB second disk at `/data`, which has to happen *before*
     Coolify exists rather than after.
-13. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
+14. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
     admin account *immediately*: a fresh instance is unauthenticated on a LAN
     port with nothing in front of it. Its bundled proxy needs switching from
     HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
@@ -204,7 +210,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### home-assistant VM — home automation
 
-14. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+15. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO

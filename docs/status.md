@@ -17,8 +17,9 @@ got.
 | Forgejo CI + registry | ✅ deployed — [guide](forgejo-setup.md) |
 | Monitoring: Grafana + Prometheus + Loki + Alloy + Tempo | ✅ complete — [guide](grafana-setup.md), [roadmap](roadmap/monitoring.md) |
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](uptime-kuma-setup.md) |
+| Homepage start page | 📄 config shipped, not yet built — [guide](homepage-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `backup` mirror | ✅ deployed — scheduled and verified, [Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the USB drive | ✅ deployed — [guide](backup-setup.md). All seven infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) |
+| Backup layer 2: `restic` file-level to the USB drive | ✅ deployed — [guide](backup-setup.md). All seven stateful infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: triggers & release builds (nightly, tags) | ⬜ planned — [roadmap](roadmap/ci-triggers.md) |
 | CI: tests + coverage | ⬜ planned — [roadmap](roadmap/ci-testing.md) |
@@ -37,7 +38,8 @@ apps, the HA VM — are why the guides can describe machines you cannot yet log
 into: the repo documents the lab it is being built into, and each guide is
 verified by reading until the box exists to run it on.
 
-**The infra VM is built out end to end.** Every stack in its half of the build
-order runs today, both backup layers included, so what is left there is CI
-*features* rather than bring-up. The remaining `📄` and `⬜` rows are the apps
-VM, the home-assistant VM, and the CI roadmaps.
+**The infra VM is built out end to end, with one stack still to bring up.**
+Every other stack in its half of the build order runs today, both backup layers
+included, so what is left there is Homepage plus CI *features* rather than
+bring-up. The remaining `📄` and `⬜` rows are Homepage, the apps VM, the
+home-assistant VM, and the CI roadmaps.

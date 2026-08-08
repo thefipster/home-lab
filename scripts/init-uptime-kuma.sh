@@ -8,9 +8,9 @@
 #   3. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # There is NO .env and nothing to generate — Kuma has no database and creates
-# its admin account through its own first-run web form. It is the only stack
-# with no .env at all (Dockge also ships no .env.example, but its init script
-# generates a .env for it).
+# its admin account through its own first-run web form. It is one of two stacks
+# with no .env at all — Homepage is the other (Dockge also ships no
+# .env.example, but its init script generates a .env for it).
 #
 # No chown either: the default image runs as root (like Alloy, unlike the rest
 # of the monitoring tree, where each image drops to a different UID).

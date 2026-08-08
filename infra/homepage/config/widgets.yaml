@@ -1,0 +1,10 @@
+# Info widgets — the header row. DELIBERATELY EMPTY, and the file exists anyway
+# because a missing config file under the read-only mount exits the container.
+#
+# The obvious candidate is `resources`, and it is the one to avoid: it reports
+# the CONTAINER's cpu/memory/disk, not the VM's, so `disk: /` would show this
+# image's overlay rather than the machine. Host figures come from Alloy's
+# embedded node exporter and belong on Grafana's Node Exporter Full dashboard.
+#
+# The Uptime Kuma widget is a SERVICE widget, not an info widget — it lives in
+# services.yaml beside the service it describes.

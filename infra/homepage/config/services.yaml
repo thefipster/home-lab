@@ -1,0 +1,108 @@
+# The services on the page, grouped by PURPOSE rather than by machine — daily
+# use is "what am I reaching for", and container state attaches per entry
+# regardless of which group holds it.
+#
+# `container:` values are DERIVED, not configured: no compose file in this repo
+# sets container_name, so every container is <project>-<service>-1. The same
+# names appear in docs/uptime-kuma-monitors.md; keep the two in step.
+#
+# Only services with a container ON THIS VM carry `server:`/`container:`.
+# Everything on the Proxmox host, the apps VM and the HA VM is a link — that
+# socket is the only one Homepage can read.
+
+- Infrastructure & Identity:
+    - Proxmox:
+        href: https://pve.thefipster.de
+        description: Hypervisor — VMs, ZFS pools, whole-VM backups
+        icon: proxmox.png
+        # No container: different machine, and it runs no Docker at all.
+
+    - Traefik:
+        href: https://traefik.thefipster.de
+        description: Reverse proxy, wildcard TLS, every route in the lab
+        icon: traefik.png
+        server: infra
+        container: traefik-traefik-1
+
+    - Authentik:
+        href: https://auth.thefipster.de
+        description: SSO — OIDC providers and the forward-auth outpost
+        icon: authentik.png
+        server: infra
+        container: authentik-server-1
+
+    - Vaultwarden:
+        href: https://vault.thefipster.de
+        description: Password manager — deliberately outside SSO
+        icon: vaultwarden.png
+        server: infra
+        container: vaultwarden-vaultwarden-1
+
+    - Dockge:
+        href: https://dockge.thefipster.de
+        description: Compose stack management
+        icon: dockge.png
+        server: infra
+        container: dockge-dockge-1
+
+- Monitoring:
+    - Grafana:
+        href: https://grafana.thefipster.de
+        description: Metrics, logs, traces — the thing that explains why
+        icon: grafana.png
+        server: infra
+        container: monitoring-grafana-1
+
+    - Uptime Kuma:
+        href: https://uptime.thefipster.de
+        description: Black-box monitoring — the thing that pokes you
+        icon: uptime-kuma.png
+        server: infra
+        container: uptime-kuma-uptime-kuma-1
+        # Kuma has no full API, so this widget reads a public STATUS PAGE. The
+        # `homelab` slug must exist in Kuma or the widget stays blank — it is
+        # recorded in docs/uptime-kuma-monitors.md for that reason.
+        widget:
+          type: uptimekuma
+          url: http://uptime-kuma:3001
+          slug: homelab
+
+- Development:
+    - Forgejo:
+        href: https://git.thefipster.de
+        description: Git, Actions and the container registry
+        icon: forgejo.png
+        server: infra
+        container: forgejo-forgejo-1
+
+- Applications:
+    - Coolify:
+        href: https://coolify.thefipster.de
+        description: Self-hosted PaaS — the apps VM's own Docker
+        icon: coolify.png
+
+    - Paperless-ngx:
+        href: https://paperless.thefipster.de
+        description: Scanned-document archive
+        icon: paperless-ngx.png
+
+    - Mealie:
+        href: https://mealie.thefipster.de
+        description: Recipes and meal planning
+        icon: mealie.png
+
+    - LubeLogger:
+        href: https://lube.thefipster.de
+        description: Vehicle maintenance and fuel log
+        icon: mdi-car-wrench
+
+    - BookStack:
+        href: https://wiki.thefipster.de
+        description: Wiki and documentation
+        icon: bookstack.png
+
+- Home:
+    - Home Assistant:
+        href: https://ha.thefipster.de
+        description: Home automation — the service name, via Traefik
+        icon: home-assistant.png
