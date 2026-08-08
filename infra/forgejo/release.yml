@@ -44,7 +44,7 @@ on:
 env:
   FORGEJO_HOST: git.thefipster.de
   # The Forgejo account both tokens belong to. REGISTRY_TOKEN (write:package)
-  # pushes; FORGEJO_API_TOKEN (write:repository) only triggers the mirror sync.
+  # pushes; REPOSITORY_TOKEN (write:repository) only triggers the mirror sync.
   # Two tokens so the one handed to third-party actions stays minimal.
   REGISTRY_USER: felix
 
@@ -93,7 +93,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Sync the mirror
         env:
-          API_TOKEN: ${{ secrets.FORGEJO_API_TOKEN }}
+          API_TOKEN: ${{ secrets.REPOSITORY_TOKEN }}
         run: |
           set -euo pipefail
           curl -sS --fail-with-body -X POST \

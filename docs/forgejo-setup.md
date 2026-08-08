@@ -177,7 +177,7 @@ repo's **Settings → Actions → Secrets**:
 | Secret | Scope | Used by |
 |---|---|---|
 | `REGISTRY_TOKEN` | `write:package` | both workflows, for the container **and** generic registries |
-| `FORGEJO_API_TOKEN` | `write:repository` | `release.yml` only, to trigger the mirror sync |
+| `REPOSITORY_TOKEN` | `write:repository` | `release.yml` only, to trigger the mirror sync |
 
 One scope covers both registries, so the non-Docker jobs need no token of their
 own. Keep the two separate: `REGISTRY_TOKEN` is handed to third-party actions
@@ -322,7 +322,7 @@ the Forgejo copy is a read-only mirror — and re-sync.
 synchronous, and the run polls for ten minutes before giving up. Confirm the tag
 exists on GitHub and is spelled exactly as dispatched, then check **Settings →
 Mirror Settings** in Forgejo. A 403 from the sync step itself means
-`FORGEJO_API_TOKEN` lacks `write:repository`.
+`REPOSITORY_TOKEN` lacks `write:repository`.
 
 **A generic package upload returns 409.** A PUT over an existing filename
 conflicts. Both workflows delete before uploading, so a 409 means the *delete*
