@@ -184,7 +184,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     one snapshot per stack, onto the hypervisor's USB pool over SFTP. Last on
     the infra VM because it backs up everything above it and reports through a
     Kuma push monitor. Part 1 runs on the **Proxmox host** — the machine that
-    owns the drive.
+    owns the drive. Then prove it:
+    **[docs/backup-restore-drill.md](docs/backup-restore-drill.md)** restores
+    each stack against a marker only the snapshot could bring back, because a
+    backup nobody has restored from is a hypothesis. Re-run yearly.
 
 ### apps VM — your own applications
 
@@ -207,16 +210,31 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
     pattern, deliberately.
 
+## Registries & catalogs
+
+The documents that are **not** build steps. They hold what lives outside the
+compose files — manual operations, clickwork, schedules and results — and the
+guides link them rather than repeating their contents, so no per-service value
+is written down twice.
+
+| Document | Holds |
+|---|---|
+| **[docs/dns-records.md](docs/dns-records.md)** | every record on the UniFi Dream Router, plus the no-AAAA invariant the split horizon depends on |
+| **[docs/sso-applications.md](docs/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
+| **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
+| **[docs/timetable.md](docs/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |
+| **[docs/backup-restore-drill.md](docs/backup-restore-drill.md)** | the per-stack restore procedure, and what each stack's result actually proves. A recurring drill — yearly, and whenever a `backup.sh` changes shape |
+| **[apps/services.md](apps/services.md)** | the third-party software on the apps VM — what runs and why, never how, since those compose files live in a Forgejo repo |
+
+**The four registries list their deliberate absences beside their entries**, and
+that is the point: a registry recording only what exists cannot tell you whether
+a gap was a decision. Vaultwarden, Kuma and Home Assistant have no SSO row;
+`coolify.` and `apps.` have no DNS row; Kuma does not monitor itself or the
+hypervisor; the lab runs no CI schedule at all. When adding a service, decide
+about each of them and say so in each.
+
 ## Status
 
 What actually runs today versus what is only written down is its own document:
 **[docs/status.md](docs/status.md)** — one row per piece of the lab, with the
 guide or roadmap entry each one points at.
-
-## Schedules
-
-What runs on a clock, and when, is its own document too:
-**[docs/timetable.md](docs/timetable.md)** — the night window where the two
-backup layers and the reboot slot are staggered, the short-interval jobs, and
-the arithmetic for sizing a Kuma heartbeat. Read it before adding a timer, so a
-new job is placed around what is already there instead of on top of it.
