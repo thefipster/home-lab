@@ -2,8 +2,9 @@
 
 **Runs on:** the Proxmox host shell, then the infra VM
 
-**Prerequisite:** [uptime-kuma-setup.md](uptime-kuma-setup.md) complete — the
-backup job reports to a Kuma push monitor, so Kuma has to exist first.
+**Prerequisite:** [homepage-setup.md](homepage-setup.md) complete — it is the
+last stack on this VM. The backup job also reports to a Kuma push monitor, so
+[uptime-kuma-setup.md](uptime-kuma-setup.md) has to be done as well.
 
 This is **layer 2** of [roadmap/backup.md](roadmap/backup.md). Layer 1 —
 whole-VM `vzdump` onto the internal `backup` mirror — is already built, in

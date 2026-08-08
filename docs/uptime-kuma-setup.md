@@ -196,10 +196,9 @@ docker start monitoring-loki-1
 
 ## Next
 
-**[backup-setup.md](backup-setup.md)** — the last step on the infra VM:
-file-level `restic` backups, one snapshot per stack, onto the hypervisor's USB
-pool. It reports through a **Push** monitor you now know how to create, which is
-why it comes after this guide rather than before it. The full sequence is the
+**[homepage-setup.md](homepage-setup.md)** — the lab's start page: every service
+on one page, with live container state for this VM's stacks and the status page
+you just created feeding its one widget. The full sequence is the
 [README build order](../README.md#build-order).
 
 If you skipped step 7, that is the one thing to come back for: **[proxmox-setup.md
@@ -286,9 +285,9 @@ sidesteps that entirely, so **no existing stack changed** to make this work:
 `infra/authentik/compose.yaml` was not touched.
 
 The socket is the usual trade. `:ro` makes the *mount* read-only, not the API
-behind it, so this is root-equivalent control of the VM's Docker — the fourth
-such mount in the lab, after Dockge, Traefik and Alloy. Acceptable only because
-this is a single-tenant box.
+behind it, so this is root-equivalent control of the VM's Docker — the fifth
+such mount in the lab, after Dockge, the Forgejo runner, Traefik and Alloy.
+Acceptable only because this is a single-tenant box.
 
 **Why hosted ntfy.sh rather than self-hosting it.** A self-hosted ntfy on this
 VM would share fate with everything it reports on: the VM goes, and so does the
@@ -309,7 +308,7 @@ would mean putting Kuma somewhere else entirely.
 
 ## Next
 
-**[backup-setup.md](backup-setup.md)** — the last step on the infra VM:
-file-level `restic` backups, one snapshot per stack, onto the hypervisor's USB
-pool. It reports through a **Push** monitor you now know how to create. The full
-sequence is the [README build order](../README.md#build-order).
+**[homepage-setup.md](homepage-setup.md)** — the lab's start page: every service
+on one page, with live container state for this VM's stacks and the status page
+you just created feeding its one widget. The full sequence is the
+[README build order](../README.md#build-order).
