@@ -499,8 +499,14 @@ to hold real retention instead of a single copy.
 ## Part 9 — Notice when a mirror degrades
 
 > **Come back to this after [uptime-kuma-setup.md](uptime-kuma-setup.md).** It
-> needs a push URL from Kuma, which does not exist until the infra VM is built.
-> It is documented here because the script runs on the *hypervisor*, not in a VM.
+> is documented here because the script runs on the *hypervisor*, not in a VM,
+> but it depends on **two** things the infra VM build supplies first: a push URL
+> from Kuma, and the `prometheus-node-exporter` that
+> [grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host) installs on
+> this host — the script writes its metrics into that package's textfile
+> directory. Both exist by the time Kuma is finished, so arriving here in build
+> order needs no extra installs. **Reading this while still in Part 3 is why it
+> looks like a step is missing: it is, and it comes later.**
 
 Eight drives in four mirrors buy nothing if a failure is silent — and **a degraded
 mirror is exactly the failure that takes nothing down.** The host keeps running,
