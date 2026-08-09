@@ -104,16 +104,46 @@ mirrors the two NVMe drives — see
 `local-lvm`; that is what an `ext4` single-disk install would have produced, and
 `qm importdisk` fails outright on a storage that does not exist.
 
-It appears as an **unused disk** on the VM. Attach it: *VM 103 → Hardware →
-double-click `Unused Disk 0`* → bus **SCSI**, tick **Discard** and **SSD
-emulation** → *Add*.
-Then *Options → Boot Order* → enable **`scsi0`** and move it first.
+**An imported disk arrives detached and unbootable, and both halves are on
+you.** It lands as `unused0`, so there is no `scsi0` yet — which is what the
+next step and every step after it address. Read the volume id the import
+printed:
+
+```bash
+qm config 103 | grep unused
+```
+
+Expect `unused0: local-zfs:vm-103-disk-1` — `disk-1` because the EFI disk from
+[step 2](#2-create-an-empty-vm) took `disk-0`. Attach it as `scsi0`, with the
+same two options the GUI path ticks (substitute the volume id you just read):
+
+```bash
+qm set 103 --scsi0 local-zfs:vm-103-disk-1,discard=on,ssd=1
+```
+
+```bash
+qm set 103 --boot order=scsi0
+```
+
+```bash
+qm config 103 | grep -E '^(scsi0|boot)'
+```
+
+Both lines must be there before you continue. The equivalent in the web UI is
+*VM 103 → Hardware → double-click `Unused Disk 0`* → bus **SCSI**, tick
+**Discard** and **SSD emulation** → *Add*, then *Options → Boot Order* → enable
+**`scsi0`** and move it first — but staying in the shell keeps this step in the
+same place as the import and the resize around it.
 
 ### 4. Resize the disk before first boot
 
 ```bash
 qm disk resize 103 scsi0 64G
 ```
+
+> **`disk 'scsi0' does not exist` means the attach in step 3 did not happen.**
+> The import alone leaves the volume as `unused0`; nothing in this guide works
+> on it until it is attached. Go back and run the `qm set` pair above.
 
 Do this **now**. HAOS grows its data partition when it boots, so resizing first
 gets the space for free; resizing later means expanding the partition by hand
