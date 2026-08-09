@@ -26,10 +26,10 @@ UniFi Dream Router · DHCP + split-horizon DNS
                             LAN · one flat /24
                                     │
 Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hypervisor only, no Docker
-    │  rpool     2×500 GB NVMe mirror  → Proxmox + VM root disks
-    │  backup    2×1 TB  SATA mirror   → vzdump whole-VM archives
-    │  data      2×500 GB SATA mirror  → the apps VM's second disk
-    │  usbbackup 1×1 TB USB NVMe       → restic container backups (offsite-capable)
+    │  rpool      2×1 TB   NVMe mirror  → Proxmox + VM root disks
+    │  data       2×512 GB NVMe mirror  → the apps VM's second disk
+    │  vmbackup   2×1 TB   SATA mirror  → vzdump whole-VM archives
+    │  filebackup 2×1 TB   SATA mirror  → restic file-level backups
     │
     ├─ infra VM · 12 vCPU · 24 GB · 150 GB · Ubuntu Server 26.04
     │    Traefik       TLS termination + routing — the lab's only certificate
@@ -71,34 +71,39 @@ monitoring with it.
 
 ## Storage
 
-Six internal drives paired into **three ZFS mirrors**, plus one external drive.
+Eight internal drives paired into **four ZFS mirrors**. All flash, nothing
+external, and two SATA ports left deliberately empty.
 
 | Pool | Devices                 | Proxmox storage | Holds |
 |------|-------------------------|-----------------|-------|
-| `rpool` | 2 × 500 GB NVMe, mirror | installer-created (boot pool) | Proxmox itself + all three VM **root** disks |
-| `backup` | 2 × 1 TB SATA, mirror   | *Directory* on `/backup`, `--is_mountpoint 1` | `vzdump` whole-VM archives — layer 1 |
-| `data` | 2 × 500 GB SATA, mirror | `zfspool`, content `images,rootdir` | the apps VM's second disk (`/data`, 300 GB) |
-| `usbbackup` | 1 × 1 TB USB 3.1 NVMe   | **none** — reached over SFTP, not by Proxmox | the `restic` repository — layer 2 |
+| `rpool` | 2 × 1 TB NVMe, mirror | installer-created (boot pool) | Proxmox itself + all three VM **root** disks |
+| `vmbackup` | 2 × 1 TB SATA SSD, mirror | *Directory* on `/vmbackup`, `--is_mountpoint 1` | `vzdump` whole-VM archives — layer 1 |
+| `data` | 2 × 512 GB NVMe, mirror | `zfspool`, content `images,rootdir` | the apps VM's second disk (`/data`, 300 GB) |
+| `filebackup` | 2 × 1 TB SATA SSD, mirror | **none** — reached over SFTP, not by Proxmox | the `restic` repository — layer 2 |
 
 The storage *types* are not interchangeable: a pool registered as `zfspool`
 accepts disk images only and cannot hold `vzdump` output, which is why the backup
-mirror is a *Directory* on the pool's mountpoint instead. `usbbackup` gets no
+mirror is a *Directory* on the pool's mountpoint instead. `filebackup` gets no
 Proxmox entry at all — restic reaches it over the hypervisor's `sshd`. Both are
 built in [docs/proxmox-setup.md, Part 3](docs/proxmox-setup.md#part-3--post-install-housekeeping).
 
-Every mirror answers a different question, which is why they are not one big pool:
-`rpool` is fast flash for the hypervisor and every VM root disk; `backup` is
-deliberately **double** its size, because that is what makes a retention policy
-possible instead of a single copy; `data` absorbs the growth — Coolify's app
-volumes, databases and image layers — on drives whose failure cannot take the
-hypervisor with it.
+Every mirror answers a different question, which is why they are not one big pool,
+and the bus follows the access pattern: `rpool` and `data` are NVMe because they
+carry live VM I/O — root filesystems, Coolify's store, Docker's data-root — while
+`vmbackup` and `filebackup` are written once a night and read during a restore, so
+SATA SSD costs them nothing. `vmbackup` is ~930 GB against the 278 GB of VM roots
+it archives, and that target-to-source ratio is what makes a retention policy
+possible instead of a single copy.
 
-The external USB drive is the only copy that can physically leave the building.
-It holds the file-level `restic` repository, reached over SFTP so both VMs can
-write to it. The infra VM's half is built in
+`filebackup` holds the file-level `restic` repository, reached over SFTP so both
+VMs can write to it. The infra VM's half is built in
 [docs/backup-setup.md](docs/backup-setup.md); the apps VM has **not** joined the
 repository yet, which is why its 300 GB data disk is still covered by nothing
 ([docs/roadmap/backup.md](docs/roadmap/backup.md)).
+
+**Nothing here is offsite.** Both backup layers live in the same box as the thing
+they protect, so a fire or a theft takes all three copies. Offsite is phase 3 of
+[docs/roadmap/backup.md](docs/roadmap/backup.md) and is not built.
 
 Mirrors only help if a failure is noticed, and a degraded mirror is precisely the
 failure that takes *nothing* down. A timer on the hypervisor reports pool health
@@ -187,10 +192,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     and nothing links it. It gets a DNS record and an SSO row like any gated UI,
     and — uniquely — **no backup**, because everything it owns is in this repo.
 12. **[Backup](docs/backup-setup.md)** — layer 2: file-level `restic` backups,
-    one snapshot per stack, onto the hypervisor's USB pool over SFTP. Last on
-    the infra VM because it backs up everything above it and reports through a
-    Kuma push monitor. Part 1 runs on the **Proxmox host** — the machine that
-    owns the drive. Then prove it:
+    one snapshot per stack, onto the hypervisor's `filebackup` pool over SFTP.
+    Last on the infra VM because it backs up everything above it and reports
+    through a Kuma push monitor. Part 1 runs on the **Proxmox host** — the
+    machine that owns the drives. Then prove it:
     **[docs/backup-restore-drill.md](docs/backup-restore-drill.md)** restores
     each stack against a marker only the snapshot could bring back, because a
     backup nobody has restored from is a hypothesis. Re-run yearly.
