@@ -222,7 +222,7 @@ pool and not a Proxmox storage.
 
 ZFS caches in RAM, and its cache is not free memory — it competes with the VMs.
 Historically the limit defaults to **half of RAM**, which here would be 48 GB
-against the 64 GB the three VMs want. Recent installers write a 10% limit for new
+against the 56 GB the three VMs want. Recent installers write a 10% limit for new
 installations, but that is a reason to *check* the value rather than assume it.
 Set it explicitly to 16 GB:
 
@@ -280,7 +280,7 @@ Suggested specs for all three — the reasoning is in
 | Cores | 12 | 12 | 12 |
 | CPU type | `host` | `host` | `host` |
 | `cpuunits` | 100 (default) | 50 | 200 |
-| Memory | 24576 MB | 32768 MB | 8192 MB |
+| Memory | 24576 MB | 24576 MB | 8192 MB |
 | Ballooning | off | off | off |
 | Root disk | 150 GB on `local-zfs` | 64 GB on `local-zfs` | 64 GB on `local-zfs` |
 | Second disk | — | **300 GB on `data`**, `backup=0` | — |
@@ -716,7 +716,7 @@ apps 4:1, which means a runaway Coolify build cannot make your lights laggy.
 Nothing is capped: `cpulimit` stays `0` everywhere, so any VM can still use the
 whole box when the others are idle.
 
-**Ballooning is off** because 24 + 32 + 8 = 64 GB against 96 GB physical. The
+**Ballooning is off** because 24 + 24 + 8 = 56 GB against 96 GB physical. The
 balloon driver earns its keep when the sum of configured maxima *exceeds*
 physical RAM; here it does not, so the only thing it could ever do is reclaim
 memory from a VM in the middle of a compile.
@@ -724,9 +724,9 @@ memory from a VM in the middle of a compile.
 What the leftover buys is **the ZFS ARC**, and then a genuine reserve. Mirrors
 mean ZFS, ZFS caches in RAM, and its cache is not spare capacity — it competes
 with the guests. Left alone it has historically taken half of RAM, which would be
-48 GB against the 64 GB the VMs want. Capped at 16 GB in
+48 GB against the 56 GB the VMs want. Capped at 16 GB in
 [Part 3](#part-3--post-install-housekeeping), the arithmetic is
-64 + 16 + the hypervisor ≈ 84 of 96 GB, leaving roughly **12 GB unallocated on
+56 + 16 + the hypervisor ≈ 76 of 96 GB, leaving roughly **20 GB unallocated on
 purpose**. That reserve is what makes a future "give X more memory" an edit and a
 reboot rather than a trade against the cache or against another guest — and the
 ARC cap is a floor set for the VMs' benefit, not a ceiling ZFS is straining
@@ -743,17 +743,21 @@ Per-VM, the numbers and why:
   and Forgejo's container registry, which today gains an image per CI run.
   Registry retention is owned by the CI roadmap rather than by a disk size, so
   150 GB buys comfortable time rather than absorbing growth forever.
-- **apps 32 GB, and 64 + 300 GB across two pools.** This is where real user
-  workloads live, and the largest **memory** allocation on the box for that
-  reason — though it is also the least evidenced one, since the VM has run
-  nothing measurable yet. It is the first line to trim back if the reserve is
-  ever wanted elsewhere, and the number to decide by measurement rather than
-  argument: `node_memory_MemAvailable_bytes{instance="apps"}` is already
-  scraped. The **root** disk carries the OS, a 4 GB swapfile and Coolify
-  itself — and nothing that grows, because `scripts/init-coolify.sh` points
-  Docker's data-root at `/data/docker` before any Engine starts, so app
-  volumes, databases, build cache and image layers all land on the `data`
-  mirror.
+- **apps 24 GB, and 64 + 300 GB across two pools.** This is where real user
+  workloads live, which argues for more — but it is also the **least evidenced**
+  allocation on the box, since the VM has run nothing measurable yet. So it
+  starts level with infra rather than above it, and the reserve carries the
+  difference. That is the cheap direction to be wrong in: raising a VM that
+  turns out to want more is an edit and a reboot against 20 GB of unallocated
+  memory, whereas handing it RAM up front pins that memory out of the host
+  whether anything uses it or not, ballooning being off. It is the number to
+  settle by measurement rather than argument, and the measurement is already
+  wired: `node_memory_MemAvailable_bytes{instance="apps"}` lands as soon as
+  this VM's node exporter does. The **root** disk carries the OS, a 4 GB
+  swapfile and Coolify itself — and nothing that grows, because
+  `scripts/init-coolify.sh` points Docker's data-root at `/data/docker` before
+  any Engine starts, so app volumes, databases, build cache and image layers
+  all land on the `data` mirror.
 - **Why the apps root disk is 64 GB and not 40.** Its floor is not the OS. The
   30 GB-free check on `/` runs **twice** — once in `scripts/init-coolify.sh` so
   the failure names its cause before anything is downloaded, and again inside
