@@ -196,15 +196,19 @@ If bulk capacity is ever wanted for a workload that actually exists, the answer
 for this room is 4 TB SATA **SSDs** — several times the cost per terabyte, and
 silent.
 
-### 7. The ARC cap stays at 8 GB
+### 7. The ARC cap stays at 16 GB — it is already correct
 
-It was chosen against 64 GB of RAM with 48 GB of VMs. The machine now has 96 GB
-with 64 GB of VMs (24 + 32 + 8), so 32 GB is unspoken for and 16 GB would fit
-comfortably.
+The [2026-07-31 spec](2026-07-31-hardware-specs-design.md) records 8 GB, chosen
+against 64 GB of RAM with 48 GB of VMs.
+[proxmox-setup.md](../../proxmox-setup.md#part-3--post-install-housekeeping)
+already sets **16 GB** (`zfs_arc_max=17179869184`), against the machine's real
+96 GB with 64 GB of VMs (24 + 32 + 8). The doc is current; the spec is the stale
+one, which is the same pattern as the CPU and RAM lines.
 
-Left at 8 GB anyway. Every pool is now flash, and ARC buys far less in front of
-NVMe than it did in front of anything mechanical — this is a change to make on a
-measurement, not on available headroom.
+No change here, and specifically **no raise**. 96 − 64 = 32 GB is unspoken for,
+so a larger ARC would fit — but every pool is now flash, and ARC buys far less in
+front of NVMe than in front of anything mechanical. Raise it on a measurement,
+never on available headroom.
 
 ## What does not change
 
