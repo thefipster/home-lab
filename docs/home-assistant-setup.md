@@ -43,6 +43,24 @@ asset name that no longer exists in it. Then decompress:
 xz -d haos_ova-*.qcow2.xz
 ```
 
+`xz -d` works **in place and removes the `.xz`**, leaving the bare `.qcow2`
+behind — there is no second copy to tidy up afterwards.
+
+> **If you downloaded the wrong version first, delete it now.** Both this
+> command and the `qm importdisk` in [step 3](#3-import-the-haos-disk) match
+> `haos_ova-*.qcow2`, so a second image in this directory makes that glob expand
+> to two paths — `qm` then reads the extra one where it expects the storage
+> name, and you get either a confusing failure or the wrong version imported.
+> This must return exactly **one** line before you go on:
+>
+> ```bash
+> ls -1 /var/lib/vz/template/iso/haos_ova-*.qcow2
+> ```
+>
+> If it returns more, `rm` the ones you do not want. A stray image costs nothing
+> but space on `rpool`; a stray image plus a globbing import command costs an
+> afternoon.
+
 ### 2. Create an empty VM
 
 *Create VM*, with the specs from the
