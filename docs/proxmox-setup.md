@@ -38,15 +38,16 @@ container day can't take down everything at once.
 Boot the server from the USB stick and pick **Install Proxmox VE (graphical)**.
 
 1. Accept the EULA.
-2. **Target disks** — select **both 500 GB NVMe drives**, then *Options* →
+2. **Target disks** — select **both 1 TB NVMe drives**, then *Options* →
    Filesystem **`zfs (RAID1)`**. That mirrored pair becomes `rpool`: the
    hypervisor itself and every VM root disk. Leave `ashift` on its default (`12`,
    right for any modern drive).
 
-   **Leave the four SATA drives untouched here.** The installer only ever builds
-   the boot pool; the other two mirrors are created by hand in
+   **Leave the other six drives untouched here** — the 512 GB NVMe pair and all
+   four SATA SSDs. The installer only ever builds the boot pool; the other three
+   mirrors are created by hand in
    [Part 3](#part-3--post-install-housekeeping), once there is a shell to do it
-   from. Selecting them now would fold all six drives into one pool and throw
+   from. Selecting them now would fold all eight drives into one pool and throw
    away the whole point of the split.
 3. Country / timezone / keyboard.
 4. **root password** + an admin **email**.
@@ -108,10 +109,10 @@ Add the no-subscription repository:
 echo "deb http://download.proxmox.com/debian/pve $(. /etc/os-release && echo $VERSION_CODENAME) pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
 ```
 
-### Build the other two mirrors
+### Build the other three mirrors
 
-The installer left the four SATA drives alone. They become two more mirrors, and
-the external USB drive becomes a third pool. Address them **by `/dev/disk/by-id/`
+The installer left six drives alone — the 512 GB NVMe pair and all four SATA
+SSDs. They become three more mirrors. Address them **by `/dev/disk/by-id/`
 path, never `/dev/sdX`** — SATA letters are assigned in discovery order and will
 move between boots, which on a pool is how you end up mirroring a drive against
 itself. List what is there:
@@ -135,31 +136,30 @@ output is what tells you which of four physically identical drives to unplug.
 `ata-CT500MX500SSD1_2022E2A7651D` names the model and the serial printed on the
 label. `wwn-0x500a0751e2a7651d` does not get you there without a lookup.
 
-The 1 TB pair becomes `backup`, the whole-VM archive target:
+The first 1 TB SATA pair becomes `vmbackup`, the whole-VM archive target:
 
 ```bash
-zpool create -o ashift=12 -O compression=lz4 backup mirror /dev/disk/by-id/<sata-1tb-a> /dev/disk/by-id/<sata-1tb-b>
+zpool create -o ashift=12 -O compression=lz4 vmbackup mirror /dev/disk/by-id/<sata-1tb-a> /dev/disk/by-id/<sata-1tb-b>
 ```
 
-The 500 GB pair becomes `data`, the shared pool that carries the apps VM's second
-disk:
+The second 1 TB SATA pair becomes `filebackup`, which holds the restic
+repository — see [roadmap/backup.md](roadmap/backup.md):
 
 ```bash
-zpool create -o ashift=12 -O compression=lz4 data mirror /dev/disk/by-id/<sata-500g-a> /dev/disk/by-id/<sata-500g-b>
+zpool create -o ashift=12 -O compression=lz4 filebackup mirror /dev/disk/by-id/<sata-1tb-c> /dev/disk/by-id/<sata-1tb-d>
 ```
 
-The external USB drive becomes `usbbackup`, a single-disk pool for container
-backups — see [roadmap/backup.md](roadmap/backup.md):
+The 512 GB NVMe pair becomes `data`, which carries the apps VM's second disk:
 
 ```bash
-zpool create -o ashift=12 -O compression=lz4 usbbackup /dev/disk/by-id/<usb-nvme>
+zpool create -o ashift=12 -O compression=lz4 data mirror /dev/disk/by-id/<nvme-512g-a> /dev/disk/by-id/<nvme-512g-b>
 ```
 
 > **If `zpool create` refuses the disks, that is the safety interlock, not a
 > failure.** ZFS declines a device carrying a recognisable filesystem
 > signature, because that usually means the wrong device was named. Retail and
-> shucked SSDs commonly arrive formatted exFAT, so expect it on the SATA pairs
-> and the USB drive.
+> shucked SSDs commonly arrive formatted exFAT, so expect it on all three
+> hand-built pairs.
 >
 > Confirm there is nothing on them you want — this is the one step here that
 > destroys data you might not have meant to give up:
@@ -200,7 +200,7 @@ pvesm add zfspool data --pool data --content images,rootdir
 ```
 
 ```bash
-pvesm add dir backup --path /backup --content backup --is_mountpoint 1 --prune-backups keep-daily=7,keep-weekly=4,keep-monthly=3
+pvesm add dir vmbackup --path /vmbackup --content backup --is_mountpoint 1 --prune-backups keep-daily=7,keep-weekly=4,keep-monthly=3
 ```
 
 A ZFS pool registered as `zfspool` accepts content `images,rootdir` **only** — it
@@ -209,12 +209,12 @@ storage on the pool's mountpoint instead. Get this backwards and the pool simply
 never appears in the backup job's storage dropdown, with nothing to explain why.
 
 `--is_mountpoint 1` is the safety catch on that arrangement: it tells Proxmox to
-refuse the storage when `/backup` is *not* a mounted filesystem. Without it, a
+refuse the storage when `/vmbackup` is *not* a mounted filesystem. Without it, a
 pool that failed to import leaves an ordinary empty directory behind and every
 backup writes to the **root pool** — filling the disk it was meant to protect,
 while reporting success.
 
-`usbbackup` gets **no `pvesm` entry at all**. Proxmox never writes to it; it is a
+`filebackup` gets **no `pvesm` entry at all**. Proxmox never writes to it; it is a
 plain filesystem that a restic client reaches over SFTP, which is why it is a
 pool and not a Proxmox storage.
 
@@ -404,16 +404,21 @@ that answers "Authentik ate its database" is separate and lives in
 of the build order. This one comes first because it needs nothing but the
 hypervisor.
 
-The target is the `backup` mirror from [Part 3](#part-3--post-install-housekeeping)
-— **1 TB, deliberately double the 500 GB root pool**, and on different physical
-drives, which is the entire point. A backup on the disk it protects is not a
-backup.
+The target is the `vmbackup` mirror from [Part 3](#part-3--post-install-housekeeping)
+— **~930 GB against the 278 GB of VM roots it archives**, and on different
+physical drives, which is the entire point. A backup on the disk it protects is
+not a backup.
+
+Roughly three times the source is what makes a retention policy possible instead
+of a single copy. Note the ratio is target against **source**, not against
+`rpool`: the two pools are now the same size, and what `vmbackup` has to hold is
+the roots, not the pool they sit in.
 
 *Datacenter → Backup → **Add***:
 
 | Field | Value |
 |---|---|
-| Storage | `backup` |
+| Storage | `vmbackup` |
 | Schedule | `02:00` daily |
 | Selection mode | **All** — new VMs are included automatically |
 | Mode | **Snapshot** |
@@ -434,18 +439,18 @@ so the job inherits it and there is one place to change it. Run the job once wit
 **Run now** rather than waiting for 02:00, then check it landed on the right pool:
 
 ```bash
-ls -lh /backup/dump
+ls -lh /vmbackup/dump
 ```
 
 ```bash
-zfs list backup
+zfs list vmbackup
 ```
 
-If `/backup/dump` is empty but the task said OK, the storage is not the pool —
+If `/vmbackup/dump` is empty but the task said OK, the storage is not the pool —
 re-read the `--is_mountpoint` note in Part 3.
 
 The apps VM's 300 GB data disk is **not** in these archives, by the `backup=0`
-set in [Part 5](#part-5--create-the-vms). That is what keeps a 1 TB target able
+set in [Part 5](#part-5--create-the-vms). That is what keeps a ~930 GB target able
 to hold real retention instead of a single copy.
 
 ## Part 9 — Notice when a mirror degrades
@@ -454,7 +459,7 @@ to hold real retention instead of a single copy.
 > needs a push URL from Kuma, which does not exist until the infra VM is built.
 > It is documented here because the script runs on the *hypervisor*, not in a VM.
 
-Six drives in mirrors buy nothing if a failure is silent — and **a degraded
+Eight drives in four mirrors buy nothing if a failure is silent — and **a degraded
 mirror is exactly the failure that takes nothing down.** The host keeps running,
 the VMs keep running, redundancy is quietly gone, and the second drive fails
 weeks later into an audience of nobody.
@@ -471,9 +476,11 @@ node_exporter's own `zfs` collector reports ARC statistics and per-pool I/O, but
 **not** how full a pool is, and `node_filesystem_*` cannot see zvols at all.
 
 Note that the health check walks an **expected list** of pools rather than
-whatever `zpool list` happens to return, because a pool whose drive vanished does
-not appear in that output at all — which is precisely the USB backup drive
-falling off the bus:
+whatever `zpool list` happens to return, because a pool that failed to import
+does not appear in that output at all. A mirror that loses one member degrades
+and is still listed; a pool that loses both members, or whose controller drops,
+is simply **absent** — and absence is exactly what a check that trusts
+`zpool list` cannot see:
 
 ```bash
 cat > /usr/local/bin/zfs-health-push.sh <<'EOF'
@@ -482,7 +489,7 @@ cat > /usr/local/bin/zfs-health-push.sh <<'EOF'
 set -uo pipefail
 
 PUSH_URL="${PUSH_URL:?PUSH_URL is not set}"
-EXPECTED="rpool backup data usbbackup"
+EXPECTED="rpool vmbackup data filebackup"
 TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/prometheus/node-exporter}"
 
 # Fail closed: if zpool itself errors, write nothing, push nothing, and let the
@@ -690,8 +697,8 @@ worth blocking on.
 ## Why these sizes
 
 The host is an Intel **`i5-10600K`** (Comet Lake) with **12 threads**, **96 GB
-of RAM**, and **seven drives** — six internal, paired into three mirrors, plus
-one external.
+of RAM**, and **eight drives** — all internal, all flash, paired into four
+mirrors. Two SATA ports are left deliberately empty.
 
 **All 12 cores go to all three VMs.** That is 36 vCPU over 12 threads — 3:1
 overcommit, on purpose, and the same ratio the old 32-thread plan used. Each VM
@@ -763,29 +770,42 @@ Per-VM, the numbers and why:
   whether it is used or not. Its own default disk is 32 GB, and the recorder
   database plus build caches make 64 GB comfortable.
 
-### Why the drives are split three ways
+### Why the drives are split four ways
 
 | Pool | Devices | Holds |
 |---|---|---|
-| `rpool` | 2 × 500 GB NVMe, mirror | Proxmox + all three VM **root** disks |
-| `backup` | 2 × 1 TB SATA, mirror | `vzdump` archives — [Part 8](#part-8--schedule-whole-vm-backups) |
-| `data` | 2 × 500 GB SATA, mirror | the apps VM's second disk |
-| `usbbackup` | 1 × 500 GB USB 3.1 NVMe | restic repository — [roadmap/backup.md](roadmap/backup.md) |
+| `rpool` | 2 × 1 TB NVMe, mirror | Proxmox + all three VM **root** disks |
+| `data` | 2 × 512 GB NVMe, mirror | the apps VM's second disk |
+| `vmbackup` | 2 × 1 TB SATA SSD, mirror | `vzdump` archives — [Part 8](#part-8--schedule-whole-vm-backups) |
+| `filebackup` | 2 × 1 TB SATA SSD, mirror | restic repository — [roadmap/backup.md](roadmap/backup.md) |
 
-**Every mirror answers a different question.** `rpool` is fast flash for the
-hypervisor and everything that boots from it. `backup` is deliberately **double**
-`rpool`, which is what makes retention rather than a single copy possible — and
-it holds only the ~294 GB of VM roots, because the apps data disk is excluded
-with `backup=0`. Include that disk and the ratio collapses: ~594 GB of source
-against 930 GB usable is one compressed archive with nowhere to keep yesterday's.
-`data` takes the growth that would otherwise crowd the root pool, on spindles
-whose failure cannot take the hypervisor with it. `usbbackup` is the only copy
-that can physically leave the building.
+**Every mirror answers a different question, and the bus follows the access
+pattern.** `rpool` and `data` are NVMe because they carry live VM I/O — three
+root filesystems, plus the apps VM's Docker data-root and Coolify's store, which
+is the most seek-heavy work in the lab and the only work anyone waits on
+interactively. `vmbackup` and `filebackup` are written once a night and read
+during a restore, so SATA SSD costs them nothing.
 
-294 GB of roots on ~460 GB usable leaves real headroom, and it needs to: zvols
+`vmbackup` holds only the **278 GB** of VM roots, because the apps VM's data
+disk is excluded with `backup=0`. ~930 GB against 278 GB of source is several
+compressed generations with room to spare, which is what retention needs;
+include that disk and it collapses to one archive with nowhere to keep
+yesterday's.
+
+`filebackup` is the same size as the single drive it replaced, and that is worth
+stating plainly rather than glossing: it gained a mirror, not runway. Forgejo's
+registry blobs grow monotonically and restic cannot expire what the registry
+never expires, so registry hygiene remains the only lever on that number.
+
+278 GB of roots on ~930 GB usable leaves real headroom, and it needs to: zvols
 are sparse so actual consumption is far lower, but **ZFS snapshots live in the
 same pool as the disk they snapshot**. Every `clean-install` snapshot you keep is
-charged to `rpool`, not to the backup mirror.
+charged to `rpool`, not to a backup mirror.
+
+**Two SATA ports are deliberately empty.** The board fits ten drives; eight are
+installed. Whatever fills those ports should be a **1 TB** pair, which is the
+size that can stand in for a member of three of the four pools — a smaller pair
+could only ever replace into `data`.
 
 Treat all of it as a starting point. The reasoning above is the part meant to
 survive.
