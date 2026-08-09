@@ -38,7 +38,7 @@ itself, so appending cannot collide.
   `infra/traefik/dynamic/ha.yaml`.
 - **No SSO, deliberately.** HA has no OIDC, and forward-auth would break the
   companion app, webhooks and every local API caller. It keeps its own local
-  login — the lab's second stated exception, after Uptime Kuma. Reasoning in
+  login — a stated exception, alongside Vaultwarden and Uptime Kuma. Reasoning in
   [docs/sso-applications.md](../docs/sso-applications.md).
 - **Monitored** via `/api/prometheus`, scraped by Alloy as `job="homeassistant"`.
   Those are entity metrics, not machine counters, so they do not appear on the

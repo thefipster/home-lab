@@ -248,17 +248,17 @@ the monitor first, then paste its URL into
 which is where the script and its systemd timer live — on the hypervisor, because
 that is the machine with the pools.
 
-**Why this exists at all:** the lab's six internal drives are paired into three
+**Why this exists at all:** the lab's eight internal drives are paired into four
 ZFS mirrors, and **a degraded mirror is the failure that takes nothing down.**
 The host keeps running, every VM keeps running, redundancy is silently gone, and
 the second drive of the pair fails weeks later with no audience. Nothing else in
 this registry would go red.
 
-The push carries the pool name, so a `down` here names the drive to look at
-rather than sending you to the shell to find out. It covers all four pools —
-including `usbbackup`, the external backup drive, whose *absence* is otherwise
-invisible: a pool whose device vanished does not appear in `zpool list` at all,
-which is why the script checks an expected list rather than trusting that output.
+The push carries the pool name, so a `down` here names the pool to look at
+rather than sending you to the shell to find out. It covers all four pools, and
+it checks an **expected list** rather than trusting `zpool list`: a pool that
+failed to import does not appear in that output at all, so its absence is
+invisible to anything that reads the output alone.
 
 Pool *health* is deliberately **not** alerted from Grafana, even though Alloy
 already scrapes the hypervisor. This is a notification, and notifications are
@@ -397,10 +397,10 @@ write down.
 
 Kuma 2.x supports a **Group** monitor type — a parent with no check of its own
 that nests the monitors under it. Creating one group per section heading above
-(`Gateway`, `Vault`, `Identity`, `Git`, `Stack management`, `Observability`,
-`App platform`, `Home automation`, `Hypervisor storage`, `Backup`) makes the
-status page collapse to ten rows that expand on demand, instead of twenty-six
-flat entries.
+(`Gateway`, `Vault`, `Identity`, `Git`, `Stack management`, `Start page`,
+`Observability`, `App platform`, `Home automation`, `Hypervisor storage`,
+`Backup`) makes the status page collapse to one row per group that expands on
+demand, instead of a flat list of every monitor.
 
 Worth doing once the list is long; skip it while it still fits on a screen. Groups
 are cosmetic — they do not affect checks or notifications — so this registry

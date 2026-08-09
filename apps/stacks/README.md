@@ -44,8 +44,9 @@ what they need) and wrong for the app data dirs that run as `PUID`/`PGID` — he
 the same step.
 
 **`/data` is not backed up yet.** It is excluded from whole-VM `vzdump`
-(`backup=0`), and the file-level layer is still roadmap. Anything deployed here is unbacked until
-that lands; Paperless is tier 1 and should be exported by hand in the meantime.
+(`backup=0`), and the file-level layer runs on the infra VM only — this machine has not joined the
+restic repository yet ([roadmap/backup.md](../../docs/roadmap/backup.md)). Anything deployed here
+is unbacked until it does; Paperless is tier 1 and should be exported by hand in the meantime.
 
 **No published host ports.** Services use `expose:` and Coolify's proxy handles ingress. Nothing
 competes for host ports on a single node.

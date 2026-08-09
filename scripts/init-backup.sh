@@ -70,8 +70,10 @@ if [ ! -f "${STACK_DIR}/.env" ]; then
   cp "${STACK_DIR}/.env.example" "${STACK_DIR}/.env"
 fi
 # Outside the branch on purpose: a hand-created .env would otherwise keep the
-# umask's 644 while the guide's layout table promises 600. chmod is idempotent.
-chmod 600 "${STACK_DIR}/.env"
+# umask's 644 while the guide's layout table promises 600. chmod is idempotent —
+# and through run_root, so a re-run as a different user than the first run
+# (this script is designed to be run twice) cannot die on EPERM here.
+run_root chmod 600 "${STACK_DIR}/.env"
 
 echo "==> Ensuring root has an SSH key for the backup repository"
 run_root mkdir -p /root/.ssh

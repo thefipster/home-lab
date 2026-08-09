@@ -312,7 +312,7 @@ a last resort and is never the restore path: copied from a running server, it is
 torn by construction.
 
 The repository is `sftp:resticbackup@pve.thefipster.de:/restic` — the
-hypervisor's own `sshd`, into a chroot on the `usbbackup` pool. The account is
+hypervisor's own `sshd`, into a chroot on the `filebackup` pool. The account is
 **shared by every client**, which is why it is not named after a machine; the
 apps VM joins by adding a second key line on the host, not by a redesign. It
 needs **no DNS row of its own** — `pve` already has its exact record — and no

@@ -140,15 +140,15 @@ Requires no code in this repo. All three things this roadmap said were missing �
 a **schedule**, the **qemu-guest-agent** for fs-freeze, and a **target that is
 not the boot pool** — now exist as
 [proxmox-setup.md Part 8](../proxmox-setup.md#part-8--schedule-whole-vm-backups):
-a nightly job onto the `backup` mirror, which is dedicated 1 TB on different
-physical drives, deliberately double the 500 GB root pool so retention is
-possible rather than a single copy.
+a nightly job onto the `vmbackup` mirror — ~930 GB on different physical drives,
+against the 278 GB of VM roots it archives, so retention is possible rather than
+a single copy.
 
 **Layer 2 — `restic`, file-level, encrypted, offsite, for data recovery.**
 Answers "Authentik ate its database", "which version of that repo was it
 yesterday", and "the house burned down". Granular, deduplicated, and small
-enough to send off-premises daily. Its target is the **external 500 GB USB
-NVMe** — see [Where layer 2 writes](#where-layer-2-writes).
+enough to send off-premises daily. Its target is the **`filebackup` mirror** —
+see [Where layer 2 writes](#where-layer-2-writes).
 
 Why not just one:
 
@@ -172,13 +172,18 @@ Why not just one:
 
 ### Where layer 2 writes
 
-The target is the **external 500 GB USB 3.1 NVMe**, a single-disk ZFS pool
-(`usbbackup`) created on the Proxmox host in
+The target is the **`filebackup` pool** — 2 × 1 TB SATA SSD, mirrored — created
+on the Proxmox host in
 [proxmox-setup.md Part 3](../proxmox-setup.md#part-3--post-install-housekeeping).
-It is phase 2's "local target first" — **not** a replacement for phase 3. Offsite
-still stands; this is the drive that gets the mechanism debugged without also
-debugging cloud credentials, and it is the only copy that can physically leave
-the building.
+It replaces the external USB drive the earlier hardware had, and it is a strict
+improvement in every respect but one: mirrored rather than single-disk, so it can
+repair corruption instead of merely detecting it, and internal rather than on a
+bus a device can drop off.
+
+**The exception is the one that matters for this phase.** The USB drive could be
+unplugged and carried somewhere; `filebackup` cannot. Phase 3 is therefore not
+merely still open, it is the *only* remaining path to a copy that survives the
+building — see [phase 3](#phases) below.
 
 **Transport: SFTP against the Proxmox host's existing `sshd`.** restic speaks
 SFTP natively, so the drive stays mounted on the hypervisor and the repository
@@ -200,14 +205,15 @@ drive**:
 | Option | Verdict |
 |---|---|
 | **SFTP over the existing sshd** ✅ | No new daemon on a host this repo deliberately keeps free of workloads. Both VMs reach the same repository, so the apps VM joins later with a key and an `.env` value rather than a redesign. |
-| USB passthrough to the infra VM | Simplest — restic writes to a local path — but it binds the drive to one guest. Re-sharing it from there to the apps VM is strictly worse than sharing it from the host that owns it. |
+| Disk passthrough to the infra VM | Simplest — restic writes to a local path — but it binds the pool to one guest, and the hypervisor loses the ability to scrub or monitor it. Re-sharing it from there to the apps VM is strictly worse than sharing it from the host that owns the drives. |
 | NFS/SMB share from the host | Same reach, but it adds a file server to the hypervisor and a network hop with its own failure modes, to achieve what a daemon already running achieves. |
 
-**Sizing.** 500 GB against a set dominated by Forgejo's registry blobs, which
-grow monotonically. restic's dedup absorbs repeated image layers well but cannot
-delete what the registry never expires — so the registry-hygiene item in
-[ci-supply-chain.md](ci-supply-chain.md) phase 3 is also the lever on whether
-this drive stays big enough.
+**Sizing.** ~930 GB against a set dominated by Forgejo's registry blobs, which
+grow monotonically. That is the same space the drive it replaced had, so this
+change bought redundancy and **not** runway. restic's dedup absorbs repeated
+image layers well but cannot delete what the registry never expires — so the
+registry-hygiene item in [ci-supply-chain.md](ci-supply-chain.md) phase 3 is
+still the only real lever on whether this pool stays big enough.
 
 **One obligation this creates.** Layer 1 excludes the apps VM's 300 GB data disk
 (`backup=0`, [proxmox-setup.md Part 5](../proxmox-setup.md#part-5--create-the-vms)),
@@ -240,27 +246,27 @@ belt and braces, not a second restore path: a live-copied `PGDATA` is torn by
 construction, so a restore starts from the dumps, and the raw copy is the
 last resort for when no dump exists.
 
-Kuma is the exception and needs deciding at implementation time: its SQLite is
-open with WAL, so a live file copy is torn too. Preferred fix is
-`sqlite3 ... ".backup"` — pending a check that the binary exists in
-`louislam/uptime-kuma:2`; fallback is a tiny `alpine` sidecar holding the same
-bind mount. Stopping Kuma for the copy is the option to *avoid*: it is the
-watcher, and a blind spot in the watcher is exactly what its own compose file
-argues against.
+Kuma is the same hazard one format over: its SQLite is open with WAL, so a live
+file copy is torn too. It is dumped instead, through the `/usr/bin/sqlite3` the
+image itself ships (`.dump`, streamed to stdout) — no `alpine` sidecar, and no
+stopped watcher, which is the option the recipe exists to avoid: a blind spot
+in the watcher is exactly what its own compose file argues against. Reasoning
+in full:
+[backup-setup.md](../backup-setup.md#why-kuma-dumps-instead-of-copying).
 
 ## Architecture
 
 ```
         ┌─ Layer 1: vzdump nightly, snapshot mode + guest agent   ✅ built
-        │     infra + apps + HA roots ──► `backup` pool ──► "the VM is gone" restore
-Proxmox │        (2×1 TB SATA mirror, 2× the root pool, retention on the storage)
+        │     infra + apps + HA roots ──► `vmbackup` pool ──► "the VM is gone" restore
+Proxmox │        (2×1 TB SATA SSD mirror, ~3× the archived roots, retention on the storage)
  host   │
-        └─ `usbbackup` pool (500 GB USB NVMe), served over SFTP by the host's sshd
+        └─ `filebackup` pool (2×1 TB SATA SSD mirror), served over SFTP by the host's sshd
                                     ▲
 infra VM                            │
   pg_dump ×4 ─┐                     │
-  sqlite .backup ─┼─► /opt/backup/dumps ─┐
-  /opt/{vaultwarden,forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ─┘  (encrypted)
+  sqlite .dump ─┼─► /opt/backup/dumps ─┐
+  /opt/{vaultwarden,forgejo,authentik,uptime-kuma,traefik,monitoring/postgres}, dockge's data ─┼─► restic ─┘  (encrypted)
   infra/*/.env ──────────────────────────┘                          │
                                                                     └─► Kuma push URL (deadman)
 
@@ -274,7 +280,7 @@ mount. Precedent exists: the Proxmox node exporter is a systemd unit too.
 
 ```
 infra/backup/
-  lib.sh             the recipes: include, include_env, dump_postgres
+  lib.sh             the recipes: include, include_env, dump_postgres, dump_sqlite
   run.sh             glob infra/*/backup.sh → stage → snapshot --tag <stack> → forget --prune → ping Kuma
   restic-backup.service / .timer   nightly 01:00
   restic-check.service / .timer    weekly restic check
@@ -315,14 +321,14 @@ reason.
 
 1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
    [proxmox-setup.md Part 8](../proxmox-setup.md#part-8--schedule-whole-vm-backups).
-   Nightly *Datacenter → Backup* job in snapshot mode onto the `backup` mirror,
+   Nightly *Datacenter → Backup* job in snapshot mode onto the `vmbackup` mirror,
    with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
    the storage. Was the biggest coverage-per-effort item in the roadmap, and it
    is the one piece of this design that needed no repo code at all.
-2. ~~**Layer 2 — the dump + restic job, USB target.**~~ ✅ **built and
+2. ~~**Layer 2 — the dump + restic job, on-box target.**~~ ✅ **built and
    running** — [backup-setup.md](../backup-setup.md). `infra/backup/`,
    `scripts/init-backup.sh`, the four systemd units, and the per-stack shape
-   described above. The repository is the `usbbackup` pool over SFTP
+   described above. The repository is the `filebackup` pool over SFTP
    ([Where layer 2 writes](#where-layer-2-writes)) — local first, so the
    mechanism got debugged without also debugging cloud credentials. Retention
    `--group-by host,tags --keep-daily 7 --keep-weekly 4 --keep-monthly 6`; a
@@ -331,10 +337,10 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **The recipe set is complete and every exception is spent.** Four stacks
-   are wired. The first three were chosen in that order deliberately — each
-   was the last remaining unknown of its kind — and the fourth is the one the
-   whole phase was prioritised for:
+   **The recipe set is complete and every exception is spent.** Every stack
+   that holds state is wired. Authentik, Uptime Kuma and monitoring were built
+   first, in that order — each was the last remaining unknown of its kind —
+   and Vaultwarden is the one the whole phase was prioritised for:
 
    - **Authentik** — the Postgres shape, and the DB↔secret-key coupling the
      per-stack design exists for.
@@ -383,11 +389,12 @@ reason.
    Space / rclone. Client-side encryption means the target is untrusted by
    construction — no additional design needed, only credentials and a
    bandwidth check against the first full upload. This is what makes 3-2-1
-   true rather than aspirational. **The USB drive does not close this phase:**
-   it is the second copy, on the same premises and plugged into the machine it
-   protects. Unplugging it and carrying it elsewhere is a valid third copy only
-   for as long as someone actually does — and nothing here can alert on a human
-   step that didn't happen.
+   true rather than aspirational. **Nothing on the box closes this phase:** both
+   layers now live in the same machine as the thing they protect, so a fire or a
+   theft takes every copy at once. The external drive that used to offer a
+   manual third copy is gone, and it was never a reliable one — it counted only
+   for as long as someone actually carried it somewhere, and nothing could alert
+   on a human step that didn't happen. An S3 target has no such failure mode.
 4. **Notice when it stops.** ✅ folded into phase 2 — `run.sh` pings an Uptime
    Kuma push monitor, and only a fully clean run does.
 

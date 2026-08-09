@@ -7,7 +7,7 @@ last stack on this VM. The backup job also reports to a Kuma push monitor, so
 [uptime-kuma-setup.md](uptime-kuma-setup.md) has to be done as well.
 
 This is **layer 2** of [roadmap/backup.md](roadmap/backup.md). Layer 1 —
-whole-VM `vzdump` onto the internal `backup` mirror — is already built, in
+whole-VM `vzdump` onto the `vmbackup` mirror — is already built, in
 [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups),
 and the two answer different questions. **Layer 1 answers "the disk died".
 Layer 2 answers "Authentik ate its database"**: one directory, one stack, one
@@ -15,7 +15,7 @@ night, restored without rolling the whole machine back to it.
 
 [restic](https://restic.net/) is a single static binary with no daemon and
 nothing to install on the far end. It encrypts client-side, deduplicates by
-content, and speaks SFTP natively — so the repository is the **`usbbackup`
+content, and speaks SFTP natively — so the repository is the **`filebackup`
 pool** on the hypervisor ([proxmox-setup.md Part
 3](proxmox-setup.md#part-3--post-install-housekeeping)), reached over the
 Proxmox host's existing `sshd` as
@@ -49,7 +49,7 @@ here is in this repo — the hypervisor owns the drive, so the hypervisor owns
 the account that writes to it.
 
 What you are building: an unprivileged `resticbackup` user that can do exactly
-one thing — SFTP into a directory on the `usbbackup` pool — and cannot get a
+one thing — SFTP into a directory on the `filebackup` pool — and cannot get a
 shell, forward a port, or see any other part of the filesystem.
 
 > **You need one thing from the infra VM first: root's public key.**
@@ -62,21 +62,21 @@ shell, forward a port, or see any other part of the filesystem.
 Create the chroot as its own dataset on the backup pool:
 
 ```bash
-zfs create usbbackup/chroot
+zfs create filebackup/chroot
 ```
 
 ```bash
-chown root:root /usbbackup/chroot && chmod 755 /usbbackup/chroot
+chown root:root /filebackup/chroot && chmod 755 /filebackup/chroot
 ```
 
 Create the user, then the one writable directory *inside* the chroot:
 
 ```bash
-useradd --system --home-dir /usbbackup/chroot --shell /usr/sbin/nologin resticbackup
+useradd --system --home-dir /filebackup/chroot --shell /usr/sbin/nologin resticbackup
 ```
 
 ```bash
-mkdir -p /usbbackup/chroot/restic && chown resticbackup:resticbackup /usbbackup/chroot/restic && chmod 700 /usbbackup/chroot/restic
+mkdir -p /filebackup/chroot/restic && chown resticbackup:resticbackup /filebackup/chroot/restic && chmod 700 /filebackup/chroot/restic
 ```
 
 > **Not `backup`, and not `infrabackup` either.** Debian ships a stock `backup`
@@ -97,7 +97,7 @@ mkdir -p /usbbackup/chroot/restic && chown resticbackup:resticbackup /usbbackup/
 > open the repository, and the reason is in the *host's* journal.
 
 That `restic/` is also why the repository path is `/restic` and not
-`/usbbackup/chroot/restic` — inside the chroot, the chroot **is** the root.
+`/filebackup/chroot/restic` — inside the chroot, the chroot **is** the root.
 
 Install the infra VM's public key. It goes outside the chroot, in a directory
 sshd reads as root, because anything inside a chroot the confined user can write
@@ -149,7 +149,7 @@ nano /etc/ssh/sshd_config.d/backup-sftp.conf
 
 ```
 Match User resticbackup
-    ChrootDirectory /usbbackup/chroot
+    ChrootDirectory /filebackup/chroot
     ForceCommand internal-sftp
     AuthorizedKeysFile /etc/ssh/authorized_keys/resticbackup
     PasswordAuthentication no
@@ -205,7 +205,7 @@ Then the same question in the positive:
 sshd -T -C user=resticbackup | grep -iE 'chrootdirectory|forcecommand'
 ```
 
-Expected: `chrootdirectory /usbbackup/chroot` and `forcecommand internal-sftp`.
+Expected: `chrootdirectory /filebackup/chroot` and `forcecommand internal-sftp`.
 If *this* one also reads `none` for both, the drop-in is not being read at
 all — check that `sshd_config` still carries its
 `Include /etc/ssh/sshd_config.d/*.conf` line, and that the filename ends in
@@ -773,10 +773,12 @@ journalctl -u restic-check.service -n 50
 ```
 
 When it does fail, suspect the drive before the job. Check pool health on the
-hypervisor first (`zpool status usbbackup`); the **Hypervisor Storage** monitor
-covers `usbbackup` by name precisely because a pool whose device fell off the
-USB bus does not appear in `zpool list` at all — so that monitor, not this one,
-is what catches the common cause.
+hypervisor first (`zpool status filebackup`); the **Hypervisor Storage** monitor
+covers `filebackup` by name precisely because a pool that failed to import does
+not appear in `zpool list` at all — so that monitor, not this one, is what
+catches the storage-side cause. A mirror losing one member degrades and keeps
+serving, which is the case you want to hear about *before* it becomes the case
+where restic has nowhere to write.
 
 **The clock, after a rollback.** A restored or rolled-back guest resumes with a
 stale clock and every TLS client fails with "certificate has expired or is not
@@ -801,7 +803,7 @@ timedatectl status
 | The tree a restore displaced | `/opt/<stack>.bak-<timestamp>` — never reclaimed; [delete it yourself](#cleaning-up-afterwards) |
 | Installed units | `/etc/systemd/system/restic-*.{service,timer}` |
 | The key the repository is reached with | `/root/.ssh/id_ed25519` |
-| The repository itself | `/usbbackup/chroot/restic` on the Proxmox host |
+| The repository itself | `/filebackup/chroot/restic` on the Proxmox host |
 
 `/opt/backup` is mode **700**. The dumps are plain SQL and contain every
 credential the lab has.
@@ -900,8 +902,8 @@ previous night's — the two layers stack instead of merely coexisting. It is al
 clear of the 04:30 unattended-upgrades reboot window. `Persistent=true` means a
 VM that was down at 01:00 catches up on boot rather than skipping a night, and
 the weekly check runs Sunday 03:00 so it never overlaps that night's backup on
-the USB drive. `vzdump` is not a third contender for that drive — it writes to
-the internal `backup` mirror — but it is still worth being an hour behind: the
+`filebackup`. `vzdump` is not a third contender for those drives — it writes to
+`vmbackup`, a different mirror — but it is still worth being an hour behind: the
 spacing is about host I/O, and about layer 1 finding the current night's dumps
 already on disk.
 
@@ -910,7 +912,7 @@ a backup, and the only way to know is to read it. The structural half of
 `restic check` — every index, every snapshot, every tree — runs **in full**
 every week; `--read-data-subset` is about how much of the actual pack data gets
 hashed on top of that, and 10% is the trade between proving the bytes are there
-and spending a night on the USB bus doing it.
+and spending a night of host I/O doing it.
 
 **It samples, it does not rotate.** restic's `n%` form picks a *random* subset
 each run; only the `n/t` form (`--read-data-subset=3/10`) selects a
@@ -918,8 +920,12 @@ deterministic slice, and rotating one would mean a different `n` each week,
 which a static unit file cannot express without wrapping the command in a
 shell. So do not read this as "the whole repository every ten weeks" — nothing
 guarantees a given pack has ever been read. It is a weekly spot check, and the
-thing it reliably catches is a repository that has gone broadly unreadable,
-which is the failure that actually happens to a USB drive.
+thing it reliably catches is a repository that has gone broadly unreadable.
+
+That failure mode is less likely than it was — `filebackup` is a mirror, so it
+repairs the bit rot a single disk could only report — but "less likely" is not
+"handled": a mirror protects the bytes on disk, not the repository structure
+restic wrote on top of them.
 
 **Why the raw `PGDATA` rides along but is never the restore path.** It is in the
 snapshot because it costs almost nothing for a database this size, and because
@@ -939,9 +945,9 @@ symlink rather than descending into it. Backing up `/opt/stacks` would capture
 the links and none of the secrets — which is why `include_env` names
 `$REPO_ROOT/infra/<stack>/.env` explicitly.
 
-**Where this is not yet finished.** The repository lives on a drive plugged into
-the machine it protects. That is a real second copy and it is the only one that
-can physically leave the building, but it is not offsite until someone points
+**Where this is not yet finished.** The repository lives on a mirror inside
+the machine it protects. That is a real second copy on its own drives, but
+nothing here is offsite until someone points
 restic at B2, netcup Storage Space or rclone — client-side encryption means that
 step is credentials and a bandwidth check, not a redesign
 ([roadmap/backup.md](roadmap/backup.md#phases) phase 3). **The weekly check has

@@ -25,12 +25,12 @@ staggered, on two machines that share one set of disks.
 **The order is load-bearing, not tidy.** restic runs first so that when vzdump
 starts an hour later, layer 1's whole-VM archive already contains that night's
 database dumps — the two layers stack rather than merely coexist. The weekly
-check runs after both, so the two jobs that touch the USB drive never overlap on
+check runs after both, so the two jobs that touch `filebackup` never overlap on
 it and neither competes with vzdump for host I/O. The reboot window sits last,
 clear of all three.
 
 **These are start times, and nothing here records duration.** `vzdump` over
-~294 GB of VM roots is the one job that could plausibly still be running when the
+~278 GB of VM roots is the one job that could plausibly still be running when the
 Sunday check begins. If that starts happening, the check is the row to move —
 it is weekly and has the most slack.
 
@@ -60,7 +60,7 @@ one has to outlast the job that feeds it:
 | Heartbeat | Monitor | Fed by |
 |---|---|---|
 | **300 s**, 2 retries | Hypervisor Storage | the 5-minute ZFS timer above |
-| **90000 s** (25 h), 0 retries | Backup | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
+| **90000 s** (25 h), 0 retries | Backup Job | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
 
 That arithmetic is the pattern to copy: **heartbeat > period + jitter + worst
 plausible run time**, or a healthy lab goes red on its own schedule.

@@ -181,7 +181,7 @@ A quick way to see the whole shape at once, infra names together and the wildcar
 falling elsewhere:
 
 ```bash
-for n in git dockge auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
+for n in git dockge home auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
 ```
 
 Everything through `ha` should share one address, `homeassistant` and `pve`
@@ -193,7 +193,7 @@ prefers, so a wrong AAAA hides behind a correct A record and shows up only as
 traffic taking a route you did not intend:
 
 ```bash
-for n in git dockge auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
+for n in git dockge home auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
 ```
 
 Every row must come back as `::ffff:` followed by the same address the sweep

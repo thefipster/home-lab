@@ -23,15 +23,16 @@
   "schedule": ["before 8am on saturday"],
   "dependencyDashboard": true,
   "automerge": false,
-  // Only the compose files. The workflow templates in infra/forgejo/*.yml
-  // carry image pins too (act, python, node) but live outside every standard
-  // manager's file patterns — they stay part of the by-hand sweep.
+  // Only the compose files. Pins living anywhere else — the runner's default
+  // job image in infra/forgejo/config.yml, versions quoted in scripts and
+  // guides — sit outside every standard manager's file patterns and stay part
+  // of the by-hand sweep.
   "enabledManagers": ["docker-compose"],
   // apps/stacks/ is staging: each draft moves to its own Forgejo repo and is
-  // deleted from here, so its pins are watched by the self-hosted Renovate
-  // that runs against Forgejo once the repo exists — not from GitHub, which
-  // cannot reach the LAN-only Forgejo. Watching drafts here would create
-  // update PRs against files that are about to disappear.
+  // deleted from here, so watching drafts would create update PRs against
+  // files that are about to disappear. Once a stack lives in Forgejo its pins
+  // are out of this bot's sight entirely — GitHub cannot reach the LAN-only
+  // Forgejo — and bumping them is a by-hand job over there.
   "ignorePaths": ["apps/**"],
   "packageRules": [
     {

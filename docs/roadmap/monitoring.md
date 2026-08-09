@@ -90,7 +90,8 @@ this Loki/Prometheus over the LAN.
    (disk >80 %, service down, cert not renewed). More than that is noise in
    a one-person lab.
    Shipped as two pinned community dashboards (Node Exporter Full #1860,
-   Traefik Official Standalone #17346) and three UI-only alerts. Required
+   Traefik Official Standalone #17346) and UI-only alert rules (no contact
+   points — notifications are Kuma's half of the split). Required
    renaming the phase-1 `service` metric label to the idiomatic `job` so the
    dashboards work unmodified.
 
@@ -100,9 +101,11 @@ when a real need appears, not before.
 
 ## Constraints & notes
 
-- **RAM: resolved.** The infra VM was raised from 4 GB to **10 GB** before
-  phase 1, so the stack needs no memory limits and retention isn't constrained
-  by memory. Revisit only if phase 3's per-container metrics change the
-  picture.
+- **RAM: resolved.** The infra VM was resized for this stack before phase 1
+  and its current allocation (24 GB —
+  [proxmox-setup.md](../proxmox-setup.md#why-these-sizes)) is sized with these
+  containers in mind, so the stack needs no memory limits and retention isn't
+  constrained by memory. Revisit only if phase 3's per-container metrics change
+  the picture.
 - Non-goals: HA, long-term storage, Mimir/Thanos — this is a lab, snapshots
   and short retention are the durability story.

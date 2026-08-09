@@ -10,7 +10,7 @@
 # and nothing to generate — every widget is token-free — and there is NO
 # /opt/homepage, because this stack has no persistent state at all: its entire
 # configuration is the git-tracked YAML in infra/homepage/config, bind-mounted
-# read-only. It is the first stack in the repo with no data directory, which is
+# read-only. It is the only stack in the repo with no data directory, which is
 # also why it has no backup.sh.
 #
 # Re-runnable: every step is idempotent. Run from anywhere.
@@ -44,17 +44,15 @@ else
   echo "    created proxy network"
 fi
 
-echo "==> Symlinking the stack into /opt/stacks/homepage"
-run_root mkdir -p /opt/stacks
-if [ -L /opt/stacks/homepage ]; then
-  echo "    /opt/stacks/homepage already a symlink -> $(readlink -f /opt/stacks/homepage)"
-elif [ -e /opt/stacks/homepage ]; then
-  echo "    /opt/stacks/homepage exists and is NOT a symlink — leaving it alone." >&2
+STACKS_DIR="${STACKS_DIR:-/opt/stacks}"
+echo "==> Linking the Homepage stack into ${STACKS_DIR}/homepage (for Dockge)"
+run_root mkdir -p "${STACKS_DIR}"
+if [ -e "${STACKS_DIR}/homepage" ] && [ ! -L "${STACKS_DIR}/homepage" ]; then
+  echo "    ${STACKS_DIR}/homepage exists and is NOT a symlink — leaving it alone." >&2
   exit 1
-else
-  run_root ln -s "${STACK_DIR}" /opt/stacks/homepage
-  echo "    linked /opt/stacks/homepage -> ${STACK_DIR}"
 fi
+run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/homepage"
+echo "    linked ${STACKS_DIR}/homepage -> ${STACK_DIR}"
 
 cat <<EOF
 
