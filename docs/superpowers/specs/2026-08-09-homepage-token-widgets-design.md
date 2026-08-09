@@ -23,8 +23,8 @@ work is one-third widget and two-thirds keeping the repo internally consistent.
 
 **In:** Authentik, Forgejo, Grafana.
 
-**Out, and why** — the four other services on the page that have an upstream
-widget:
+**Out, and why** — every other service on the page, whether or not an upstream
+widget exists for it:
 
 - **Proxmox.** Its API is HTTPS-only on `:8006` behind a self-signed
   certificate ([proxmox-setup.md](../../proxmox-setup.md)), and Homepage is
@@ -112,14 +112,14 @@ claim it has not run.
 
 ## The registry
 
-A fourth registry, `docs/homepage-widgets.md`, alongside `dns-records.md`,
+A new registry, `docs/homepage-widgets.md`, alongside `dns-records.md`,
 `sso-applications.md` and `uptime-kuma-monitors.md`. Same contract: it carries
 `**Runs on:** … — registry, not a build step`, it holds the manual operations
 that live outside the repo, guides link it instead of restating it, and it
 lists its deliberate absences beside its entries.
 
 Minting a token in Authentik's admin portal is exactly the kind of clickwork
-the three existing registries exist to centralize. Per widget it records: where
+the existing registries exist to centralize. Per widget it records: where
 to click, the exact scopes or role, the `.env` variable name, and the
 `services.yaml` snippet.
 
@@ -133,20 +133,20 @@ stays the forward-auth one it already has.
 
 ## The `.env` fallout
 
-Homepage stops being the stack with no `.env`, and that property is asserted in
-six places. All of them are rewritten, not patched around:
+Homepage stops being the stack with no `.env`, and that property is asserted
+across the repo. All of it is rewritten, not patched around:
 
 - `infra/homepage/compose.yaml` — the header block claiming no `.env` and no
   secret to seed.
 - `scripts/init-homepage.sh` — the header, plus the script itself: it now seeds
-  `.env` from `.env.example`, the way `init-traefik.sh` does. It stops being
-  the thinnest init script in the repo.
-- `scripts/init-uptime-kuma.sh` — its comment names Homepage as the other stack
-  with no `.env`. Kuma becomes the only one.
+  `.env` from `.env.example`, the way `init-traefik.sh` does, so its header
+  claim that there is nothing to seed goes with it.
+- `scripts/init-uptime-kuma.sh` — its comment ranks Kuma against Homepage for
+  having no `.env`. It becomes a plain statement that Kuma has none.
 - `docs/homepage-setup.md` — a new step for minting the credentials, checklist
   rows, troubleshooting entries, the layout listing, and the design note *Why
-  there are no token-backed widgets*, which is now the note explaining which
-  four services still have none.
+  there are no token-backed widgets*, which inverts into the note explaining
+  which services still have none, and why.
 - `docs/roadmap/backup.md` — the Homepage non-row becomes a row.
 - `CLAUDE.md` — the backup convention paragraph, the `.env` gotcha, and the
   init-script entry.
@@ -162,7 +162,7 @@ wired* stays true with no exception to remember.
 
 `backup.sh` is `include_env` and nothing else — the include-only form, one
 recipe. Every other byte the stack owns is the git-tracked YAML in `config/`,
-which is why this is the smallest backup in the lab, smaller than Traefik's.
+which is why this backup declares one recipe and no dump.
 
 `restore.sh` follows the standard shape — stage the snapshot, check it before
 touching anything live, replace `.env`, restart — with no `/opt` tree to move
@@ -177,35 +177,62 @@ so a stack joins by having the file exist and leaves by deleting it — which is
 the property that arrangement was chosen for, and it holds here. Verified by
 reading `run.sh`, not by trusting the claim in `CLAUDE.md`.
 
-What it does need is a **comment** change, and that comment is the first of
-nine places where the backup layer states how many stacks it has:
+What it does need is a **comment** change, and that comment is one of the
+places where the backup layer says how many stacks it has.
 
-- `infra/backup/run.sh` — "one stack failing must not cost the other **six**
-  their snapshots".
-- `docs/backup-setup.md` — three: the expected `OK:` line "naming all
-  **seven**", the checklist row, and "one snapshot per tag — **seven** in all".
-- `docs/backup-setup.md` again — it cites Homepage's design notes as the stack
-  that deliberately gets no backup.
-- `docs/backup-restore-drill.md` — the per-stack table of markers and proofs
-  gains a `homepage` row. Its marker is to corrupt one token in `.env`; the
-  check that proves it is that the tile renders data again after the restore,
-  which exercises the widget and the backup in one move.
-- `docs/roadmap/backup.md` — "all **seven** stacks drilled".
-- `docs/status.md` — "All **seven** stateful infra stacks wired and
-  restore-drilled".
-- `CLAUDE.md` — the backup convention names the wired stacks explicitly:
-  Authentik, Dockge, Forgejo, monitoring, Traefik, Uptime Kuma, Vaultwarden.
+`docs/backup-restore-drill.md` needs real new content: its per-stack table of
+markers and proofs gains a `homepage` row. The marker is to corrupt one token
+in `.env`; the check that proves it is that the tile renders data again after
+the restore, which exercises the widget and the backup in one move.
 
-**Prefer durable wording to a bumped number.** Where the count is incidental —
-the `OK:` line, the snapshot check, the drill summary — reword to something
-that survives the stack after this one ("one snapshot per tag", "every stack
-with a `backup.sh`") rather than writing "eight" and queuing the same edit up
-again. Where the list is the point, as in `CLAUDE.md`, name Homepage.
+`docs/backup-setup.md` also cites Homepage's design notes as the stack that
+deliberately gets no backup, which stops being true.
 
-Three phrases match a search for these numbers and must **not** change:
+Everything else on the backup side is the same edit repeated, and the rule for
+it is below.
+
+### Rule: delete the count, do not bump it
+
+**No ordinal or total gets incremented by this change.** Where a sentence
+carries a number only because a number happened to be true when it was
+written, the fix is to **remove** it — not to write the next one up and queue
+the same edit for whoever adds the stack after this:
+
+| Now | Becomes |
+|-----|---------|
+| `must not cost the other six their snapshots` | `must not cost the others their snapshots` |
+| `` `OK:` line naming all seven `` | `` `OK:` line naming all `` |
+| `one snapshot per tag — seven in all` | `one snapshot per tag` |
+| `All seven stateful infra stacks wired and restore-drilled` | `Every stateful infra stack wired and restore-drilled` |
+| `all seven stacks drilled` | `every stack drilled` |
+
+Where the **set** is the point rather than its size — `CLAUDE.md`'s "every
+stack that holds state is wired: Authentik, Dockge, Forgejo, monitoring,
+Traefik, Uptime Kuma and Vaultwarden" — name Homepage in the list. A list of
+members survives; a count does not.
+
+This applies to comments in compose files and scripts too, not only Markdown,
+and the Homepage stack has several of its own that this change is already
+rewriting:
+
+| `infra/homepage/compose.yaml` | Becomes |
+|---|---|
+| `the second stack in the lab with none, after Uptime Kuma` | gone — the stack has an `.env` now |
+| `the FIRST stack in the repo with no persistent data directory at all` | `it has no persistent data directory at all` |
+| `The SIXTH socket mount in the lab, after Dockge, the Forgejo runner, …` | `A socket mount, and it carries the same caveat as the others` |
+| `All NINE skeleton files ship in ./config` | `Every file Homepage looks for ships in ./config` |
+
+and `scripts/init-uptime-kuma.sh`'s "one of two stacks with no `.env` at all —
+Homepage is the other" becomes a plain statement that Kuma has none, with no
+ranking to keep current.
+
+Three phrases match a search for these numbers and must **not** be swept up:
 "seven dailies" in `backup-setup.md` and `CLAUDE.md` is the `--keep-daily 7`
-retention policy, and "seventh root-equivalent socket mount" in
-`backup-setup.md` and `roadmap/backup.md` counts socket mounts, not stacks.
+retention policy — the number is the policy. "Seventh root-equivalent socket
+mount" in `backup-setup.md` and `roadmap/backup.md` counts socket mounts rather
+than stacks, so this change does not make it wrong; it is the same rot in
+waiting, but fixing it belongs to a sweep of its own rather than to this
+branch.
 
 ### Why wire it at all
 
