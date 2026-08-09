@@ -335,8 +335,8 @@ for a box you did not mean to measure.
 > **The Proxmox host is on ZFS, so read this output differently.** `df -h` there
 > lists *datasets*, not disks, and every dataset in a pool reports the **same
 > shared free space** — so several rows showing an identical `Avail` is correct,
-> not a bug. Expect `/`, `/rpool/*`, and the three pools mounted at `/backup`,
-> `/data` and `/usbbackup`
+> not a bug. Expect `/`, `/rpool/*`, and the three pools mounted at `/vmbackup`,
+> `/data` and `/filebackup`
 > ([proxmox-setup.md Part 3](proxmox-setup.md#part-3--post-install-housekeeping)).
 > Comparing against `zpool list` as well is the quickest way to see what the
 > pool actually holds — see
@@ -463,8 +463,8 @@ Where it works exactly as intended:
 | Mount | Why it reads true |
 |---|---|
 | everything on the **infra** and **apps** VMs | ordinary ext4; nothing about this changed |
-| `/backup` on the host | holds `vzdump` **files**, so used grows and avail shrinks together |
-| `/usbbackup` on the host | same — restic writes files |
+| `/vmbackup` on the host | holds `vzdump` **files**, so used grows and avail shrinks together |
+| `/filebackup` on the host | same — restic writes files |
 
 Those last two are a genuine gain: the backup targets now alert on filling up,
 which nothing watched before.
@@ -520,7 +520,7 @@ zfs_pool_free_bytes
 zfs_pool_online
 ```
 
-Expect four series each — `rpool`, `backup`, `data`, `usbbackup`. The number that
+Expect four series each — `rpool`, `vmbackup`, `data`, `filebackup`. The number that
 matters, and the one the alert thresholds on:
 
 ```promql
@@ -583,8 +583,8 @@ zfs list -t snapshot
       space, so repeated identical values are correct
 - [ ] `zpool list` on the host shows all four pools `ONLINE`, and you have read
       [what `DiskAlmostFull` cannot see there](#what-diskalmostfull-sees-under-zfs)
-- [ ] `zfs_pool_allocated_bytes` returns four series (`rpool`, `backup`, `data`,
-      `usbbackup`) and `100 * zfs_pool_allocated_bytes / zfs_pool_size_bytes`
+- [ ] `zfs_pool_allocated_bytes` returns four series (`rpool`, `vmbackup`, `data`,
+      `filebackup`) and `100 * zfs_pool_allocated_bytes / zfs_pool_size_bytes`
       matches the `CAP` column of `zpool list` on the host — *(needs
       [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades), which
       runs after Uptime Kuma exists)*

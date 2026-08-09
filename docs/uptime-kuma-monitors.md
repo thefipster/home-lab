@@ -254,11 +254,11 @@ The host keeps running, every VM keeps running, redundancy is silently gone, and
 the second drive of the pair fails weeks later with no audience. Nothing else in
 this registry would go red.
 
-The push carries the pool name, so a `down` here names the drive to look at
-rather than sending you to the shell to find out. It covers all four pools —
-including `usbbackup`, the external backup drive, whose *absence* is otherwise
-invisible: a pool whose device vanished does not appear in `zpool list` at all,
-which is why the script checks an expected list rather than trusting that output.
+The push carries the pool name, so a `down` here names the pool to look at
+rather than sending you to the shell to find out. It covers all four pools, and
+it checks an **expected list** rather than trusting `zpool list`: a pool that
+failed to import does not appear in that output at all, so its absence is
+invisible to anything that reads the output alone.
 
 Pool *health* is deliberately **not** alerted from Grafana, even though Alloy
 already scrapes the hypervisor. This is a notification, and notifications are
