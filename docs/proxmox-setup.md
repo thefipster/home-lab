@@ -70,7 +70,7 @@ UDR — exactly what we want. No extra network config needed.
 ## Part 3 — Post-install housekeeping
 
 Four things before any VM exists: the host's DNS record, the package
-repositories, the other two mirrors, and a cap on ZFS's memory appetite. The
+repositories, the other three mirrors, and a cap on ZFS's memory appetite. The
 last two are new to this build and the reason the reboot at the end matters.
 
 ### Put the host's name on the router
@@ -222,9 +222,35 @@ pool and not a Proxmox storage.
 
 ZFS caches in RAM, and its cache is not free memory — it competes with the VMs.
 Historically the limit defaults to **half of RAM**, which here would be 48 GB
-against the 64 GB the three VMs want. Recent installers write a 10% limit for new
-installations, but that is a reason to *check* the value rather than assume it.
-Set it explicitly to 16 GB:
+against the 56 GB the three VMs want. Recent Proxmox installers write a 10%
+limit of their own instead — **and that file beats the one you are about to
+write**, so it has to go first.
+
+See what is already set:
+
+```bash
+grep -rn zfs_arc_max /etc/modprobe.d/
+```
+
+A line holding roughly a tenth of your RAM, usually in
+`/etc/modprobe.d/zfs.conf`, is the installer's. Comment it out — the goal is
+exactly **one** file setting this parameter. (If the `grep` came back empty,
+this installer wrote no limit: skip to the next command, since there is nothing
+to neutralise and the file below will be the only one.)
+
+```bash
+sed -i 's/^options zfs zfs_arc_max=/# superseded by 99-zfs-arc.conf: &/' /etc/modprobe.d/zfs.conf
+```
+
+> **A `99-` prefix does not win here, and that is the trap.** `modprobe` reads
+> `/etc/modprobe.d` in lexicographic order and the module receives the **last**
+> value given for a parameter — and `9` sorts before `z`, so `zfs.conf` is
+> applied *after* `99-zfs-arc.conf` and silently overrides it. This is the
+> opposite of `sysctl.d` and `apt.conf.d`, where a high number wins, which is
+> what makes the filename look like it should be enough. Deleting the duplicate
+> is what makes the result independent of sort order.
+
+Now set it explicitly to 16 GB:
 
 ```bash
 echo "options zfs zfs_arc_max=17179869184" > /etc/modprobe.d/99-zfs-arc.conf
@@ -234,11 +260,28 @@ echo "options zfs zfs_arc_max=17179869184" > /etc/modprobe.d/99-zfs-arc.conf
 update-initramfs -u -k all
 ```
 
+**That rebuild is not optional.** The root filesystem is ZFS, so the module is
+loaded from the initramfs long before `/etc` is readable — the copy of
+`/etc/modprobe.d` *inside* the initramfs is what decides the value, and an edit
+that never reaches it changes nothing.
+
 It takes effect on the reboot below. Verify afterwards — the value should be
-`17179869184`, not `0` and not half your RAM:
+exactly `17179869184`, not `0` and not a tenth of your RAM:
 
 ```bash
 cat /sys/module/zfs/parameters/zfs_arc_max
+```
+
+If it still reads a tenth of your RAM, a second file is setting the parameter:
+run the `grep` above again and neutralise whatever it finds.
+
+**Coming back to this later, on a running system, needs no reboot.**
+`zfs_arc_max` is writable at runtime, so this applies immediately — ARC then
+shrinks toward the new ceiling over the following minutes rather than at once.
+The initramfs rebuild above is what makes the value survive the next boot:
+
+```bash
+echo 17179869184 > /sys/module/zfs/parameters/zfs_arc_max
 ```
 
 ### Update and reboot
@@ -280,7 +323,7 @@ Suggested specs for all three — the reasoning is in
 | Cores | 12 | 12 | 12 |
 | CPU type | `host` | `host` | `host` |
 | `cpuunits` | 100 (default) | 50 | 200 |
-| Memory | 24576 MB | 32768 MB | 8192 MB |
+| Memory | 24576 MB | 24576 MB | 8192 MB |
 | Ballooning | off | off | off |
 | Root disk | 150 GB on `local-zfs` | 64 GB on `local-zfs` | 64 GB on `local-zfs` |
 | Second disk | — | **300 GB on `data`**, `backup=0` | — |
@@ -301,7 +344,14 @@ Click **Create VM** (top right) for the infra and apps VMs. In the wizard:
   that answers on it is installed inside each guest by `scripts/init-host.sh`
   ([infra-vm-setup.md](infra-vm-setup.md), [apps-vm-setup.md](apps-vm-setup.md)).
 - **Disk:** storage **`local-zfs`**, bus **VirtIO SCSI single** (default), tick
-  **Discard** and **SSD emulation** — every pool here is on flash.
+  **Discard** and **SSD emulation**. The two do different jobs, and neither is
+  implied by the pools being flash — the host knows that, the **guest** does
+  not. *Discard* passes the guest's TRIM through to the storage layer, so blocks
+  freed inside the VM are released on the zvol instead of it only ever growing;
+  that is the one with real consequences. *SSD emulation* only changes what the
+  guest is told the media is: without it a virtual disk advertises itself as
+  rotational, so the guest optimises for seeks that cannot happen. Modest on
+  these Linux guests, free, and true.
 - **CPU:** type **`host`** (best performance on a single-node lab), **1 socket**
   with all 12 cores on it. `cpuunits` is not in the wizard — set it afterwards
   under *VM → Options → CPU units*, or with
@@ -334,6 +384,29 @@ layer now exists ([backup-setup.md](backup-setup.md)) — but it runs on the
 ([roadmap/backup.md](roadmap/backup.md)). Until it does, everything on the apps
 VM's data disk is unbacked. That is currently harmless because the VM has no
 services on it, and it stops being harmless the day it does.
+
+**Confirm the disk options actually took**, on both VMs — a tick missed in the
+wizard is completely silent, and the only symptom is a zvol that grows and never
+shrinks:
+
+```bash
+qm config 101 | grep -E '^scsi[0-9]'
+```
+
+```bash
+qm config 102 | grep -E '^scsi[0-9]'
+```
+
+Every disk line must carry `discard=on` and `ssd=1`. If one does not, tick the
+two boxes under *VM → Hardware → double-click the disk*. **Then stop and start
+the VM** — those options are handed to QEMU when the process starts, so a
+reboot from inside the guest leaves the change pending; `qm reboot <vmid>` does
+the stop/start cycle properly. Nothing is lost by having run without them, but
+once Discard is live, reclaim what accumulated meanwhile from inside the guest:
+
+```bash
+sudo fstrim -av
+```
 
 Start each VM, open **Console**, and run the Ubuntu installer (enable OpenSSH when
 prompted).
@@ -453,11 +526,36 @@ The apps VM's 300 GB data disk is **not** in these archives, by the `backup=0`
 set in [Part 5](#part-5--create-the-vms). That is what keeps a ~930 GB target able
 to hold real retention instead of a single copy.
 
+---
+
+## Next — this guide is done for now
+
+**Continue with [wildcard-dns-udr.md](wildcard-dns-udr.md)**: the reservations
+and records from [Part 6](#part-6--give-the-vms-their-addresses-on-the-router),
+with [dns-records.md](dns-records.md) as the registry of exactly what to add.
+Every guide after it assumes those records exist.
+
+**Part 9 below is deliberately out of sequence — skip it now.** It watches the
+pools for degradation, which needs a Kuma push monitor and the hypervisor's node
+exporter, and neither exists until the infra VM is built. It lives in this guide
+because the script runs on the *hypervisor*, and
+[uptime-kuma-setup.md step 7](uptime-kuma-setup.md#7-go-back-to-the-proxmox-guide-for-the-pool-monitor)
+sends you back to it at the right moment. It is the only part of the build order
+that cannot be finished in its own guide's turn.
+
+---
+
 ## Part 9 — Notice when a mirror degrades
 
 > **Come back to this after [uptime-kuma-setup.md](uptime-kuma-setup.md).** It
-> needs a push URL from Kuma, which does not exist until the infra VM is built.
-> It is documented here because the script runs on the *hypervisor*, not in a VM.
+> is documented here because the script runs on the *hypervisor*, not in a VM,
+> but it depends on **two** things the infra VM build supplies first: a push URL
+> from Kuma, and the `prometheus-node-exporter` that
+> [grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host) installs on
+> this host — the script writes its metrics into that package's textfile
+> directory. Both exist by the time Kuma is finished, so arriving here in build
+> order needs no extra installs. **Reading this while still in Part 3 is why it
+> looks like a step is missing: it is, and it comes later.**
 
 Eight drives in four mirrors buy nothing if a failure is silent — and **a degraded
 mirror is exactly the failure that takes nothing down.** The host keeps running,
@@ -716,7 +814,7 @@ apps 4:1, which means a runaway Coolify build cannot make your lights laggy.
 Nothing is capped: `cpulimit` stays `0` everywhere, so any VM can still use the
 whole box when the others are idle.
 
-**Ballooning is off** because 24 + 32 + 8 = 64 GB against 96 GB physical. The
+**Ballooning is off** because 24 + 24 + 8 = 56 GB against 96 GB physical. The
 balloon driver earns its keep when the sum of configured maxima *exceeds*
 physical RAM; here it does not, so the only thing it could ever do is reclaim
 memory from a VM in the middle of a compile.
@@ -724,9 +822,9 @@ memory from a VM in the middle of a compile.
 What the leftover buys is **the ZFS ARC**, and then a genuine reserve. Mirrors
 mean ZFS, ZFS caches in RAM, and its cache is not spare capacity — it competes
 with the guests. Left alone it has historically taken half of RAM, which would be
-48 GB against the 64 GB the VMs want. Capped at 16 GB in
+48 GB against the 56 GB the VMs want. Capped at 16 GB in
 [Part 3](#part-3--post-install-housekeeping), the arithmetic is
-64 + 16 + the hypervisor ≈ 84 of 96 GB, leaving roughly **12 GB unallocated on
+56 + 16 + the hypervisor ≈ 76 of 96 GB, leaving roughly **20 GB unallocated on
 purpose**. That reserve is what makes a future "give X more memory" an edit and a
 reboot rather than a trade against the cache or against another guest — and the
 ARC cap is a floor set for the VMs' benefit, not a ceiling ZFS is straining
@@ -743,17 +841,21 @@ Per-VM, the numbers and why:
   and Forgejo's container registry, which today gains an image per CI run.
   Registry retention is owned by the CI roadmap rather than by a disk size, so
   150 GB buys comfortable time rather than absorbing growth forever.
-- **apps 32 GB, and 64 + 300 GB across two pools.** This is where real user
-  workloads live, and the largest **memory** allocation on the box for that
-  reason — though it is also the least evidenced one, since the VM has run
-  nothing measurable yet. It is the first line to trim back if the reserve is
-  ever wanted elsewhere, and the number to decide by measurement rather than
-  argument: `node_memory_MemAvailable_bytes{instance="apps"}` is already
-  scraped. The **root** disk carries the OS, a 4 GB swapfile and Coolify
-  itself — and nothing that grows, because `scripts/init-coolify.sh` points
-  Docker's data-root at `/data/docker` before any Engine starts, so app
-  volumes, databases, build cache and image layers all land on the `data`
-  mirror.
+- **apps 24 GB, and 64 + 300 GB across two pools.** This is where real user
+  workloads live, which argues for more — but it is also the **least evidenced**
+  allocation on the box, since the VM has run nothing measurable yet. So it
+  starts level with infra rather than above it, and the reserve carries the
+  difference. That is the cheap direction to be wrong in: raising a VM that
+  turns out to want more is an edit and a reboot against 20 GB of unallocated
+  memory, whereas handing it RAM up front pins that memory out of the host
+  whether anything uses it or not, ballooning being off. It is the number to
+  settle by measurement rather than argument, and the measurement is already
+  wired: `node_memory_MemAvailable_bytes{instance="apps"}` lands as soon as
+  this VM's node exporter does. The **root** disk carries the OS, a 4 GB
+  swapfile and Coolify itself — and nothing that grows, because
+  `scripts/init-coolify.sh` points Docker's data-root at `/data/docker` before
+  any Engine starts, so app volumes, databases, build cache and image layers
+  all land on the `data` mirror.
 - **Why the apps root disk is 64 GB and not 40.** Its floor is not the OS. The
   30 GB-free check on `/` runs **twice** — once in `scripts/init-coolify.sh` so
   the failure names its cause before anything is downloaded, and again inside

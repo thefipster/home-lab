@@ -4,21 +4,32 @@
 # read labels from. Hence this file. ha.thefipster.de resolves to the INFRA VM,
 # and Traefik proxies onward — see docs/dns-records.md.
 #
+# PORT 80, NOT 8123. Home Assistant 2026.8 made port 80 the default for NEW
+# HAOS installations, which is the only kind this repo describes. The port is a
+# UI setting now (Settings > System > Network), not `http.server_port` in YAML.
+# A backend of :8123 dials a port nothing is listening on and 502s every
+# request — the first symptom of this change, and the reason the URL below
+# carries no port at all.
+#
 # TWO NAMES, ONE MACHINE, and they are not interchangeable:
 #   ha.thefipster.de             -> the INFRA VM. The SERVICE, what browsers
 #                                   use. TLS terminated there.
 #   homeassistant.thefipster.de  -> the HA VM. The MACHINE, the backend below.
 #                                   Plain HTTP, LAN only.
-# Do NOT be tempted to write the backend as http://ha.thefipster.de:8123. That
-# name resolves to the infra VM — Traefik itself — so Traefik would dial its own
-# :8123, where nothing listens, and every request would 502. The public name
-# belongs to the front door and cannot also mean the back end.
+# Do NOT be tempted to write the backend as http://ha.thefipster.de. That name
+# resolves to the infra VM — Traefik itself — and since the move to port 80 it
+# no longer fails cleanly: Traefik would dial its OWN web entrypoint, which
+# redirects to HTTPS, and the request loops instead of 502-ing. Moving off 8123
+# made this mistake worse, not better. The public name belongs to the front door
+# and cannot also mean the back end.
 #
 # homeassistant.thefipster.de needs an EXACT record: the *.thefipster.de wildcard
 # answers with the APPS VM, which is the wrong box. (Contrast apps.thefipster.de,
-# which needs no record precisely because the wildcard's answer is right.) If the
-# record is missing this fails LOUDLY — nothing on the apps VM listens on 8123,
-# so you get connection-refused and a 502, not a plausible-looking wrong page.
+# which needs no record precisely because the wildcard's answer is right.) This
+# used to fail loudly — nothing on the apps VM listened on 8123, so you got
+# connection-refused. On port 80 it is QUIET: Coolify's proxy answers, and a
+# browser test of the bare name returns a real page from the wrong machine.
+# Verify the record itself rather than trusting that the name loads.
 #
 # No TLS section: the websecure entrypoint's tls.domains wildcard in
 # compose.yaml covers every router on it, this one included. Adding a resolver
@@ -51,4 +62,7 @@ http:
           # By NAME, not by IP: Traefik re-resolves per dial, so an HA VM address
           # change corrects itself here with no edit. Same reasoning as Alloy's
           # scrape targets in infra/monitoring/alloy/config.alloy.
-          - url: http://homeassistant.thefipster.de:8123
+          # No port: HAOS serves :80 since 2026.8 (see the header). If this
+          # instance was set to a different port in Settings > System > Network,
+          # this is the one line that has to agree with it.
+          - url: http://homeassistant.thefipster.de

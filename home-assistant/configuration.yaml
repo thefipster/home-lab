@@ -8,45 +8,34 @@
 # a live file drift. This fragment survives that argument for one reason: there
 # is no repo it could live in instead.
 #
-# APPEND these blocks to the existing /config/configuration.yaml. Do NOT
-# replace that file — a fresh HAOS install ships it with `default_config:` and
-# overwriting it strips the entire default integration set. Both keys below are
-# ones HAOS does not define itself, so appending cannot collide.
+# APPEND this block to the existing /config/configuration.yaml. Do NOT replace
+# that file — a fresh HAOS install ships it with `default_config:` and
+# overwriting it strips the entire default integration set. The key below is one
+# HAOS does not define itself, so appending cannot collide.
 #
 # Edit it from HA's File Editor or Studio Code Server add-on, then
 # Developer Tools -> YAML -> Restart.
 #
 # See docs/home-assistant-setup.md.
 
-# --- reachable through Traefik ----------------------------------------------
-# ha.thefipster.de resolves to the INFRA VM, where Traefik terminates TLS with
-# the lab's wildcard certificate and proxies here over plain HTTP. Home Assistant
-# refuses proxied requests unless it is told to trust the hop, with a 400 and a
-# log line about an untrusted proxy — which reads like a Traefik fault and is not
-# one.
+# --- reachable through Traefik: NOT HERE ANY MORE ----------------------------
+# This fragment used to carry an `http:` block with use_x_forwarded_for and
+# trusted_proxies. It is gone, and putting it back is now an error.
 #
-# THE ONE PLACE IN THIS LAB THAT NEEDS A LITERAL IP ADDRESS. Everything else
-# — Traefik's backends, Alloy's scrape targets, every curl in every guide —
-# addresses machines by NAME, because names are the stable layer and recorded
-# addresses drift. Home Assistant will not accept a hostname here: trusted_proxies
-# takes addresses or CIDR ranges only. So the value is filled in ON THE MACHINE
-# and deliberately NOT recorded in this repo (see docs/dns-records.md).
+# Home Assistant 2026.8 moved HTTP server configuration OUT of YAML and into the
+# UI, at Settings > System > Network. An `http:` block left in this file raises a
+# REPAIR ISSUE telling you to delete it, so shipping one here would hand you a
+# broken instruction. Set the proxy trust in the UI instead —
+# docs/home-assistant-setup.md, step 7, has the click-path and the value.
 #
-# Replace the placeholder with the address ha.thefipster.de resolves to — which
-# is, by definition, the proxy you are being asked to trust. From any LAN host:
+# The consequence worth knowing: HA still refuses proxied requests until it
+# trusts the hop, answering 400 with a log line about an untrusted proxy, which
+# reads like a Traefik fault and is not one. Only the place you fix it changed.
 #
-#     getent hosts ha.thefipster.de | awk '{print $1}'
-#
-# It must be the infra VM's LAN address, NOT a Docker subnet: Traefik's container
-# reaches this VM outbound through the Docker bridge, SNAT'd to its host's LAN
-# address, so that is the source HA actually observes.
-#
-# Left as-is, this fails LOUDLY rather than subtly — HA rejects the `http` config
-# as an invalid IP at startup instead of quietly trusting nothing.
-http:
-  use_x_forwarded_for: true
-  trusted_proxies:
-    - <infra-vm-ip>          # <- replace; see the note above
+# It also means this repo no longer records a literal IP address ANYWHERE. That
+# value — the infra VM's LAN address, which HA accepts only as an address or
+# CIDR, never a hostname — now lives in HA's own UI, like every other piece of
+# clickwork the repo cannot hold. See docs/dns-records.md.
 
 # --- metrics ----------------------------------------------------------------
 # Exposes /api/prometheus, scraped by Alloy on the infra VM as
@@ -54,6 +43,9 @@ http:
 # counters — so they do not belong on the Node Exporter Full dashboard. Add the
 # System Monitor integration if you want this VM's CPU/RAM/disk in the same
 # feed; HAOS cannot run a node exporter as a systemd unit.
+#
+# Unaffected by the 2026.8 move: only the `http:` integration became UI-managed,
+# so this stays YAML and stays here.
 #
 # The endpoint requires a long-lived access token, minted in HA's own UI and
 # stored in infra/monitoring/.env as HA_PROMETHEUS_TOKEN.

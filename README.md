@@ -41,7 +41,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │    Uptime Kuma   black-box status + every notification the lab sends
     │    Homepage      the start page — every service on one page, no state
     │
-    ├─ apps VM · 12 vCPU · 32 GB · 64 GB + 300 GB on data · Ubuntu Server 26.04
+    ├─ apps VM · 12 vCPU · 24 GB · 64 GB + 300 GB on data · Ubuntu Server 26.04
     │    Coolify         self-hosted PaaS — owns its own Docker and its own cert
     │      your apps     *.thefipster.de, routed by Host header — no new DNS record
     │      third-party   self-hosted software you use — catalog in apps/services.md
