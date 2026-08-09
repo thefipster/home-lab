@@ -72,6 +72,16 @@ docker compose logs -f traefik
 > moment it starts — no router or routed service has to exist first. Expect
 > `Register...` and `Obtaining bundled SAN certificate` right away.
 
+> **`netcup: No existing records, error ignored` is expected, and it is an
+> `INF` line.** lego reads the zone's current records before writing the
+> challenge TXT, and netcup answers a zone holding **no records at all** with an
+> error (`StatusCode=5029`, "Getting DNS records failed") rather than an empty
+> list. The lab's public zone is deliberately empty — no A and no AAAA
+> ([dns-records.md](dns-records.md#no-aaaa-records-anywhere)) — so this fires on
+> every fresh bring-up, and seeing it means that invariant holds. lego ignores
+> it and carries on; the line straight after is `dns01: trying to solve the
+> challenge`.
+
 > **First issuance takes 10–15 minutes. This is normal.** netcup publishes new
 > TXT records slowly and Let's Encrypt cannot validate until they appear. The
 > compose sets a 900-second propagation timeout for exactly this reason — don't
