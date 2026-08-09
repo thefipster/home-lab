@@ -18,15 +18,15 @@
 #   gated by authentik@docker, so without them it won't load at all.
 #   Break-glass: comment the middlewares label and recreate.
 #
-# NO .env and no .env.example — the second stack in the lab with none, after
-# Uptime Kuma. Every widget is token-free (container state from the socket,
-# service health from Kuma's status page), so there is no secret to seed. The
-# two environment values below are neither secret nor machine-specific.
+# The .env holds one credential per token-backed widget. They are substituted
+# into ./config at runtime as {{HOMEPAGE_VAR_*}}, so the config stays tracked in
+# git with no secret in it and the read-only mount below still works. Where each
+# credential comes from: docs/homepage-widgets.md.
 #
-# NO /opt/homepage either, and this is the FIRST stack in the repo with no
-# persistent data directory at all: everything Homepage owns is the git-tracked
-# YAML in ./config. That is also why it has no backup.sh — see
-# docs/roadmap/backup.md.
+# NO /opt/homepage: this stack has no persistent data directory at all.
+# Everything Homepage owns is the git-tracked YAML in ./config plus that .env —
+# which is the whole of its backup.sh, and the reason that file has one recipe
+# and no dump. See docs/roadmap/backup.md.
 
 name: homepage
 
@@ -46,6 +46,18 @@ services:
       # Sending logs to stdout instead is also what puts them in Loki, since
       # Alloy already tails this VM's socket.
       LOG_TARGETS: stdout
+      # Widget credentials. Homepage replaces {{HOMEPAGE_VAR_XXX}} in any config
+      # file with the value of the matching env var, which is what keeps
+      # ./config free of secrets under a read-only mount.
+      #
+      # Fail-fast guards, the repo default — none of these is one of the
+      # documented ${VAR:-} exceptions. A guard fires on unset or EMPTY, so an
+      # expired token is still a non-empty string and degrades exactly one tile
+      # rather than stopping the stack.
+      HOMEPAGE_VAR_AUTHENTIK_KEY: ${HOMEPAGE_VAR_AUTHENTIK_KEY:?set it in .env — see docs/homepage-widgets.md}
+      HOMEPAGE_VAR_FORGEJO_KEY: ${HOMEPAGE_VAR_FORGEJO_KEY:?set it in .env — see docs/homepage-widgets.md}
+      HOMEPAGE_VAR_GRAFANA_USER: ${HOMEPAGE_VAR_GRAFANA_USER:?set it in .env — see docs/homepage-widgets.md}
+      HOMEPAGE_VAR_GRAFANA_PASSWORD: ${HOMEPAGE_VAR_GRAFANA_PASSWORD:?set it in .env — see docs/homepage-widgets.md}
     volumes:
       # The repo IS the source of truth for this stack — same arrangement as
       # infra/traefik/dynamic/ and infra/forgejo/config.yml. Read-only so the
@@ -54,14 +66,15 @@ services:
       # CAUTION: :ro means every file Homepage expects must already exist.
       # Upstream copies a skeleton file in when one is missing and calls
       # process.exit(1) when that copy fails, so a missing config file here is a
-      # boot loop rather than a warning. All NINE skeleton files ship in
-      # ./config for exactly that reason; four of them are stubs.
+      # boot loop rather than a warning. Every file Homepage looks for ships in
+      # ./config for exactly that reason; several of them are stubs.
       - ./config:/app/config:ro
-      # Container discovery and state for this VM's stacks. The SIXTH socket
-      # mount in the lab, after Dockge, the Forgejo runner, Traefik, Alloy and
-      # Uptime Kuma, and it carries the same caveat: `:ro` makes the MOUNT
-      # read-only, NOT the API behind it. This is root-equivalent control of the
-      # VM's Docker. Acceptable only because this is a single-tenant box.
+      # Container discovery and state for this VM's stacks. One of several
+      # socket mounts in the lab — Dockge, the Forgejo runner, Traefik, Alloy
+      # and Uptime Kuma have one too — and it carries the same caveat they do:
+      # `:ro` makes the MOUNT read-only, NOT the API behind it. This is
+      # root-equivalent control of the VM's Docker. Acceptable only because this
+      # is a single-tenant box.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       traefik.enable: "true"

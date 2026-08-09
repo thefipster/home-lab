@@ -30,6 +30,23 @@
         icon: authentik.png
         server: infra
         container: authentik-server-1
+        # Container-to-container over `proxy`, exactly like the Kuma widget
+        # below — never through Traefik. A round trip through the proxy would be
+        # a TLS hop back into this VM, and for a forward-auth gated host it
+        # would authenticate against Authentik instead of the service.
+        # `authentik-server` is an explicit network alias, declared in
+        # infra/authentik/compose.yaml.
+        #
+        # version: 2 is required from Authentik 2025.8.0 onward; the lab pins
+        # 2026.5. On version 1 the tile renders blank rather than erroring.
+        #
+        # The quotes are mandatory: a bare `{` opens a flow mapping in YAML, so
+        # an unquoted placeholder is a parse error and the container exits.
+        widget:
+          type: authentik
+          url: http://authentik-server:9000
+          key: "{{HOMEPAGE_VAR_AUTHENTIK_KEY}}"
+          version: 2
 
     - Vaultwarden:
         href: https://vault.thefipster.de
@@ -52,6 +69,19 @@
         icon: grafana.png
         server: infra
         container: monitoring-grafana-1
+        # Basic auth: this widget has no token form at all. The user is a
+        # DEDICATED Grafana account with the Viewer role, not the monitoring
+        # stack's admin — copying that credential here would put it in a second
+        # .env and a second snapshot, and rotating it in one place would
+        # silently break the other.
+        #
+        # version: 2 is required above Grafana v10.4; the lab pins 13.1.
+        widget:
+          type: grafana
+          url: http://grafana:3000
+          username: "{{HOMEPAGE_VAR_GRAFANA_USER}}"
+          password: "{{HOMEPAGE_VAR_GRAFANA_PASSWORD}}"
+          version: 2
 
     - Uptime Kuma:
         href: https://uptime.thefipster.de
@@ -74,6 +104,13 @@
         icon: forgejo.png
         server: infra
         container: forgejo-forgejo-1
+        # `gitea`, not `forgejo` — upstream ships no Forgejo widget and the
+        # Forgejo API is Gitea-compatible. Alloy already scrapes this exact
+        # address over `proxy`, so the path is proven.
+        widget:
+          type: gitea
+          url: http://forgejo:3000
+          key: "{{HOMEPAGE_VAR_FORGEJO_KEY}}"
 
 - Applications:
     - Coolify:

@@ -4,14 +4,16 @@
 #
 # Assumes Docker is installed (run scripts/init-docker.sh first). Steps:
 #   1. Ensure the shared `proxy` network exists.
-#   2. Symlink the stack into /opt/stacks so Dockge can manage it.
+#   2. Seed infra/homepage/.env from .env.example if missing (you fill it in).
+#   3. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
-# That is the whole script, and it is the thinnest one here. There is NO .env
-# and nothing to generate — every widget is token-free — and there is NO
-# /opt/homepage, because this stack has no persistent state at all: its entire
-# configuration is the git-tracked YAML in infra/homepage/config, bind-mounted
-# read-only. It is the only stack in the repo with no data directory, which is
-# also why it has no backup.sh.
+# Nothing is GENERATED here: every value in .env is a credential minted by hand
+# in the service it belongs to, so the script seeds the file from .env.example
+# and leaves it to you. The click-path for each one is docs/homepage-widgets.md.
+#
+# There is NO /opt/homepage — this stack keeps no persistent state of its own.
+# Its configuration is the git-tracked YAML in infra/homepage/config, bind-
+# mounted read-only, and its .env is the only thing its backup.sh declares.
 #
 # Re-runnable: every step is idempotent. Run from anywhere.
 # Usage (from the repo root):
@@ -44,6 +46,11 @@ else
   echo "    created proxy network"
 fi
 
+if [ ! -f "${STACK_DIR}/.env" ]; then
+  echo "==> Seeding ${STACK_DIR}/.env from .env.example — FILL IN REAL VALUES"
+  cp "${STACK_DIR}/.env.example" "${STACK_DIR}/.env"
+fi
+
 STACKS_DIR="${STACKS_DIR:-/opt/stacks}"
 echo "==> Linking the Homepage stack into ${STACKS_DIR}/homepage (for Dockge)"
 run_root mkdir -p "${STACKS_DIR}"
@@ -57,7 +64,9 @@ echo "    linked ${STACKS_DIR}/homepage -> ${STACK_DIR}"
 cat <<EOF
 
 Done. Next:
-  cd ${STACK_DIR} && docker compose up -d
+  1. Mint the four credentials and put them in ${STACK_DIR}/.env —
+     docs/homepage-widgets.md has the click-path for each.
+  2. cd ${STACK_DIR} && docker compose up -d
 
 Then https://home.thefipster.de — Authentik will ask you to log in first.
 Guide: docs/homepage-setup.md
