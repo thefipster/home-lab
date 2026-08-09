@@ -7,7 +7,7 @@ last stack on this VM. The backup job also reports to a Kuma push monitor, so
 [uptime-kuma-setup.md](uptime-kuma-setup.md) has to be done as well.
 
 This is **layer 2** of [roadmap/backup.md](roadmap/backup.md). Layer 1 —
-whole-VM `vzdump` onto the internal `backup` mirror — is already built, in
+whole-VM `vzdump` onto the `vmbackup` mirror — is already built, in
 [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups),
 and the two answer different questions. **Layer 1 answers "the disk died".
 Layer 2 answers "Authentik ate its database"**: one directory, one stack, one
