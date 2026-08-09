@@ -321,7 +321,7 @@ reason.
 
 1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
    [proxmox-setup.md Part 8](../proxmox-setup.md#part-8--schedule-whole-vm-backups).
-   Nightly *Datacenter → Backup* job in snapshot mode onto the `backup` mirror,
+   Nightly *Datacenter → Backup* job in snapshot mode onto the `vmbackup` mirror,
    with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
    the storage. Was the biggest coverage-per-effort item in the roadmap, and it
    is the one piece of this design that needed no repo code at all.

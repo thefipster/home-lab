@@ -25,12 +25,12 @@ staggered, on two machines that share one set of disks.
 **The order is load-bearing, not tidy.** restic runs first so that when vzdump
 starts an hour later, layer 1's whole-VM archive already contains that night's
 database dumps — the two layers stack rather than merely coexist. The weekly
-check runs after both, so the two jobs that touch the USB drive never overlap on
+check runs after both, so the two jobs that touch `filebackup` never overlap on
 it and neither competes with vzdump for host I/O. The reboot window sits last,
 clear of all three.
 
 **These are start times, and nothing here records duration.** `vzdump` over
-~294 GB of VM roots is the one job that could plausibly still be running when the
+~278 GB of VM roots is the one job that could plausibly still be running when the
 Sunday check begins. If that starts happening, the check is the row to move —
 it is weekly and has the most slack.
 

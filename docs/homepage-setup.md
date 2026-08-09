@@ -233,5 +233,5 @@ grey tile and nothing goes red. The same names live in
 ## Next
 
 **[backup-setup.md](backup-setup.md)** — file-level `restic` backups, one
-snapshot per stack, onto the hypervisor's USB pool. The full sequence is the
+snapshot per stack, onto the hypervisor's `filebackup` pool. The full sequence is the
 [README build order](../README.md#build-order).
