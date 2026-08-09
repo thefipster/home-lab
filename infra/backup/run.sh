@@ -12,7 +12,7 @@
 #
 # Usage:  infra/backup/run.sh [stack ...]      (no arguments = every stack)
 
-# NOT `set -e`. One stack failing must not cost the other six their snapshots —
+# NOT `set -e`. One stack failing must not cost the others their snapshots —
 # failures are collected and reported at the end instead. `-u` and `-o pipefail`
 # still apply.
 set -uo pipefail
