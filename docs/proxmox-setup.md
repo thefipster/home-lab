@@ -496,6 +496,25 @@ The apps VM's 300 GB data disk is **not** in these archives, by the `backup=0`
 set in [Part 5](#part-5--create-the-vms). That is what keeps a ~930 GB target able
 to hold real retention instead of a single copy.
 
+---
+
+## Next — this guide is done for now
+
+**Continue with [wildcard-dns-udr.md](wildcard-dns-udr.md)**: the reservations
+and records from [Part 6](#part-6--give-the-vms-their-addresses-on-the-router),
+with [dns-records.md](dns-records.md) as the registry of exactly what to add.
+Every guide after it assumes those records exist.
+
+**Part 9 below is deliberately out of sequence — skip it now.** It watches the
+pools for degradation, which needs a Kuma push monitor and the hypervisor's node
+exporter, and neither exists until the infra VM is built. It lives in this guide
+because the script runs on the *hypervisor*, and
+[uptime-kuma-setup.md step 7](uptime-kuma-setup.md#7-go-back-to-the-proxmox-guide-for-the-pool-monitor)
+sends you back to it at the right moment. It is the only part of the build order
+that cannot be finished in its own guide's turn.
+
+---
+
 ## Part 9 — Notice when a mirror degrades
 
 > **Come back to this after [uptime-kuma-setup.md](uptime-kuma-setup.md).** It
