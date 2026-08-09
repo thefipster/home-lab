@@ -192,6 +192,15 @@ the next step.
 
 ### 7. Make it reachable through Traefik
 
+> **The Traefik half is already in the repo — there is nothing to add there, and
+> nothing you will find in a compose file.** HA has no container on the infra VM
+> to hang `traefik.*` labels on, so its router is declared as a **file** instead:
+> [`infra/traefik/dynamic/ha.yaml`](../infra/traefik/dynamic/ha.yaml), picked up
+> by the file provider Traefik has been running since
+> [traefik-setup.md](traefik-setup.md#how-it-works). It has been live all along
+> and simply 502-ing, because until now there was no backend behind it. Only the
+> HA side below is left to do.
+
 HA is now on the LAN but only over plain HTTP. Append the two blocks from
 [`home-assistant/configuration.yaml`](../home-assistant/configuration.yaml) to
 `/config/configuration.yaml` inside HA — install the **File Editor** or **Studio
