@@ -170,6 +170,45 @@ aside, because there still is not one. It is deliberately more ceremony than
 one file needs; the value is that `infra/*/restore.sh` means the same thing
 everywhere.
 
+### What joining the backup layer touches
+
+`infra/backup/run.sh` needs **no code change**. It globs `infra/*/backup.sh`,
+so a stack joins by having the file exist and leaves by deleting it — which is
+the property that arrangement was chosen for, and it holds here. Verified by
+reading `run.sh`, not by trusting the claim in `CLAUDE.md`.
+
+What it does need is a **comment** change, and that comment is the first of
+nine places where the backup layer states how many stacks it has:
+
+- `infra/backup/run.sh` — "one stack failing must not cost the other **six**
+  their snapshots".
+- `docs/backup-setup.md` — three: the expected `OK:` line "naming all
+  **seven**", the checklist row, and "one snapshot per tag — **seven** in all".
+- `docs/backup-setup.md` again — it cites Homepage's design notes as the stack
+  that deliberately gets no backup.
+- `docs/backup-restore-drill.md` — the per-stack table of markers and proofs
+  gains a `homepage` row. Its marker is to corrupt one token in `.env`; the
+  check that proves it is that the tile renders data again after the restore,
+  which exercises the widget and the backup in one move.
+- `docs/roadmap/backup.md` — "all **seven** stacks drilled".
+- `docs/status.md` — "All **seven** stateful infra stacks wired and
+  restore-drilled".
+- `CLAUDE.md` — the backup convention names the wired stacks explicitly:
+  Authentik, Dockge, Forgejo, monitoring, Traefik, Uptime Kuma, Vaultwarden.
+
+**Prefer durable wording to a bumped number.** Where the count is incidental —
+the `OK:` line, the snapshot check, the drill summary — reword to something
+that survives the stack after this one ("one snapshot per tag", "every stack
+with a `backup.sh`") rather than writing "eight" and queuing the same edit up
+again. Where the list is the point, as in `CLAUDE.md`, name Homepage.
+
+Three phrases match a search for these numbers and must **not** change:
+"seven dailies" in `backup-setup.md` and `CLAUDE.md` is the `--keep-daily 7`
+retention policy, and "seventh root-equivalent socket mount" in
+`backup-setup.md` and `roadmap/backup.md` counts socket mounts, not stacks.
+
+### Why wire it at all
+
 The counter-argument, recorded because it is a real one: all three credentials
 are re-mintable in about three minutes by clicking through the new registry,
 unlike Traefik's netcup keys (an external account) or Vaultwarden's
