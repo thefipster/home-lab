@@ -98,6 +98,7 @@ not a whole-tree copy, because its restore is narrow.
 | **authentik** | Create a user after the backup | The user is gone, and Dockge still redirects through Authentik and back |
 | **dockge** | Create a second Dockge account | It is gone, and your original account still logs in |
 | **forgejo** | **Delete a package** from the registry | It is back afterwards, and `docker pull` of it works |
+| **homepage** | Break one credential in `.env` — change a character in `HOMEPAGE_VAR_AUTHENTIK_KEY` | The Authentik tile shows figures again. Nothing else on the page proves anything |
 | **monitoring** | Switch the Grafana theme (dark ↔ light) | The theme reverts, **and** Prometheus/Loki/Tempo still return pre-restore data |
 | **traefik** | *(none — see below)* | The served certificate is the restored one, not a fresh reissue |
 | **uptime-kuma** | Create a throwaway monitor | It is gone, and heartbeat history survived |
@@ -161,6 +162,27 @@ Two more checks worth doing because nothing else covers them:
   on a rebuilt VM the docker group can land on a different gid than the
   snapshot recorded, and a runner that cannot reach the socket is the only
   symptom while the web UI, git and the registry all work perfectly.
+
+### homepage
+
+**The marker has to be a credential**, and that is the whole point of this
+drill. Anything else you could change about Homepage — a tile, a group, a link,
+the layout — is tracked in git, so it would come back from the checkout whether
+the restore worked or not, and the drill would pass while proving nothing.
+The `.env` is the only thing in this stack that a snapshot can return.
+
+This is [traefik](#traefik)'s trap in a different shape: the page renders, every
+group is there, container state is live on every tile, and none of that came out
+of the backup. Do not read a healthy-looking start page as a successful restore.
+
+So the check is narrow and it is the only one: **the Authentik tile shows
+figures again**. Break `HOMEPAGE_VAR_AUTHENTIK_KEY` by a single character,
+recreate the stack, and confirm the tile drops to a bare status dot first —
+otherwise you are verifying against a state you never actually changed.
+
+`restore.sh` refuses a snapshot whose `.env` still holds `changeme`
+placeholders, and aborts before moving the live file. That is the one way this
+restore could otherwise appear to succeed and leave every widget dead.
 
 ### monitoring
 

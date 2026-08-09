@@ -19,7 +19,7 @@ got.
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](uptime-kuma-setup.md) |
 | Homepage start page | ✅ deployed — [guide](homepage-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `vmbackup` mirror | ✅ deployed — scheduled and verified, [Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). All seven stateful infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) |
+| Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). Every stateful infra stack wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |

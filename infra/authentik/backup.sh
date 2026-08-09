@@ -13,7 +13,7 @@ set -euo pipefail
 # which does not exist. Resolving first makes the script work by either path.
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../backup/lib.sh"
 
-# ORDER MATTERS, AND THIS IS THE TEMPLATE THE OTHER SIX STACKS COPY.
+# ORDER MATTERS, AND THIS IS THE TEMPLATE THE OTHER STACKS COPY.
 #
 # Files first, dump LAST. `include` only writes a line into paths.txt — it
 # copies nothing — so declaring the files costs nothing and makes them survive

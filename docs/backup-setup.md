@@ -34,13 +34,13 @@ Three things shape everything below:
   file.
 - **Every stack on this VM that holds state is wired up end to end**, each with
   a `backup.sh` and a `restore.sh` beside its compose file. Between them they
-  cover every shape there is: four Postgres stacks, one SQLite, two with no
+  cover every shape there is: Postgres stacks, one SQLite, several with no
   database at all, and two whose restores are deliberately narrow. Every row of
   the tier-1 table in
   [roadmap/backup.md](roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
-  is covered. **Homepage is the one stack with neither file** — it has no `/opt`
-  directory and no `.env`, so a snapshot of it would be a snapshot of a git
-  checkout ([homepage-setup.md](homepage-setup.md#design-notes)).
+  is covered. **Homepage's pair is the smallest** — its `.env` and nothing else,
+  because it has no `/opt` directory and everything else it owns is tracked in
+  this repo ([homepage-setup.md](homepage-setup.md#design-notes)).
 
 ## Part 1 — The host side: a user, a chroot, and one sshd block
 
@@ -368,14 +368,15 @@ sudo infra/backup/run.sh
 ```
 
 Expect a `staging` / `snapshot` pair per wired stack — `authentik`,
-`dockge`, `forgejo`, `monitoring`, `traefik`, `uptime-kuma` and `vaultwarden`,
-in that order, since the runner globs them alphabetically — then
-`==> forget + prune`, then a final `OK:` line naming all seven. Each staging
+`dockge`, `forgejo`, `homepage`, `monitoring`, `traefik`, `uptime-kuma` and
+`vaultwarden`, in that order, since the runner globs them alphabetically — then
+`==> forget + prune`, then a final `OK:` line naming all of them. Each staging
 step declares that stack's directories and runs its dump through the stack's
-own container: `pg_dump` in the `db` service for the four Postgres stacks,
-`sqlite3` in Kuma's single service. Traefik and Dockge have no database, so
-their staging step only declares paths. The snapshot step hands restic the path
-list that step produced, and nothing else.
+own container: `pg_dump` in the `db` service for the Postgres stacks
+(`authentik`, `forgejo`, `monitoring`, `vaultwarden`), `sqlite3` in Kuma's
+single service. Traefik, Dockge and Homepage have no database, so their staging
+step only declares paths. The snapshot step hands restic the path list that step
+produced, and nothing else.
 
 > **Drive it through the runner, always.** A bare `infra/authentik/backup.sh`
 > has no `BACKUP_STAGE` or `REPO_ROOT` and stops with a guard message. There
@@ -415,8 +416,8 @@ Sunday at 03:00.
 - [ ] `sshd -T -C user=root` reports `chrootdirectory none` and `forcecommand
       none`, and a fresh root login to the hypervisor still works
 - [ ] `scripts/init-backup.sh` completes without stopping
-- [ ] `sudo infra/backup/run.sh` ends in an `OK:` line naming all seven stacks
-- [ ] `restic snapshots` lists one snapshot per tag — seven in all
+- [ ] `sudo infra/backup/run.sh` ends in an `OK:` line naming all the stacks
+- [ ] `restic snapshots` lists one snapshot per tag
 - [ ] The **Backup Job** monitor is green
 - [ ] Both `restic-*` timers appear in `systemctl list-timers`
 - [ ] `RESTIC_PASSWORD` is written down **outside the lab**, not only in

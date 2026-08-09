@@ -5,10 +5,11 @@ lost disk, a lost VM, and a bad `rm -rf` — with a restore procedure that has
 actually been run, not just written down.
 
 Half the problem is already solved and worth naming: **the configuration is
-not at risk.** Compose files, init scripts, provisioning, guides and the three
+not at risk.** Compose files, init scripts, provisioning, guides and the
 registries ([dns-records.md](../dns-records.md),
 [sso-applications.md](../sso-applications.md),
-[uptime-kuma-monitors.md](../uptime-kuma-monitors.md)) live in git, on GitHub, mirrored
+[uptime-kuma-monitors.md](../uptime-kuma-monitors.md),
+[homepage-widgets.md](../homepage-widgets.md)) live in git, on GitHub, mirrored
 into Forgejo. What is *not* in git is exactly what this roadmap is about: the
 bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
 
@@ -52,7 +53,7 @@ that make it openable.
 | Authentik data/templates/certs | `/opt/authentik/data`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
 | Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The monitor registry ([uptime-kuma-monitors.md](../uptime-kuma-monitors.md)) makes it *re-creatable*, by hand, one form at a time. |
 | Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
-| All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring}/.env` | netcup API credentials, four Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
+| All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring,homepage}/.env` | netcup API credentials, the Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords, and Homepage's widget credentials. Gitignored on purpose, generated once or minted by hand, **never printed again**. |
 
 Three couplings in that table decide the shape of the whole thing:
 
@@ -108,10 +109,11 @@ is a backup nobody keeps running.
 - **Docker images and layers** — pullable, and CI rebuilds what it built.
 - **The repo checkout at `~/home-lab`** — it's a clone; `git clone` restores
   it. Only its untracked `.env` files matter, and those are Tier 1 above.
-- **The Homepage stack** — `infra/homepage/` and nothing else. It has no `/opt`
-  directory and no `.env`; its compose and all nine config files are tracked in
-  this repo. It is the only stack with no `backup.sh` and no `restore.sh`, and
-  the reason is the bullet above: backing it up would be backing up a clone.
+- **Homepage's configuration** — `infra/homepage/compose.yaml` and everything
+  under `infra/homepage/config/`. Tracked in this repo, so the bullet above
+  applies: backing it up would be backing up a clone. The stack has no `/opt`
+  directory either, which leaves its `.env` as the only thing worth a snapshot —
+  and that is tier 1 above, wired like every other stack's.
 
 ### Not on the infra VM, but part of the same story
 
@@ -414,7 +416,7 @@ reason.
    `KUMA_PUSH_URL` empty and the heartbeat silently unarmed. A warning in the
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
-5. **Prove it.** ⚠️ **Partly done — all seven stacks drilled**, recorded in
+5. **Prove it.** ⚠️ **Partly done — every stack drilled**, recorded in
    [review/2026-08-07-backup-bring-up.md](../review/2026-08-07-backup-bring-up.md).
    Each drill used the same method: change something *after* the backup, run
    `restore.sh`, confirm the change is gone and everything else survived.

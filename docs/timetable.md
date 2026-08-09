@@ -17,7 +17,7 @@ staggered, on two machines that share one set of disks.
 
 | Time | Machine | Operation | Declared in |
 |---|---|---|---|
-| **01:00** (+0–5 min) | infra VM | `restic` file-level backup of all seven stacks, then `forget --prune` (`--keep-daily 7 --keep-weekly 4 --keep-monthly 6`) | [`restic-backup.timer`](../infra/backup/restic-backup.timer) |
+| **01:00** (+0–5 min) | infra VM | `restic` file-level backup of every wired stack, then `forget --prune` (`--keep-daily 7 --keep-weekly 4 --keep-monthly 6`) | [`restic-backup.timer`](../infra/backup/restic-backup.timer) |
 | **02:00** | Proxmox host | `vzdump` whole-VM snapshot backup, selection **All**, retention from the storage (`keep-daily=7,keep-weekly=4,keep-monthly=3`) | [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | **Sun 03:00** (+0–10 min) | infra VM | `restic check --read-data-subset=10%` | [`restic-check.timer`](../infra/backup/restic-check.timer) |
 | **04:30** | infra + apps VMs | reboot — **only if** an installed update requires one | [`init-unattended-upgrades.sh`](../scripts/init-unattended-upgrades.sh) |
