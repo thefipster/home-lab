@@ -31,8 +31,9 @@ the apps-VM analogue of the infra VM's `/opt/<stack>` convention, and it exists
 for the same reason: a backup job needs a path it can walk. The subdirectories
 under each of those paths are the app's business, recorded in its own repo.
 
-Stacks not yet split into their own repo are drafted in
-[stacks/](stacks/README.md) and deleted from there once pushed.
+**Every row above is deployed and running**, each from its own repo. A stack is
+drafted in [stacks/](stacks/README.md) and deleted from there once pushed, which
+is why that directory currently holds nothing but its conventions.
 
 Each application is put on **Postgres wherever it offers the choice**, matching
 the database Authentik, Forgejo, Vaultwarden and Grafana already run. Two of
@@ -59,7 +60,8 @@ things decided it:
 - **Build order.** Vaultwarden joins no SSO pattern precisely so it survives an
   Authentik outage, which means it has no reason to be built after Authentik —
   and every reason to be built before it, since from that point on each guide
-  generates a secret worth keeping. This VM does not exist until step 12. A
+  generates a secret worth keeping. This VM does not exist until the infra VM is
+  finished, by which point most of those secrets have already been minted. A
   password manager that arrives after everything it should have been storing is
   a password manager you filled in by hand afterwards.
 
@@ -102,7 +104,8 @@ above, not an oversight. Its repo's README says so in place.
 
 ### Every application here joins SSO, and that is not a coincidence
 
-All four use OIDC against Authentik. The lab's stated exceptions to the
+Every one of them uses OIDC against Authentik, and every one of them is joined
+to it today. The lab's stated exceptions to the
 "anything with native OIDC uses it" rule — Vaultwarden, Uptime Kuma, Home
 Assistant — are all **infra VM** services, and each is an exception because
 something about recovering the lab depends on it staying reachable when

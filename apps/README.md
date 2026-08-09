@@ -31,7 +31,7 @@ What that leaves in this directory:
 |------|---------|
 | `services.md` | the catalog of **third-party** applications this VM runs as Coolify resources — what runs and why that one. Each one's compose lives in its own Forgejo repo, so this stays a pointer, not a second source of truth. |
 | `.env.example` | the three `NETCUP_*` names Coolify's bundled proxy needs for its own DNS-01 wildcard. Copied to `.env` by the init script. The **values** are entered in Coolify's UI — the file exists so the requirement is visible in the repo instead of only inside Coolify. |
-| `stacks/` | **staging only**, and temporary. Stacks are drafted here, then pushed to their own Forgejo repo and **deleted from this directory** — see [stacks/README.md](stacks/README.md). A stack still sitting here is one that has not been split out yet, not an exception to the rule above. |
+| `stacks/` | **staging only**, and temporary. Stacks are drafted here, then pushed to their own Forgejo repo and **deleted from this directory** — see [stacks/README.md](stacks/README.md). A stack still sitting here is one that has not been split out yet, not an exception to the rule above. It holds no stack today; everything in the catalog has been split out. |
 
 ## Scripts that run on this machine
 

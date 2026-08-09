@@ -1,24 +1,22 @@
 # apps/stacks — staging ground for the apps VM's third-party stacks
 
-Each subdirectory is a self-contained Docker Compose stack for the **apps VM**, written to be
+A subdirectory here is a self-contained Docker Compose stack for the **apps VM**, written to be
 deployed by [Coolify](https://coolify.io/) as a **Docker Compose** resource pointed at its own git
 repository in Forgejo.
 
-**This directory is a staging ground, not the source of truth.** Each stack becomes its own repo
+**This directory is a staging ground, not the source of truth.** A stack becomes its own repo
 at `git.thefipster.de/<owner>/<stack>`, and from that moment the Forgejo repo is what Coolify
 deploys and what a change is made in. What stays behind in `home-lab` is the catalog —
 [apps/services.md](../services.md), which records *what* runs and *why that one*, never the
 compose. See [apps/README.md](../README.md) for why this VM's definitions deliberately do not live
 in this repo.
 
-| Stack | Repo | Domain | Internal port | Backing services |
-|---|---|---|---|---|
-| [mealie](mealie/) | `mealie` | `mealie.thefipster.de` | 9000 | PostgreSQL 18 |
-| [lubelogger](lubelogger/) | `lubelogger` | `lube.thefipster.de` | 8080 | PostgreSQL 18 |
-| [bookstack](bookstack/) | `bookstack` | `wiki.thefipster.de` | 80 | MariaDB 12.3 |
-| [paperless](paperless/) | `paperless` | `paperless.thefipster.de` | 8000 | PostgreSQL 18, Valkey 9 |
-
-Domains match [apps/services.md](../services.md), which is the registry for them.
+**Nothing is staged here today.** Every application in the catalog has been split out and now
+deploys from its own repo, so this directory is down to the rules below — which is the state it is
+supposed to be in between stacks, not an empty shell left over. The next third-party service gets
+drafted here, verified, pushed, and deleted again. What each of them runs, on which host and
+against which database is in [apps/services.md](../services.md); what a running one's compose says
+is in its own repo.
 
 ## Conventions
 
@@ -38,7 +36,7 @@ purpose: a backup job needs a path it can walk, and `docker volume inspect` is n
 the apps-VM analogue of the infra VM's `/opt/<stack>` convention, on the disk that machine
 actually has for it.
 
-Each stack's README opens with the `mkdir -p` that creates its directories. Docker creates a
+A stack's README opens with the `mkdir -p` that creates its directories. Docker creates a
 missing bind-mount source as root-owned, which is fine for the databases (their entrypoints chown
 what they need) and wrong for the app data dirs that run as `PUID`/`PGID` — hence the `chown` in
 the same step.
@@ -46,7 +44,7 @@ the same step.
 **`/data` is not backed up yet.** It is excluded from whole-VM `vzdump`
 (`backup=0`), and the file-level layer runs on the infra VM only — this machine has not joined the
 restic repository yet ([roadmap/backup.md](../../docs/roadmap/backup.md)). Anything deployed here
-is unbacked until it does; Paperless is tier 1 and should be exported by hand in the meantime.
+is unbacked until it does; Paperless is tier 1 and is exported by hand in the meantime.
 
 **No published host ports.** Services use `expose:` and Coolify's proxy handles ingress. Nothing
 competes for host ports on a single node.
@@ -57,15 +55,15 @@ the proxy to that port. Passwords and keys use `${SERVICE_PASSWORD_*}` and
 `${SERVICE_REALBASE64_*}`. All of these are generated on first deploy and then live in the
 resource's environment editor — nothing secret is committed.
 
-**`PUBLIC_URL` is set by hand, not derived.** Mealie, BookStack and Paperless each need their
-public URL *with the scheme* (`BASE_URL`, `APP_URL`, `PAPERLESS_URL`). It is tempting to feed them
+**`PUBLIC_URL` is set by hand, not derived.** An app that needs its own public URL *with the
+scheme* (`BASE_URL`, `APP_URL`, `PAPERLESS_URL` and their like) makes it tempting to feed it
 `${SERVICE_FQDN_X}` or `${SERVICE_URL_X}`, but whether those expand with or without `https://` has
 flipped between Coolify versions and is still inconsistent
 ([#2702](https://github.com/coollabsio/coolify/issues/2702),
 [#7656](https://github.com/coollabsio/coolify/issues/7656)). A scheme-less value here is a subtle
-breakage — dead invite links, CSRF failures on login, broken assets — so all three stacks read one
-explicit `PUBLIC_URL` variable instead, defaulting to the real domain above. Changing it means
-changing the Coolify domain in the same breath.
+breakage — dead invite links, CSRF failures on login, broken assets — so a stack reads one
+explicit `PUBLIC_URL` variable instead, defaulting to the real domain. Changing it means changing
+the Coolify domain in the same breath.
 
 **Postgres services set `PGDATA` explicitly.** Postgres 18's image made its default PGDATA
 version-specific (`/var/lib/postgresql/18/docker`); left alone, a bind mount at
@@ -77,7 +75,9 @@ the infra VM — and makes a future major bump fail loudly instead of silently i
 **Everything else is a plain variable with a sane default**, e.g. `${TZ:-Europe/Berlin}`, so a
 stack deploys unattended and is still tunable from Coolify's UI without editing the repo.
 Variables written as `${FOO:-default}` show up pre-filled in Coolify's environment editor, which
-is how they are meant to be discovered and changed.
+is how they are meant to be discovered and changed. `TZ` defaults to `Europe/Berlin` across these
+stacks, and anything with OCR defaults to `deu+eng`; both are one variable each in the
+`.env.example`, worth checking before a first deploy.
 
 **Pinned image tags, down to the patch.** No `:latest`. These are upstream applications with
 schema migrations on start, not lab infrastructure — the infra VM's major-only pin policy does not
@@ -97,7 +97,7 @@ enabled everywhere as the break-glass path, with **one stated exception**: BookS
 `AUTH_METHOD` takes a single value, so `oidc` *replaces* its login form and the break-glass is
 flipping that variable back rather than a second login box.
 
-Each stack's README carries the exact Authentik provider and application values in an
+A stack's README carries the exact Authentik provider and application values in an
 **SSO (OIDC via Authentik)** section. That is deliberate placement, not a missing registry row:
 [docs/sso-applications.md](../../docs/sso-applications.md) scopes itself to the **infra VM**,
 where the clickwork has no other home. These have a repo of their own, which is where a reader
@@ -116,23 +116,18 @@ oversight.
 `../../docs/…` resolves to nothing. Name the `home-lab` file in prose instead. That rule applies
 inside the stack directories only — this file stays here and may link freely.
 
-## Defaults worth checking before the first deploy
-
-`TZ` defaults to `Europe/Berlin` and Paperless OCR defaults to `deu+eng` across these stacks.
-Both are one variable each in the respective `.env.example`.
-
 ## Splitting into separate repositories
 
-Each directory is already repo-shaped — a `compose.yaml` (the repo-wide name, matching every stack
-in `infra/`), a `README.md`, an `.env.example` and a `.gitignore`. To break one out, create the
-repo in Forgejo first, then:
+A stack drafted here is already repo-shaped — a `compose.yaml` (the repo-wide name, matching every
+stack in `infra/`), a `README.md`, an `.env.example` and a `.gitignore`. To break one out, create
+the repo in Forgejo first, then:
 
 ```bash
-cd mealie && git init -b main && git add . && git commit -m "Initial commit: Mealie stack for Coolify"
+cd <stack> && git init -b main && git add . && git commit -m "Initial commit: <Stack> stack for Coolify"
 ```
 
 ```bash
-git remote add origin git@git.thefipster.de:<owner>/mealie.git && git push -u origin main
+git remote add origin git@git.thefipster.de:<owner>/<stack>.git && git push -u origin main
 ```
 
 Then in Coolify: New Resource → Docker Compose → select the repository → compose file
@@ -141,7 +136,8 @@ including its host directories.
 
 **Once a stack is pushed, delete its directory here.** Two copies of a compose file is exactly the
 drift [apps/README.md](../README.md) argues against; the row in
-[apps/services.md](../services.md) is what keeps it findable.
+[apps/services.md](../services.md) is what keeps it findable. That rule is why this directory is
+currently empty.
 
 ## Backups
 

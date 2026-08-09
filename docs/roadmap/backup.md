@@ -218,10 +218,13 @@ still the only real lever on whether this pool stays big enough.
 **One obligation this creates.** Layer 1 excludes the apps VM's 300 GB data disk
 (`backup=0`, [proxmox-setup.md Part 5](../proxmox-setup.md#part-5--create-the-vms)),
 so that disk is covered by *nothing* until the apps VM runs its own restic job —
-which this roadmap scopes out. That is deliberate and currently harmless: the
-apps VM has no services on it yet. It stops being harmless the day it does, and
-the transport above is chosen so that day is a key and a config value rather than
-a rethink.
+which this roadmap scopes out. That was deliberate and, while the machine was
+empty, harmless. **It is not harmless any more.** That VM now runs the whole
+third-party catalog ([apps/services.md](../../apps/services.md)) with its data
+under `/data/<stack>`, Paperless among it — tier 1, holding scanned documents
+whose originals are paper or gone. Until the machine joins this repository, its
+`document_exporter` run by hand is the only copy there is. The transport above is
+chosen so joining is a key and a config value rather than a rethink.
 
 ### Why dumps, not raw directory copies, for the databases
 
