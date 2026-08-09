@@ -70,7 +70,7 @@ UDR — exactly what we want. No extra network config needed.
 ## Part 3 — Post-install housekeeping
 
 Four things before any VM exists: the host's DNS record, the package
-repositories, the other two mirrors, and a cap on ZFS's memory appetite. The
+repositories, the other three mirrors, and a cap on ZFS's memory appetite. The
 last two are new to this build and the reason the reboot at the end matters.
 
 ### Put the host's name on the router
@@ -222,9 +222,35 @@ pool and not a Proxmox storage.
 
 ZFS caches in RAM, and its cache is not free memory — it competes with the VMs.
 Historically the limit defaults to **half of RAM**, which here would be 48 GB
-against the 56 GB the three VMs want. Recent installers write a 10% limit for new
-installations, but that is a reason to *check* the value rather than assume it.
-Set it explicitly to 16 GB:
+against the 56 GB the three VMs want. Recent Proxmox installers write a 10%
+limit of their own instead — **and that file beats the one you are about to
+write**, so it has to go first.
+
+See what is already set:
+
+```bash
+grep -rn zfs_arc_max /etc/modprobe.d/
+```
+
+A line holding roughly a tenth of your RAM, usually in
+`/etc/modprobe.d/zfs.conf`, is the installer's. Comment it out — the goal is
+exactly **one** file setting this parameter. (If the `grep` came back empty,
+this installer wrote no limit: skip to the next command, since there is nothing
+to neutralise and the file below will be the only one.)
+
+```bash
+sed -i 's/^options zfs zfs_arc_max=/# superseded by 99-zfs-arc.conf: &/' /etc/modprobe.d/zfs.conf
+```
+
+> **A `99-` prefix does not win here, and that is the trap.** `modprobe` reads
+> `/etc/modprobe.d` in lexicographic order and the module receives the **last**
+> value given for a parameter — and `9` sorts before `z`, so `zfs.conf` is
+> applied *after* `99-zfs-arc.conf` and silently overrides it. This is the
+> opposite of `sysctl.d` and `apt.conf.d`, where a high number wins, which is
+> what makes the filename look like it should be enough. Deleting the duplicate
+> is what makes the result independent of sort order.
+
+Now set it explicitly to 16 GB:
 
 ```bash
 echo "options zfs zfs_arc_max=17179869184" > /etc/modprobe.d/99-zfs-arc.conf
@@ -234,11 +260,28 @@ echo "options zfs zfs_arc_max=17179869184" > /etc/modprobe.d/99-zfs-arc.conf
 update-initramfs -u -k all
 ```
 
+**That rebuild is not optional.** The root filesystem is ZFS, so the module is
+loaded from the initramfs long before `/etc` is readable — the copy of
+`/etc/modprobe.d` *inside* the initramfs is what decides the value, and an edit
+that never reaches it changes nothing.
+
 It takes effect on the reboot below. Verify afterwards — the value should be
-`17179869184`, not `0` and not half your RAM:
+exactly `17179869184`, not `0` and not a tenth of your RAM:
 
 ```bash
 cat /sys/module/zfs/parameters/zfs_arc_max
+```
+
+If it still reads a tenth of your RAM, a second file is setting the parameter:
+run the `grep` above again and neutralise whatever it finds.
+
+**Coming back to this later, on a running system, needs no reboot.**
+`zfs_arc_max` is writable at runtime, so this applies immediately — ARC then
+shrinks toward the new ceiling over the following minutes rather than at once.
+The initramfs rebuild above is what makes the value survive the next boot:
+
+```bash
+echo 17179869184 > /sys/module/zfs/parameters/zfs_arc_max
 ```
 
 ### Update and reboot
