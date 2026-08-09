@@ -385,6 +385,29 @@ layer now exists ([backup-setup.md](backup-setup.md)) — but it runs on the
 VM's data disk is unbacked. That is currently harmless because the VM has no
 services on it, and it stops being harmless the day it does.
 
+**Confirm the disk options actually took**, on both VMs — a tick missed in the
+wizard is completely silent, and the only symptom is a zvol that grows and never
+shrinks:
+
+```bash
+qm config 101 | grep -E '^scsi[0-9]'
+```
+
+```bash
+qm config 102 | grep -E '^scsi[0-9]'
+```
+
+Every disk line must carry `discard=on` and `ssd=1`. If one does not, tick the
+two boxes under *VM → Hardware → double-click the disk*. **Then stop and start
+the VM** — those options are handed to QEMU when the process starts, so a
+reboot from inside the guest leaves the change pending; `qm reboot <vmid>` does
+the stop/start cycle properly. Nothing is lost by having run without them, but
+once Discard is live, reclaim what accumulated meanwhile from inside the guest:
+
+```bash
+sudo fstrim -av
+```
+
 Start each VM, open **Console**, and run the Ubuntu installer (enable OpenSSH when
 prompted).
 
