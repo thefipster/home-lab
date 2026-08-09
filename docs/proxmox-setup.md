@@ -344,7 +344,14 @@ Click **Create VM** (top right) for the infra and apps VMs. In the wizard:
   that answers on it is installed inside each guest by `scripts/init-host.sh`
   ([infra-vm-setup.md](infra-vm-setup.md), [apps-vm-setup.md](apps-vm-setup.md)).
 - **Disk:** storage **`local-zfs`**, bus **VirtIO SCSI single** (default), tick
-  **Discard** and **SSD emulation** — every pool here is on flash.
+  **Discard** and **SSD emulation**. The two do different jobs, and neither is
+  implied by the pools being flash — the host knows that, the **guest** does
+  not. *Discard* passes the guest's TRIM through to the storage layer, so blocks
+  freed inside the VM are released on the zvol instead of it only ever growing;
+  that is the one with real consequences. *SSD emulation* only changes what the
+  guest is told the media is: without it a virtual disk advertises itself as
+  rotational, so the guest optimises for seeks that cannot happen. Modest on
+  these Linux guests, free, and true.
 - **CPU:** type **`host`** (best performance on a single-node lab), **1 socket**
   with all 12 cores on it. `cpuunits` is not in the wizard — set it afterwards
   under *VM → Options → CPU units*, or with
