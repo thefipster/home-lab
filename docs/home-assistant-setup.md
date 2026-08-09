@@ -177,12 +177,20 @@ so it cannot also be the proxy's backend.
 
 ### 6. Onboard
 
-With the records in place, open **`http://homeassistant.thefipster.de:8123`** in
-a browser and create your account through the onboarding wizard.
+With the records in place, open **`http://homeassistant.thefipster.de`** in a
+browser and create your account through the onboarding wizard.
 
 Plain HTTP and the machine name, deliberately: Traefik is not in the path yet, and
 `ha.thefipster.de` would reach the infra VM, which has nothing to serve you until
 the next step.
+
+> **No `:8123`, and that is new.** Home Assistant **2026.8** made port **80** the
+> default for fresh HAOS installations — the only kind this guide builds. Existing
+> instances keep 8123, so most writing you will find online still says otherwise.
+> The port is now a UI setting under *Settings → System → Network* rather than
+> `http.server_port` in YAML; if you change it there, the backend URL in
+> [`infra/traefik/dynamic/ha.yaml`](../infra/traefik/dynamic/ha.yaml) has to
+> agree.
 
 > **No USB passthrough is configured, deliberately.** Every guide for
 > HA-on-Proxmox tells you to pass a Zigbee or Z-Wave stick through to the VM.
@@ -198,45 +206,64 @@ the next step.
 > [`infra/traefik/dynamic/ha.yaml`](../infra/traefik/dynamic/ha.yaml), picked up
 > by the file provider Traefik has been running since
 > [traefik-setup.md](traefik-setup.md#how-it-works). It has been live all along
-> and simply 502-ing, because until now there was no backend behind it. Only the
-> HA side below is left to do.
+> and simply failing to reach a backend that did not exist yet. Only the HA side
+> below is left to do.
 
-HA is now on the LAN but only over plain HTTP. Append the two blocks from
-[`home-assistant/configuration.yaml`](../home-assistant/configuration.yaml) to
-`/config/configuration.yaml` inside HA — install the **File Editor** or **Studio
-Code Server** add-on (*Settings → Add-ons*) to edit it.
+HA is now on the LAN but only over plain HTTP, and it will **refuse** anything
+Traefik forwards until it is told to trust that hop — answering `400` with a log
+line about an untrusted proxy, which reads like a Traefik fault and is not one.
 
-**Append, do not replace.** A fresh HAOS install ships that file with
-`default_config:`; overwriting it strips the entire default integration set. The
-fragment contains only keys HAOS does not already define, so appending is safe.
+**This is UI configuration, not YAML.** Home Assistant **2026.8** moved the HTTP
+server settings out of `configuration.yaml` and into *Settings → System →
+Network*; an `http:` block left in that file now raises a **repair issue**
+telling you to remove it. Older guides — and older versions of this one — tell
+you to paste one in. Do not.
 
-**One value must be filled in: `trusted_proxies`.** The fragment ships the
-placeholder `<infra-vm-ip>`, because this is the only place in the lab that needs
-a literal address — Home Assistant accepts addresses or CIDR ranges there, never a
-hostname — and the repo deliberately records no addresses
-([dns-records.md](dns-records.md#why-this-registry-holds-no-addresses)).
-
-The value you need is the address `ha.thefipster.de` resolves to, which is by
-definition the proxy HA is being asked to trust. From any LAN host:
+First get the value. It is the address `ha.thefipster.de` resolves to, which is
+by definition the proxy HA is being asked to trust. From any LAN host:
 
 ```bash
 getent hosts ha.thefipster.de | awk '{print $1}'
 ```
 
-Substitute that for `<infra-vm-ip>`. Derive it this way rather than reading it off
-the router: if the infra VM ever moves and DNS is updated, re-running the command
-gives the new answer with nothing to remember.
+Derive it this way rather than reading it off the router: if the infra VM ever
+moves and DNS is updated, re-running the command gives the new answer with
+nothing to remember. It must be the infra VM's **LAN** address and not a Docker
+subnet — Traefik's container reaches this VM outbound through the bridge, SNAT'd
+to its host's LAN address, so that is the source HA actually observes.
 
-Then *Developer Tools → YAML → Restart*, and verify from any LAN machine:
+Then in HA: *Settings → System → Network*, and in the reverse-proxy section add
+that address to **trusted proxies** (the field takes addresses or CIDR ranges —
+never a hostname, which is why this one value cannot follow DNS like everything
+else in the lab).
+
+> **Confirm the change when HA asks.** 2026.8 applies new network settings and
+> then waits for you to confirm the instance is still reachable. Miss the
+> five-minute window and it assumes it broke something, silently restores the
+> previous settings and restarts — so a change that appeared to save can undo
+> itself while you are looking elsewhere.
+
+Verify from any LAN machine:
 
 ```bash
 curl -sI https://ha.thefipster.de | head -1
 ```
 
 Expect `HTTP/2 200`, with no certificate warning — Traefik is terminating TLS
-with the lab's wildcard and proxying to `homeassistant.thefipster.de:8123`. Open it in a browser
-and confirm the frontend loads and stays live (the UI is websocket-driven, so a
-blank page after login means the upgrade is not getting through).
+with the lab's wildcard and proxying to `homeassistant.thefipster.de` on port 80.
+Open it in a browser and confirm the frontend loads and stays live (the UI is
+websocket-driven, so a blank page after login means the upgrade is not getting
+through).
+
+Then append the remaining block from
+[`home-assistant/configuration.yaml`](../home-assistant/configuration.yaml) —
+`prometheus:`, which [step 8](#8-wire-up-metrics) needs and which the 2026.8 move
+did not touch. Install the **File Editor** or **Studio Code Server** add-on
+(*Settings → Add-ons*) to edit `/config/configuration.yaml`, then *Developer
+Tools → YAML → Restart*.
+
+**Append, do not replace.** A fresh HAOS install ships that file with
+`default_config:`; overwriting it strips the entire default integration set.
 
 > **There is no Authentik redirect, and that is deliberate.** HA joins neither
 > SSO pattern — see
@@ -290,17 +317,27 @@ enabled and first — an imported disk is not bootable until you say so.
 not reach the backend. Three causes, in order of likelihood:
 
 1. The VM is down or still booting.
-2. `homeassistant.thefipster.de` has no exact record, so it falls through the
-   wildcard to the apps VM, where nothing listens on `:8123`. Check it:
+2. The backend in `infra/traefik/dynamic/ha.yaml` names a port. Since **2026.8**
+   a fresh HAOS serves **:80**, so a leftover `:8123` dials a port nothing is
+   listening on. The URL should carry no port at all.
+3. `homeassistant.thefipster.de` has no exact record, so it falls through the
+   wildcard to the apps VM. Check it:
 
 ```bash
 getent hosts homeassistant.thefipster.de
 ```
 
-3. Someone changed the backend in `infra/traefik/dynamic/ha.yaml` to
-   `http://ha.thefipster.de:8123`. That name resolves to the **infra VM**, so
-   Traefik dials its own `:8123` and finds nothing. It must be
-   `http://homeassistant.thefipster.de:8123` — the machine, not the service.
+> **On port 80 this one no longer fails loudly, and that is a change for the
+> worse.** It used to give connection-refused, because nothing on the apps VM
+> listened on 8123. Now Coolify's proxy answers on :80 — so testing the bare name
+> in a browser returns a real page from the wrong machine and looks like success.
+> Trust the record, not the page.
+
+4. Someone changed the backend to `http://ha.thefipster.de`. That name resolves
+   to the **infra VM**, so Traefik dials its own web entrypoint, which redirects
+   to HTTPS, and the request loops rather than 502-ing cleanly — another failure
+   the move to :80 made worse. It must be `http://homeassistant.thefipster.de` —
+   the machine, not the service.
 
 **`https://ha.thefipster.de` returns 404.** The opposite problem: Traefik has no
 router for that name. Check `ha.thefipster.de` resolves to the **infra VM** and
@@ -310,14 +347,15 @@ not to the apps VM via the wildcard:
 getent hosts ha.thefipster.de
 ```
 
-**HA will not start, and the log says the `http` config is invalid.** The
-`<infra-vm-ip>` placeholder is still in `trusted_proxies` — HA validates that
-field as an address and rejects the string. This is the intended failure: loud at
-startup rather than a puzzling 400 later. Fill it in per step 7.
+**HA raises a repair issue about the `http:` block in `configuration.yaml`.**
+Delete that block. 2026.8 imports it into *Settings → System → Network* on first
+start and then wants it gone; older guides still tell you to add one. This repo's
+fragment no longer contains it.
 
-**HA returns `400 Bad Request` and its log mentions an untrusted proxy.** The
-`http:` block from step 7 is missing, or `trusted_proxies` holds an address that
-is no longer the infra VM's. Re-derive it:
+**HA returns `400 Bad Request` and its log mentions an untrusted proxy.** Trusted
+proxies is unset, or holds an address that is no longer the infra VM's — and
+since 2026.8 it is set in *Settings → System → Network*, not in YAML, so an
+`http:` block you added by hand will not fix it. Re-derive the value:
 
 ```bash
 getent hosts ha.thefipster.de | awk '{print $1}'
@@ -326,8 +364,8 @@ getent hosts ha.thefipster.de | awk '{print $1}'
 A Docker subnet is the intuitive-but-wrong answer: Traefik's container egresses
 through the bridge, SNAT'd to its host's LAN address, so that is what HA sees. A
 *stale* address is the other cause — this is the one value in the lab that does
-not follow DNS automatically, which is exactly why it is the only literal address
-anywhere in the repo.
+not follow DNS automatically, and since it now lives in HA's UI rather than in a
+repo file, nothing here will remind you it went stale.
 
 **The frontend loads but stays blank after login.** A websocket problem. Traefik
 needs no configuration for this, so suspect a browser extension or a stale cache
@@ -342,8 +380,9 @@ editing `.env`, since environment variables are read at container creation.
 | What | Where |
 |------|-------|
 | HA configuration | `/config/configuration.yaml` **inside the VM** — not in this repo |
+| HTTP server settings, incl. trusted proxies | HA's UI, *Settings → System → Network* — UI-managed since 2026.8, not YAML and not here |
 | Add-ons, database, secrets | inside the VM, managed by the Supervisor |
-| The config fragment | `home-assistant/configuration.yaml` in this repo — a template you paste |
+| The config fragment | `home-assistant/configuration.yaml` in this repo — `prometheus:` only, a template you paste |
 | The Traefik route | `infra/traefik/dynamic/ha.yaml` on the **infra VM** |
 | The scrape token | `infra/monitoring/.env` on the **infra VM** — gitignored |
 
@@ -366,7 +405,8 @@ lives; pointing it at this VM would reach HA over plain HTTP with nothing to
 terminate TLS.
 But a proxy needs an address for its backend, and it cannot be the name that
 already means "the proxy" — that resolves to the infra VM and would have Traefik
-dialling its own `:8123`. So the machine gets its own name,
+dialling its own web entrypoint, looping instead of answering. So the machine
+gets its own name,
 `homeassistant.thefipster.de` → this VM, and the split is deliberate: **`ha.` is
 the service, `homeassistant.` is the box.** The same distinction already exists
 for `pve.thefipster.de` and `apps.thefipster.de`, which name machines for

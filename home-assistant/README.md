@@ -19,7 +19,14 @@ have one each, the apps VM has four, this has none.
 
 | File | Purpose |
 |------|---------|
-| `configuration.yaml` | A **fragment** to *append* to `/config/configuration.yaml` inside the VM. Two blocks: `http:` (so HA trusts Traefik's proxy hop) and `prometheus:` (so Alloy can scrape it). The **only** file in this repo that belongs on a machine the repo cannot write to — the Forgejo workflow templates were the other one, and they were deleted once the real workflows lived in the app repo. This one has no other repo to move to. |
+| `configuration.yaml` | A **fragment** to *append* to `/config/configuration.yaml` inside the VM. One block, `prometheus:`, so Alloy can scrape it. The **only** file in this repo that belongs on a machine the repo cannot write to — the Forgejo workflow templates were the other one, and they were deleted once the real workflows lived in the app repo. This one has no other repo to move to. |
+
+**It no longer carries an `http:` block, and adding one back is an error.** HA
+**2026.8** moved the HTTP server settings — port and trusted proxies included —
+out of YAML and into *Settings → System → Network*, and raises a repair issue if
+an `http:` block remains in `configuration.yaml`. Proxy trust is clickwork on the
+appliance now, which is also why this repo records no literal IP address anywhere
+any more.
 
 **Append it, never copy it over.** A fresh HAOS install ships
 `configuration.yaml` with `default_config:`; replacing that file strips the whole
@@ -32,7 +39,8 @@ itself, so appending cannot collide.
   Traefik terminates TLS with the lab's wildcard certificate; that is the
   **service**, and what every browser uses. `homeassistant.thefipster.de` → this
   VM is the **machine**, and is what Traefik dials over plain HTTP on
-  `:8123`. They cannot be collapsed: the public name has to mean the proxy for
+  `:80` — HA's default since 2026.8, not the `:8123` most writing still assumes.
+  They cannot be collapsed: the public name has to mean the proxy for
   TLS to work, so it cannot also be the proxy's backend. HA has no container on
   the infra VM to hang Traefik labels on, so its router is declared as a file:
   `infra/traefik/dynamic/ha.yaml`.

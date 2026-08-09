@@ -82,25 +82,29 @@ them as `infra ip` / `apps ip` / `ha ip` / `pve ip`; the router is the source of
 truth for addresses, that registry for names.
 
 A literal address is therefore a **flag** — something that could not be expressed
-as a name. There is one legitimate case: `trusted_proxies` in
-`home-assistant/configuration.yaml`, which HA validates as an address or CIDR and
-will not accept as a hostname. It ships as the placeholder `<infra-vm-ip>` and is
-filled in on the machine, derived from
-`getent hosts ha.thefipster.de` rather than read off the router. Install-time
-addresses in `proxmox-setup.md` (the Proxmox installer wants a static IP typed in)
-are the remaining irreducible ones — HA's onboarding happens *after* its DNS
-records exist, by name. Anything else
-should be a name.
+as a name. **The repo currently records none.** The one value that genuinely
+needs an address is Home Assistant's **trusted proxies**, which HA validates as
+an address or CIDR and will not accept as a hostname — and since HA 2026.8 that
+lives in HA's own UI (*Settings → System → Network*), not in an `http:` block, so
+`home-assistant/configuration.yaml` no longer carries the `<infra-vm-ip>`
+placeholder it used to. It is derived on the machine from
+`getent hosts ha.thefipster.de` rather than read off the router, and its staleness
+is now silent (a `400` from HA) where the placeholder used to fail loudly at
+startup. Install-time addresses in `proxmox-setup.md` (the Proxmox installer wants
+a static IP typed in) are the remaining irreducible ones — HA's onboarding happens
+*after* its DNS records exist, by name. Anything else should be a name.
 
 Three DNS facts are counter-intuitive and all are deliberate:
 
 - **`ha.` points at the infra VM**, not the HA VM, because Traefik
   terminates TLS there.
 - **Home Assistant therefore has a second name**,
-  `homeassistant.thefipster.de` → the HA VM, which is what Traefik dials. `ha.` is the
+  `homeassistant.thefipster.de` → the HA VM, which is what Traefik dials on
+  **port 80** (HA's default since 2026.8, when the port also became a UI setting
+  rather than YAML). `ha.` is the
   **service**, `homeassistant.` is the **machine**; they are not interchangeable,
-  and a backend of `http://ha.thefipster.de:8123` would have Traefik dialling its
-  own `:8123` and 502-ing every request. Same service/machine split as
+  and a backend of `http://ha.thefipster.de` would have Traefik dialling its own
+  web entrypoint and looping. Same service/machine split as
   `pve.` and `apps.`, which name boxes for internal access.
 - **`coolify.` and `apps.` have no exact record at all**, because the wildcard
   already reaches the apps VM — the machine both names want.

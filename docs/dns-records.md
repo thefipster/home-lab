@@ -49,7 +49,7 @@ All entries are type **Host (A)**:
 | `otlp.thefipster.de` | `infra ip` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `infra ip` | Uptime Kuma status monitoring (via Traefik) |
 | `ha.thefipster.de` | `infra ip` | Home Assistant UI — the **service** (via Traefik, which proxies to the row below) |
-| `homeassistant.thefipster.de` | `ha ip` | the HA VM itself — the **machine**; Traefik's backend, and the only lab name served over plain HTTP |
+| `homeassistant.thefipster.de` | `ha ip` | the HA VM itself — the **machine**; Traefik's backend on `:80`, and the only lab name served over plain HTTP |
 | `pve.thefipster.de` | `pve ip` | Proxmox web UI, and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
@@ -135,20 +135,21 @@ They are not interchangeable, and swapping them breaks the route:
 | Name | Points at | Means |
 |---|---|---|
 | `ha.thefipster.de` | `infra ip` | the **service**. What you and every browser use. Traefik terminates TLS here with the lab's wildcard certificate. |
-| `homeassistant.thefipster.de` | `ha ip` | the **machine**. Traefik's backend, over plain HTTP on `:8123`. Nothing else uses it. |
+| `homeassistant.thefipster.de` | `ha ip` | the **machine**. Traefik's backend, over plain HTTP on `:80` — HA's default since 2026.8, not `:8123`. Nothing else uses it. |
 
 `ha.` points at the infra VM because that is where the only certificate lives —
 pointing it at the HA VM would reach Home Assistant over plain HTTP with none at
-all. Which is exactly why it **cannot** double as the backend address: a backend of
-`http://ha.thefipster.de:8123` resolves to the infra VM, so Traefik would dial
-its own `:8123`, find nothing listening, and 502 every request. The public name
-belongs to the front door.
+all. Which is exactly why it **cannot** double as the backend address: a backend
+of `http://ha.thefipster.de` resolves to the infra VM, so Traefik dials its own
+web entrypoint and the request loops. The public name belongs to the front door.
 
 `homeassistant.` needs an **exact** record for the `pve` reason — the wildcard
-answers with the apps VM, the wrong box. Unlike the `pve` case, though, getting
-this wrong is **loud**: nothing on the apps VM listens on `:8123`, so a missing
-record gives connection-refused and a 502 rather than a plausible-looking wrong
-page. Verify it anyway:
+answers with the apps VM, the wrong box. This case **used to be the loud one**:
+nothing on the apps VM listened on `:8123`, so a missing record gave
+connection-refused. Home Assistant 2026.8 moved to **port 80**, where Coolify's
+proxy *does* answer — so it is now as quiet as the `pve` case and misleading in
+the same way, returning a real page from the wrong machine to anyone who tests
+the bare name in a browser. Verify the record rather than the page:
 
 ```bash
 getent hosts homeassistant.thefipster.de
@@ -234,19 +235,27 @@ The useful consequence is that a literal address anywhere in this repo becomes a
 **flag**: it means something could not be expressed as a name, which is worth
 knowing about and usually worth fixing.
 
-Exactly one thing in the lab genuinely needs an address — `trusted_proxies` in
-`home-assistant/configuration.yaml`, because Home Assistant validates that field
-as an address or CIDR range and will not accept a hostname. So the repo ships a
-**placeholder** there, `<infra-vm-ip>`, filled in on the machine during
-[home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik).
-The value is derived from DNS rather than read off the router:
+**The repo now records no literal address at all**, and the one thing that still
+genuinely needs one has moved out of it. Home Assistant's **trusted proxies**
+validates as an address or CIDR range and will not accept a hostname — but since
+2026.8 it is set in HA's own UI (*Settings → System → Network*) rather than in an
+`http:` block, so `home-assistant/configuration.yaml` no longer carries the
+`<infra-vm-ip>` placeholder it used to. That value is now clickwork on the
+appliance, like the SSO applications and the Kuma monitors.
+
+Derive it from DNS rather than reading it off the router
+([home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik)):
 
 ```bash
 getent hosts ha.thefipster.de | awk '{print $1}'
 ```
 
 That is the proxy's own name resolving to the proxy's own address — the thing HA
-is being asked to trust — so the lookup stays correct through any renumbering. It
-is also the one value in the lab that does **not** follow DNS automatically, which
-is why leaving the placeholder in fails loudly: HA rejects the `http` config
-outright instead of quietly trusting nothing.
+is being asked to trust — so the lookup stays correct through any renumbering.
+
+**It is also the one value in the lab that does not follow DNS automatically, and
+it lost its safety net in the move.** A stale placeholder in YAML used to fail
+loudly, with HA rejecting the config at startup. A stale address in the UI fails
+*quietly*: HA starts fine and answers `400` to everything Traefik forwards. Re-run
+the command above after any renumbering of the infra VM — nothing in this repo
+will remind you.
