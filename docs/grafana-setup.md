@@ -941,7 +941,8 @@ under [superpowers/specs/](superpowers/specs/).
 ## Next
 
 **[uptime-kuma-setup.md](uptime-kuma-setup.md)** — Uptime Kuma, the independent
-watcher and the lab's notification layer. After that the infra VM is complete
+watcher and the lab's notification layer. After it the infra VM finishes with
+[homepage-setup.md](homepage-setup.md) and [backup-setup.md](backup-setup.md),
 and two machines remain: the **apps VM** ([apps-vm-setup.md](apps-vm-setup.md),
 then [coolify-setup.md](coolify-setup.md)) and the **home-assistant VM**
 ([home-assistant-setup.md](home-assistant-setup.md)) — see the

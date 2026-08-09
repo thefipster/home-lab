@@ -181,8 +181,8 @@ with the lab's wildcard and proxying to `homeassistant.thefipster.de:8123`. Open
 and confirm the frontend loads and stays live (the UI is websocket-driven, so a
 blank page after login means the upgrade is not getting through).
 
-> **There is no Authentik redirect, and that is deliberate.** HA is the second
-> service in the lab that joins neither SSO pattern — see
+> **There is no Authentik redirect, and that is deliberate.** HA joins neither
+> SSO pattern — see
 > [sso-applications.md](sso-applications.md).
 
 ### 8. Wire up metrics

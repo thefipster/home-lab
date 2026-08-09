@@ -3,7 +3,7 @@
 **Runs on:** infra VM
 
 **Prerequisite:** [grafana-setup.md](grafana-setup.md) complete — Kuma watches
-that stack, so it is the last thing built.
+that stack, so it is built after everything it watches.
 
 [Uptime Kuma](https://github.com/louislam/uptime-kuma) is a self-contained
 status monitor at **`https://uptime.thefipster.de`**. It checks the routed
@@ -162,7 +162,7 @@ notification you just wired. Copy its push URL, then work through
 [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades)
 on the host: the health script, its `EnvironmentFile`, and the systemd timer.
 
-Worth doing rather than deferring. The lab's six internal drives are three
+Worth doing rather than deferring. The lab's eight internal drives are four
 mirrors, and **a degraded mirror takes nothing down** — the box runs, the VMs
 run, and the redundancy you paid for is quietly gone. This monitor is the only
 thing in the lab that would tell you.
@@ -285,9 +285,9 @@ sidesteps that entirely, so **no existing stack changed** to make this work:
 `infra/authentik/compose.yaml` was not touched.
 
 The socket is the usual trade. `:ro` makes the *mount* read-only, not the API
-behind it, so this is root-equivalent control of the VM's Docker — the fifth
-such mount in the lab, after Dockge, the Forgejo runner, Traefik and Alloy.
-Acceptable only because this is a single-tenant box.
+behind it, so this is root-equivalent control of the VM's Docker — the same
+mount Dockge, the Forgejo runner, Traefik and Alloy already hold, and Homepage
+adds after it. Acceptable only because this is a single-tenant box.
 
 **Why hosted ntfy.sh rather than self-hosting it.** A self-hosted ntfy on this
 VM would share fate with everything it reports on: the VM goes, and so does the

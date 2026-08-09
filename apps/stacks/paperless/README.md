@@ -197,8 +197,9 @@ The paths, for completeness:
 | `/data/paperless/redis` | task queue — disposable |
 | `/data/paperless/export` | exporter output; this is what a backup job should pick up |
 
-`/data` on this VM is excluded from whole-VM `vzdump` and is not covered by anything else yet, so
-until the file-level backup layer exists, treat this as unbacked and export by hand.
+`/data` on this VM is excluded from whole-VM `vzdump` and is not covered by anything else yet —
+the file-level layer runs on the infra VM, and this machine has not joined its restic repository —
+so treat this as unbacked and export by hand.
 
 ## Upgrades
 

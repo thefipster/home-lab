@@ -945,9 +945,9 @@ symlink rather than descending into it. Backing up `/opt/stacks` would capture
 the links and none of the secrets — which is why `include_env` names
 `$REPO_ROOT/infra/<stack>/.env` explicitly.
 
-**Where this is not yet finished.** The repository lives on a drive plugged into
-the machine it protects. That is a real second copy and it is the only one that
-can physically leave the building, but it is not offsite until someone points
+**Where this is not yet finished.** The repository lives on a mirror inside
+the machine it protects. That is a real second copy on its own drives, but
+nothing here is offsite until someone points
 restic at B2, netcup Storage Space or rclone — client-side encryption means that
 step is credentials and a bandwidth check, not a redesign
 ([roadmap/backup.md](roadmap/backup.md#phases) phase 3). **The weekly check has

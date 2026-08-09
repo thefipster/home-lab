@@ -33,7 +33,7 @@
 # not applied: forward-auth breaks the companion mobile app, webhooks and every
 # local API caller, and the break-glass would be editing this file over SSH
 # mid-incident in a house whose lights just stopped responding. HA keeps its own
-# local login. Second stated exception after Uptime Kuma —
+# local login — a stated exception, alongside Vaultwarden and Uptime Kuma:
 # see docs/sso-applications.md.
 
 http:

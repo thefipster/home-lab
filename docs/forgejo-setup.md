@@ -352,6 +352,12 @@ directories. If your login user isn't `1000:1000`, keep the compose
 
 ### Teardown and backup
 
+The nightly file-level layer covers this stack once
+[backup-setup.md](backup-setup.md) is built — `infra/forgejo/backup.sh` dumps
+the database and snapshots `/opt/forgejo` every night, and
+`infra/forgejo/restore.sh` is the way back. What follows is the **ad-hoc**
+procedure, for a cold copy right before a risky change.
+
 `docker compose down` — even with `-v` — leaves everything, because all state
 is in bind mounts. For a consistent backup:
 

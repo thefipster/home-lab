@@ -246,13 +246,13 @@ belt and braces, not a second restore path: a live-copied `PGDATA` is torn by
 construction, so a restore starts from the dumps, and the raw copy is the
 last resort for when no dump exists.
 
-Kuma is the exception and needs deciding at implementation time: its SQLite is
-open with WAL, so a live file copy is torn too. Preferred fix is
-`sqlite3 ... ".backup"` — pending a check that the binary exists in
-`louislam/uptime-kuma:2`; fallback is a tiny `alpine` sidecar holding the same
-bind mount. Stopping Kuma for the copy is the option to *avoid*: it is the
-watcher, and a blind spot in the watcher is exactly what its own compose file
-argues against.
+Kuma is the same hazard one format over: its SQLite is open with WAL, so a live
+file copy is torn too. It is dumped instead, through the `/usr/bin/sqlite3` the
+image itself ships (`.dump`, streamed to stdout) — no `alpine` sidecar, and no
+stopped watcher, which is the option the recipe exists to avoid: a blind spot
+in the watcher is exactly what its own compose file argues against. Reasoning
+in full:
+[backup-setup.md](../backup-setup.md#why-kuma-dumps-instead-of-copying).
 
 ## Architecture
 
@@ -265,8 +265,8 @@ Proxmox │        (2×1 TB SATA SSD mirror, ~3× the archived roots, retention 
                                     ▲
 infra VM                            │
   pg_dump ×4 ─┐                     │
-  sqlite .backup ─┼─► /opt/backup/dumps ─┐
-  /opt/{vaultwarden,forgejo,authentik,uptime-kuma,traefik,monitoring/postgres} ─┼─► restic ─┘  (encrypted)
+  sqlite .dump ─┼─► /opt/backup/dumps ─┐
+  /opt/{vaultwarden,forgejo,authentik,uptime-kuma,traefik,monitoring/postgres}, dockge's data ─┼─► restic ─┘  (encrypted)
   infra/*/.env ──────────────────────────┘                          │
                                                                     └─► Kuma push URL (deadman)
 
@@ -280,7 +280,7 @@ mount. Precedent exists: the Proxmox node exporter is a systemd unit too.
 
 ```
 infra/backup/
-  lib.sh             the recipes: include, include_env, dump_postgres
+  lib.sh             the recipes: include, include_env, dump_postgres, dump_sqlite
   run.sh             glob infra/*/backup.sh → stage → snapshot --tag <stack> → forget --prune → ping Kuma
   restic-backup.service / .timer   nightly 01:00
   restic-check.service / .timer    weekly restic check
@@ -337,10 +337,10 @@ reason.
    on the hypervisor. The Kuma push (phase 4) landed here rather than later: a
    backup nobody knows has stopped is decorative.
 
-   **The recipe set is complete and every exception is spent.** Four stacks
-   are wired. The first three were chosen in that order deliberately — each
-   was the last remaining unknown of its kind — and the fourth is the one the
-   whole phase was prioritised for:
+   **The recipe set is complete and every exception is spent.** Every stack
+   that holds state is wired. Authentik, Uptime Kuma and monitoring were built
+   first, in that order — each was the last remaining unknown of its kind —
+   and Vaultwarden is the one the whole phase was prioritised for:
 
    - **Authentik** — the Postgres shape, and the DB↔secret-key coupling the
      per-stack design exists for.
