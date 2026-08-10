@@ -433,6 +433,18 @@ copies of a live workflow drift and nothing here can tell you which one is
 current. What stays on this side is the runner (`infra/forgejo/config.yml`), the
 registry, and the tokens above.
 
+**What that build does leave on this side.** Supply-chain work landed in those
+workflows ([roadmap/ci-supply-chain.md](roadmap/ci-supply-chain.md)), and two of
+its effects are visible from this machine rather than from the YAML. Every image
+is now pushed with
+an **SBOM attestation stored beside it** in the registry, so a tag now costs
+more disk than the image alone — which is what makes the registry cleanup rules
+in that roadmap worth doing before the 40 GB fills. And a **Trivy scan runs
+after the build and before the push**, failing the run on a `CRITICAL` finding:
+a run that goes red having built nothing new is the expected shape of that, not
+a broken runner. Neither needs a token, a runner label or a change to this
+stack.
+
 **`/metrics` is open on the LAN.** `FORGEJO__metrics__ENABLED` serves metrics
 on port 3000 — the same port Traefik publishes — so
 `https://git.thefipster.de/metrics` is readable unauthenticated by anyone on

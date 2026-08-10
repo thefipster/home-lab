@@ -19,32 +19,37 @@ got.
 | Uptime Kuma (status monitoring + notifications) | ✅ complete — [guide](uptime-kuma-setup.md) |
 | Homepage start page | ✅ deployed — [guide](homepage-setup.md) |
 | Backup layer 1: `vzdump` whole-VM to the `vmbackup` mirror | ✅ deployed — scheduled and verified, [Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups) |
-| Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). All seven stateful infra stacks wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) |
+| Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). Every stateful infra stack wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) — which now costs real data, see the apps row below |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |
 | CI: code analysis | ✅ deployed — analyzers enforced in the build. One decision still open: whether a SonarQube stack earns its place ([roadmap](roadmap/ci-code-analysis.md)) |
-| CI: container scanning + SBOM | ⬜ planned — [roadmap](roadmap/ci-supply-chain.md) |
-| Coolify install (apps VM) | ✅ deployed — running and **empty**, [guide](coolify-setup.md) |
-| Third-party apps on the apps VM | 📄 catalog written, nothing deployed — [catalog](../apps/services.md) |
-| Container logs from the apps VM | ⬜ planned — [roadmap](roadmap/apps-vm-logs.md) |
-| home-assistant VM (HAOS + Supervisor) | 📄 guide ready, not yet built — [guide](home-assistant-setup.md) |
-| Monitoring the apps + HA VMs | ◐ apps VM scraped (`instance="apps"`, node exporter installed); the HA target stays red until that VM exists |
+| CI: container scanning + SBOM | ✅ deployed — SBOM attestation beside each image plus a CycloneDX run artifact, Trivy failing the run on `CRITICAL`, and dependency updates raised against the GitHub originals. Registry cleanup rules and image signing did not land ([roadmap](roadmap/ci-supply-chain.md)) |
+| Coolify install (apps VM) | ✅ deployed — [guide](coolify-setup.md) |
+| Third-party apps on the apps VM | ✅ deployed — Paperless-ngx, Mealie, BookStack and LubeLogger all running as Coolify resources, each from its own Forgejo repo and each joined to Authentik by OIDC — [catalog](../apps/services.md). Their data under `/data` is backed up by nothing yet, and Paperless is tier 1 |
+| Container logs from the apps VM | ⬜ planned — [roadmap](roadmap/apps-vm-logs.md). No longer a gap in the abstract: the applications in the row above log where Loki cannot see them |
+| home-assistant VM (HAOS + Supervisor) | ✅ deployed — onboarded, routed through Traefik at `ha.thefipster.de`, add-ons in from HA's store. Bare beyond that: no devices and no automations yet, and its metrics are not wired ([step 8](home-assistant-setup.md#8-wire-up-metrics)) — [guide](home-assistant-setup.md) |
+| Monitoring the apps + HA VMs | ◐ apps VM scraped (`instance="apps"`, node exporter installed); the HA target stays red until `HA_PROMETHEUS_TOKEN` is minted in HA and put in the monitoring `.env` |
 | Sizing for the hardware (12 threads / 96 GB / 4 pools) | ✅ deployed — the box is built and running these allocations, [Why these sizes](proxmox-setup.md#why-these-sizes) |
 
-`✅` runs today · `◐` one half runs, the other waits on a machine · `📄` written
-and reviewed, waiting on hardware or a build step · `⬜` not started. The one
-machine-shaped `📄` row left is the HA VM, and it is why a guide can describe a
-machine you cannot yet log into: the repo documents the lab it is being built
-into, and that guide is verified by reading until the box exists to run it on.
+`✅` runs today · `◐` one half runs, the other is still waiting · `📄` written
+and reviewed, waiting on hardware or a build step · `⬜` not started. **No `📄`
+rows are left**: every guide in the build order has now been run on the machine
+it describes, so nothing here is verified by reading alone any more.
 
-**The infra VM is done, and the apps VM is up but empty.** Every infra stack in
-the build order runs today, both backup layers included, Homepage last. The
-apps VM now runs Coolify and is scraped for host metrics — what it does not yet
-run is any application, its own or third-party. What is left overall: deploy
-something onto Coolify, build the home-assistant VM, and two CI items —
-container scanning ([roadmap](roadmap/ci-supply-chain.md)) and container logs
-from the apps VM ([roadmap](roadmap/apps-vm-logs.md)).
+**Every machine in the build order is built.** All infra stacks run, both backup
+layers included; the apps VM runs Coolify with the whole third-party catalog on
+it; the HA VM is up, routed and onboarded. What remains is reach rather than
+existence:
+
+- **Home Assistant's metrics token**, so `job="homeassistant"` stops being red
+  ([step 8](home-assistant-setup.md#8-wire-up-metrics)).
+- **Container logs from the apps VM** ([roadmap](roadmap/apps-vm-logs.md)) —
+  and, on the same machine, **backup**: `/data` holds Paperless' scanned
+  documents and is covered by neither layer ([roadmap](roadmap/backup.md)).
+  Paperless' own `document_exporter`, run by hand, is the whole answer today.
+- **The CI supply-chain phases that did not land** — registry cleanup rules and
+  image signing ([roadmap](roadmap/ci-supply-chain.md)).
 
 **Where the CI rows actually live.** Tests, coverage, analysis and the release
 build all run in the *app* repository's own `.forgejo/workflows/`, against the
