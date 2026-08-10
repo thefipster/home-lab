@@ -1,0 +1,131 @@
+# Immich — self-hosted photo and video library
+# Upstream reference: https://github.com/immich-app/immich/blob/main/docker/docker-compose.yml
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_IMMICH_2283 -> generates the domain and points the proxy at port 2283
+#   ${SERVICE_PASSWORD_*}   -> generated once, then stored in the resource's env editor
+#
+# Immich has no public-URL variable of its own — it takes the host from the
+# request — so there is no PUBLIC_URL here. The domain is set once under
+# Coolify -> Domains: https://immich.thefipster.de
+#
+# The two immich images are released as a pair and are not compatible across
+# versions: bump BOTH tags in the same commit, never one of them.
+#
+# State lives in bind mounts under /data/immich on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk.
+# That includes the model cache, which upstream ships as a named volume.
+
+services:
+  immich:
+    # Named `immich`, not upstream's `immich-server`. Coolify parses its magic
+    # SERVICE_URL_<SERVICE>_<PORT> variables by counting underscores, so a
+    # service name containing a dash yields a variable it cannot read. Nothing
+    # dials this container by name, so the rename costs nothing.
+    image: ghcr.io/immich-app/immich-server:v3.1.0
+    restart: unless-stopped
+    expose:
+      - "2283"
+    environment:
+      - SERVICE_URL_IMMICH_2283
+      # Fallback for photos whose metadata carries no timezone, plus log and
+      # cron timestamps.
+      - TZ=${TZ:-Europe/Berlin}
+      - DB_HOSTNAME=database
+      - DB_DATABASE_NAME=immich
+      - DB_USERNAME=immich
+      - DB_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - REDIS_HOSTNAME=redis
+      # Leaves /auth/admin-sign-up open. It has to be true for the first deploy
+      # — that route is how the owner account is created — and can be flipped to
+      # false afterwards. It also gates the database-restore endpoint, so a
+      # restore means flipping it back first.
+      - IMMICH_ALLOW_SETUP=${IMMICH_ALLOW_SETUP:-true}
+      # No SSO variables here, and that is not an omission: Immich keeps its
+      # OAuth configuration in the database, edited under Administration ->
+      # Settings. The only way to declare it in a file is IMMICH_CONFIG_FILE,
+      # which freezes *every* other setting in the admin UI as well — see the
+      # README. The Authentik provider values live there instead.
+      #
+      # IMMICH_TRUSTED_PROXIES is deliberately unset: it takes IP addresses or
+      # CIDRs, and nothing in this lab is addressed by IP. It only affects which
+      # client address Immich attributes in its own logs.
+    volumes:
+      # UPLOAD_LOCATION in upstream's .env. Holds the originals, thumbnails,
+      # encoded video, profile images and Immich's own database dumps.
+      - /data/immich/library:/data
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      # The image ships its own (`immich-healthcheck`); this line keeps it on,
+      # the same way upstream's compose does.
+      disable: false
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  immich-machine-learning:
+    # This name is load-bearing, unlike the one above: Immich's machine-learning
+    # URL defaults to http://immich-machine-learning:3003 and lives in the admin
+    # settings rather than in an environment variable, so a renamed service has
+    # to be clicked back in on every fresh install.
+    image: ghcr.io/immich-app/immich-machine-learning:v3.1.0
+    restart: unless-stopped
+    volumes:
+      # CLIP and facial-recognition models, downloaded on first use. Rebuildable,
+      # but a few GB and a slow first search if it is lost.
+      - /data/immich/model-cache:/cache
+    healthcheck:
+      disable: false
+
+  redis:
+    # Job queue only — nothing here needs to survive a restart, which is why
+    # this is the one service in the stack with no bind mount. Upstream persists
+    # nothing either.
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  database:
+    # NOT postgres:18, and that is the one lab convention this stack breaks.
+    # Immich stores its search and face embeddings as vectors and refuses to
+    # start without the VectorChord extension, which the stock image does not
+    # carry. This image is Immich's own build of postgres + pgvector +
+    # VectorChord — Postgres 18 to match every other database in the lab, and
+    # without the legacy pgvecto.rs extension upstream still ships for installs
+    # migrating from it. See the README.
+    image: ghcr.io/immich-app/postgres:18-vectorchord1.1.1-pgvector0.8.5
+    restart: unless-stopped
+    # Postgres' shared memory for parallel queries; 64 MB by default in Docker,
+    # which Immich's index builds outgrow.
+    shm_size: 128mb
+    environment:
+      - POSTGRES_DB=immich
+      - POSTGRES_USER=immich
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      # Set explicitly rather than left to the server default. The image's own
+      # healthcheck reads pg_stat_database.checksum_failures, which is what
+      # turns silent bit-rot in the library metadata into a red container.
+      - POSTGRES_INITDB_ARGS=--data-checksums
+      # Same reason as every other Postgres in the lab: the 18 image defaults
+      # PGDATA to a version-specific path (/var/lib/postgresql/18/docker).
+      # Pinning it back keeps the bind mount holding PGDATA directly, and makes
+      # a future major bump fail loudly instead of initialising an empty 19/
+      # beside the old data. Immich's entrypoint substitutes this path into the
+      # postgresql.conf it generates, so it has to be set before first start.
+      - PGDATA=/var/lib/postgresql/data
+      # Tunes effective_io_concurrency. The apps VM's /data disk is on the
+      # hypervisor's all-flash `data` mirror, so SSD is correct here.
+      - DB_STORAGE_TYPE=SSD
+    volumes:
+      - /data/immich/postgres:/var/lib/postgresql/data
+    healthcheck:
+      # The image ships one: pg_isready plus a data-checksum failure count.
+      disable: false

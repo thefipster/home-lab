@@ -19,6 +19,8 @@ this machine.
 | Mealie | `mealie.` | Recipe manager — meal planning, shopping lists | Postgres | — | OIDC | `mealie` | `/data/mealie` |
 | LubeLogger | `lube.` | Vehicle maintenance and fuel-mileage log | Postgres | — | OIDC | `lubelogger` | `/data/lubelogger` |
 | BookStack | `wiki.` | Wiki and documentation | **MariaDB** | — | OIDC | `bookstack` | `/data/bookstack` |
+| Immich | `immich.` | Photo and video library — phone backup, face and object search | Postgres **+ VectorChord** | Valkey, machine-learning container | OIDC | `immich` | `/data/immich` |
+| Habitica | `habitica.` | Habit tracker and to-do list as a role-playing game | **MongoDB** | — | **none** | `habitica` | `/data/habitica` |
 
 Hosts are subdomains of `thefipster.de`. Repo is a repository name under
 `git.thefipster.de/<owner>/` and nothing more, so this table does not rot every
@@ -37,7 +39,10 @@ Stacks not yet split into their own repo are drafted in
 Each application is put on **Postgres wherever it offers the choice**, matching
 the database Authentik, Forgejo, Vaultwarden and Grafana already run. Two of
 them (Mealie, LubeLogger) default to SQLite and are moved off it deliberately;
-Paperless already ships Postgres; BookStack has no choice to make.
+Paperless already ships Postgres; BookStack and Habitica have no choice to make.
+Immich is on Postgres but not on the *stock* image — it needs a vector extension
+the official one does not carry, which is the row below rather than a third
+engine.
 
 ## Vaultwarden is not on this list, and used to be
 
@@ -63,22 +68,22 @@ things decided it:
   password manager that arrives after everything it should have been storing is
   a password manager you filled in by hand afterwards.
 
-Unlike the four above, it therefore **does** get rows in the three `docs/`
+Unlike the six above, it therefore **does** get rows in the three `docs/`
 registries — a DNS record, an SSO non-entry and three Kuma monitors — because
 that is what living on the infra VM means.
 
-## Two decisions that look like mistakes
+## Three decisions that look like mistakes
 
-Both are recorded here because they are exactly what a later reader would try to
-"fix": one is an engine that does not match the lab's standard, the other is an
-absence where the rest of the repo has a stated exception.
+All three are recorded here because they are exactly what a later reader would
+try to "fix": two are databases that do not match the lab's standard, and one is
+an absence where the rest of the repo has a stated exception.
 
 ### BookStack uses MariaDB, and that is not fixable
 
 BookStack supports **MySQL >= 8.0 or MariaDB >= 10.6** and no PostgreSQL at all.
-It is the one service that drags a second database engine into the lab. The
-Postgres-native alternatives were checked and each costs more than one extra
-container:
+It is the service that dragged a second database engine into the lab, and
+Habitica later added a third. The Postgres-native alternatives were checked and
+each costs more than one extra container:
 
 | Alternative | Why not |
 |---|---|
@@ -100,18 +105,45 @@ redeploying, which restores the original admin account untouched. That is a real
 downgrade — a redeploy instead of a login form — and it is the price of the row
 above, not an oversight. Its repo's README says so in place.
 
-### Every application here joins SSO, and that is not a coincidence
+### Habitica runs MongoDB, and not by choice
 
-All four use OIDC against Authentik. The lab's stated exceptions to the
+Habitica stores everything in **MongoDB** and supports nothing else — it needs
+multi-document transactions, which is also why even a single node has to run as
+a replica set. It is the third engine in the lab after Postgres and BookStack's
+MariaDB, and unlike BookStack there was no alternative to weigh: no comparable
+application exists, because the thing being self-hosted *is* Habitica.
+
+The consequences are all in its repo's README: no credentials on the database
+(authentication on a replica set also wants a member keyfile), the health check
+doubling as the replica-set initiator, and a dump rather than a directory copy
+as the backup form.
+
+### Every application here joins SSO except one, and the exception is not a choice
+
+Five of the six use OIDC against Authentik. The lab's stated exceptions to the
 "anything with native OIDC uses it" rule — Vaultwarden, Uptime Kuma, Home
 Assistant — are all **infra VM** services, and each is an exception because
 something about recovering the lab depends on it staying reachable when
 Authentik is not ([sso-applications.md](../docs/sso-applications.md)).
 
 Nothing on this machine has that property. A recipe manager behind a dead
-identity provider is an inconvenience, not a trap, so there is no reason for an
-application here to decline the pattern. If one ever does, its repo's README is
-where the reasoning goes — not this table.
+identity provider is an inconvenience, not a trap, so no application here
+*declines* the pattern.
+
+**Habitica cannot join it.** It has no OIDC support at all — its own accounts
+plus Google and Apple social login, neither of which this lab runs. The other
+pattern is out of reach for a different reason, and it is a property of this
+machine rather than of Habitica: the lab's forward-auth wiring is labels on the
+Authentik container behind the **infra VM's** Traefik, and Coolify runs its own
+separate Traefik here that knows nothing about that middleware or its outpost
+routes. Putting forward-auth in front of an app on this VM would mean a second,
+hand-maintained copy of that wiring inside Coolify's proxy configuration.
+
+So **OIDC is the only SSO pattern available on the apps VM**, and an application
+without it gets none. Habitica's guard is `INVITE_ONLY` once the accounts exist,
+plus the fact that nothing here is reachable from outside the LAN. The detail
+lives in its repo's README, as it does for every other per-service decision —
+this table carries only the fact that the row says `none`.
 
 ## What this machine gives them for free
 
@@ -126,12 +158,12 @@ where the reasoning goes — not this table.
   any application here.
 - **Host metrics.** `init-node-exporter.sh` already runs on this VM and Alloy on
   the infra VM already scrapes it. Nothing here changes that, and none of these
-  four is an exporter.
+  six is an exporter.
 
 ## What it does not give them
 
 - **No container logs.** Alloy tails the *infra* VM's Docker socket, so nothing
-  running here reaches Loki — these four, and Coolify's own containers alike.
+  running here reaches Loki — these six, and Coolify's own containers alike.
   This is a gap for the whole machine, not for these applications:
   [docs/roadmap/apps-vm-logs.md](../docs/roadmap/apps-vm-logs.md).
 - **No container-state monitoring.** Uptime Kuma's container monitors read the
@@ -147,9 +179,11 @@ where **tier 1 is irreplaceable**.
 | Service | Tier | What is at stake |
 |---|---|---|
 | Paperless-ngx | **1** | Scanned documents. The originals are paper, or gone. |
+| Immich | **1** | Phone photos. It is the copy meant to outlive the phone — that is the point of running it. |
 | Mealie | 2 | Re-scrapable, tediously. |
 | LubeLogger | 2 | Hand-entered service history — no upstream to re-fetch it from. |
 | BookStack | 2 | Authored, but small. |
+| Habitica | 2 | Hand-entered habits and history. Losing it costs a streak, not a record. |
 
 Every one of those lives under `/data/<stack>` on the second disk — which is
 **excluded from whole-VM `vzdump`** (`backup=0`,
@@ -159,13 +193,22 @@ covered by nothing else. The file-level `restic` layer now exists
 VM** and this machine has not joined the repository
 ([roadmap/backup.md](../docs/roadmap/backup.md) names that gap and scopes it out).
 So the honest state today is: the apps VM's *root* disk is backed up and its
-**application data is not**. Paperless is tier 1 and ships its own
-`document_exporter`; run it by hand and copy `/data/paperless/export` off the box
-until this VM joins that repository.
+**application data is not**. Both tier 1 services ship their own exporter, and
+until this VM joins that repository running them by hand is the whole backup:
+Paperless' `document_exporter` writes to `/data/paperless/export`, and Immich
+dumps its database into `/data/immich/library/backups` on a schedule of its own.
+Copy both off the box.
 
-That gap is the reason Paperless is now the **only** tier 1 row here — the
-other one, Vaultwarden, was moved to the infra VM partly to get out from under
-it ([above](#vaultwarden-is-not-on-this-list-and-used-to-be)).
+Immich makes that gap sharper rather than merely wider. Its **library is the
+larger half and no exporter covers it** — the dumps hold metadata only, so a
+restore needs the files too, and those are hundreds of gigabytes that no
+hand-run command turns into an archive. Until this machine joins the restic
+repository, treat the instance as a second copy of what is still on the phone,
+not as where the phone's photos are kept.
+
+That the gap exists at all is why Vaultwarden, the third tier 1 service this
+machine used to hold, was moved to the infra VM
+([above](#vaultwarden-is-not-on-this-list-and-used-to-be)).
 
 ## Where the rest lives
 
@@ -183,7 +226,7 @@ This file is a pointer, not a registry. For any application above:
 The three registries in `docs/` cover **infra VM** services, where the
 implementation is clickwork with no other home — an Authentik application exists
 only in Authentik's database, a Kuma monitor only in Kuma's SQLite, so a file in
-this repo is the only durable record. These four have a git repository each
+this repo is the only durable record. These six have a git repository each
 instead, which is where a reader already goes to change them. A second copy here would
 drift, and a drifted registry is worse than none because it reads as
 authoritative.

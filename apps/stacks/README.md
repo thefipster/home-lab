@@ -17,6 +17,8 @@ in this repo.
 | [lubelogger](lubelogger/) | `lubelogger` | `lube.thefipster.de` | 8080 | PostgreSQL 18 |
 | [bookstack](bookstack/) | `bookstack` | `wiki.thefipster.de` | 80 | MariaDB 12.3 |
 | [paperless](paperless/) | `paperless` | `paperless.thefipster.de` | 8000 | PostgreSQL 18, Valkey 9 |
+| [immich](immich/) | `immich` | `immich.thefipster.de` | 2283 | PostgreSQL 18 **+ VectorChord**, Valkey 9, machine learning |
+| [habitica](habitica/) | `habitica` | `habitica.thefipster.de` | 3000 | **MongoDB 8** (replica set) |
 
 Domains match [apps/services.md](../services.md), which is the registry for them.
 
@@ -74,6 +76,13 @@ version-specific (`/var/lib/postgresql/18/docker`); left alone, a bind mount at
 the infra VM — and makes a future major bump fail loudly instead of silently initialising an empty
 `19/` beside the old data.
 
+**Two stacks do not run `postgres:18`, and both are forced.** BookStack supports no PostgreSQL at
+all and takes MariaDB; Habitica takes MongoDB. Immich looks like a third but is not: it runs
+Postgres 18 from **Immich's own image**, because it refuses to start without the VectorChord
+extension the stock image does not carry. It still sets `PGDATA` the same way, and it still keeps
+its data at `/data/immich/postgres`. Each stack's README states its case; `apps/services.md` in the
+`home-lab` repo records why the engine deviations were accepted.
+
 **Everything else is a plain variable with a sane default**, e.g. `${TZ:-Europe/Berlin}`, so a
 stack deploys unattended and is still tunable from Coolify's UI without editing the repo.
 Variables written as `${FOO:-default}` show up pre-filled in Coolify's environment editor, which
@@ -89,13 +98,23 @@ deployments and preview environments.
 **Healthchecks and `depends_on: condition: service_healthy`** on every database, so apps do not
 start against a database that is still initialising.
 
-**SSO by OIDC, staged off, local login kept.** Every stack here joins Authentik by **OIDC** — the
-lab convention for anything with real SSO support; forward-auth is only for UIs that have none.
-Each ships with SSO **off** and blank credentials, so the stack deploys and is verified before the
-Authentik provider exists, the same staging Grafana uses on the infra VM. Local login stays
-enabled everywhere as the break-glass path, with **one stated exception**: BookStack's
+**SSO by OIDC, staged off, local login kept.** Every stack here that *can* join Authentik does so
+by **OIDC** — the lab convention for anything with real SSO support; forward-auth is only for UIs
+that have none. Each ships with SSO **off** and blank credentials, so the stack deploys and is
+verified before the Authentik provider exists, the same staging Grafana uses on the infra VM. Local
+login stays enabled everywhere as the break-glass path, with **one stated exception**: BookStack's
 `AUTH_METHOD` takes a single value, so `oidc` *replaces* its login form and the break-glass is
 flipping that variable back rather than a second login box.
+
+**Two stacks step outside that shape, in different directions.** Immich has real OIDC and uses it,
+but its OAuth settings live in its own database and are entered in its admin UI — the file-based
+alternative (`IMMICH_CONFIG_FILE`) would freeze every other setting in that UI as well, so nothing
+is staged in its compose. Habitica has **no OIDC at all** and joins neither pattern: forward-auth
+would have to be declared inside Coolify's own proxy config, since the lab's forward-auth wiring
+lives on the infra VM's Traefik and does not reach this machine. Its access control is
+`INVITE_ONLY` and the LAN. Both cases are argued in the stack's own README, and Habitica's is the
+first application on this VM that joins no SSO pattern — `apps/services.md` in the `home-lab` repo
+used to say that never happens and now records why it does.
 
 Each stack's README carries the exact Authentik provider and application values in an
 **SSO (OIDC via Authentik)** section. That is deliberate placement, not a missing registry row:
@@ -120,6 +139,12 @@ inside the stack directories only — this file stays here and may link freely.
 
 `TZ` defaults to `Europe/Berlin` and Paperless OCR defaults to `deu+eng` across these stacks.
 Both are one variable each in the respective `.env.example`.
+
+Two are not variables and are easy to miss. **Habitica's first registered account becomes its
+admin**, so register before sharing the URL, then set `INVITE_ONLY=true`. And **Immich needs the
+proxy's `respondingTimeouts` raised** in *Servers → Proxy → Configuration*: Traefik's 60-second
+default cuts off any upload that takes longer, which is most videos. Both are spelled out in the
+respective README.
 
 ## Splitting into separate repositories
 
@@ -147,6 +172,6 @@ drift [apps/README.md](../README.md) argues against; the row in
 
 Coolify can back up Postgres/MariaDB on a schedule, but the data directories (uploads,
 attachments, scanned documents) are not covered by that. Where an app ships its own exporter —
-Mealie's Settings → Backups, Paperless' `document_exporter` — prefer it: those archives survive
-version upgrades, raw directory copies do not always. Per-service tiers are in
-[apps/services.md](../services.md#backup).
+Mealie's Settings → Backups, Paperless' `document_exporter`, Immich's automatic database dumps into
+`library/backups` — prefer it: those archives survive version upgrades, raw directory copies do not
+always. Per-service tiers are in [apps/services.md](../services.md#backup).

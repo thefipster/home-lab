@@ -1,0 +1,105 @@
+# Habitica — habit tracker and to-do list as a role-playing game
+# Upstream reference: https://github.com/awinterstein/habitica/blob/self-host/README.md
+#
+# Habitica publishes no production image. HabitRPG/habitica ships a development
+# compose only; the image below comes from a fork that rebases a set of
+# self-hosting adaptations onto every upstream release. That is a real trust
+# decision, not an implementation detail — see the README before deploying.
+#
+# Deployed on Coolify as a "Docker Compose" resource from this repository.
+# Coolify magic variables used here:
+#   SERVICE_URL_HABITICA_3000  -> generates the domain and points the proxy at port 3000
+#   ${SERVICE_HEX_64_*}        -> 32 random bytes, hex encoded (64 characters)
+#   ${SERVICE_HEX_32_*}        -> 16 random bytes, hex encoded (32 characters)
+#   ${SERVICE_PASSWORD_64_*}   -> 64 random alphanumerics
+#
+# State lives in bind mounts under /data/habitica on the apps VM — /data is the
+# 300 GB second disk, the same one Coolify keeps its own store on (/data/coolify).
+# Named volumes were deliberately dropped: a backup job needs a path it can walk.
+
+services:
+  habitica:
+    # The server image serves the built Vue client as well, so this is a
+    # two-container stack rather than the three the fork's "optimized" setup
+    # describes — that one hands the static files to a web server on the host,
+    # which on this VM would mean Coolify's proxy and a mount it cannot see.
+    #
+    # The tag is the upstream Habitica version the fork was rebased onto.
+    image: docker.io/awinterstein/habitica-server:5.48.8
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      - SERVICE_URL_HABITICA_3000
+      # Must match the domain configured under Coolify -> Domains, scheme
+      # included. Habitica builds its invite and password-reset links from it.
+      # Not derived from SERVICE_URL_/SERVICE_FQDN_: whether those carry a
+      # scheme has changed between Coolify versions.
+      - BASE_URL=${PUBLIC_URL:-https://habitica.thefipster.de}
+      # The driver discovers the replica set from this one seed; `mongo` is both
+      # the service name and the hostname the set advertises itself under.
+      - NODE_DB_URI=mongodb://mongo/habitica
+      # Deploy with this false, register the accounts you want, then set it true
+      # in Coolify and redeploy. It is the only thing standing between an
+      # unauthenticated visitor and an account on this instance — Habitica has
+      # no SSO to put in front of it, see the README.
+      - INVITE_ONLY=${INVITE_ONLY:-false}
+      # Sender address for the mails Habitica generates, and the address the
+      # fork treats as the instance's admin contact.
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-changeme@example.com}
+      # --- session secrets ---
+      # The image bakes placeholder values into its config.json ("YOUR SECRET
+      # HERE" and a counting-numbers key), and environment variables win over
+      # that file, so these three are not optional hardening — leaving them out
+      # ships a public key. SESSION_SECRET_KEY is read as a hex-encoded
+      # AES-256-GCM key, which is why it is 64 hex characters and not a
+      # password. All three must stay stable for the life of the database.
+      - SESSION_SECRET=${SERVICE_PASSWORD_64_SESSION}
+      - SESSION_SECRET_KEY=${SERVICE_HEX_64_SESSIONKEY}
+      - SESSION_SECRET_IV=${SERVICE_HEX_32_SESSIONIV}
+      # Single-node home lab: one web worker is plenty and keeps idle RAM low.
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-1}
+      # Log timestamps and the container's own clock. Habitica's day rollover is
+      # a per-user setting in the app, not this.
+      - TZ=${TZ:-Europe/Berlin}
+      # No SMTP variables here: without them Habitica simply sends no mail,
+      # which is the honest state of this lab. The README lists the five to add
+      # if that changes.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 http://127.0.0.1:3000/api/v3/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    # Habitica's own compose still says 7.0, which reaches end of support in
+    # 2026; its Mongoose 8 driver speaks 8.0 fine and this lab has no existing
+    # database to carry forward, so it starts on the newer line. If the server
+    # ever logs a driver or feature-compatibility error on boot, 7.0 is the
+    # fallback and nothing else in this file changes.
+    image: mongo:8.0.28
+    restart: unless-stopped
+    # Not cosmetic: rs.initiate() records this name as the replica set member
+    # address, and every client then dials exactly that. It has to resolve, so
+    # it has to match the service name.
+    hostname: mongo
+    # Habitica uses multi-document transactions, which MongoDB only offers on a
+    # replica set — hence a single-member set rather than a standalone server.
+    command: ["--replSet", "rs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - /data/habitica/db:/data/db
+      - /data/habitica/dbconf:/data/configdb
+    healthcheck:
+      # This is also what *creates* the replica set: rs.status() throws until
+      # the set exists, and the catch block initiates it. There is no init
+      # container and no manual step — the first successful health check is the
+      # set coming up, which is what `service_healthy` above waits for.
+      test: ["CMD-SHELL", "echo \"try { rs.status() } catch (err) { rs.initiate() }\" | mongosh --port 27017 --quiet"]
+      interval: 10s
+      timeout: 30s
+      start_interval: 1s
+      retries: 30
