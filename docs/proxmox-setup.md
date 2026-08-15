@@ -25,8 +25,14 @@ container day can't take down everything at once.
 1. **Enable virtualization in BIOS/UEFI**: Intel **VT-x** / AMD **AMD-V** (often
    "SVM"). Enable **IOMMU** (VT-d / AMD-Vi) too if you ever want PCI passthrough
    — harmless to leave on.
-2. **Download the Proxmox VE ISO** from <https://www.proxmox.com/downloads>.
-3. **Write it to a USB stick**:
+2. **While you are in there, set "Restore on AC Power Loss" to *Power On***
+   (some boards call it "AC Back" or "After Power Failure"). Without it the UPS
+   work in [Part 10](#part-10--survive-a-power-cut) is half-finished: the host
+   shuts its guests down cleanly on battery and then stays dark when mains
+   returns, because nothing tells it to boot. It costs nothing now and needs a
+   second trip into the firmware later.
+3. **Download the Proxmox VE ISO** from <https://www.proxmox.com/downloads>.
+4. **Write it to a USB stick**:
    - Linux/macOS: `dd if=proxmox-ve_*.iso of=/dev/sdX bs=4M status=progress` (pick
      the right `/dev/sdX`!), or
    - Windows: **Rufus** in **DD/raw** mode, or **balenaEtcher**.
@@ -715,13 +721,19 @@ and records from [Part 6](#part-6--give-the-vms-their-addresses-on-the-router),
 with [dns-records.md](dns-records.md) as the registry of exactly what to add.
 Every guide after it assumes those records exist.
 
-**Part 9 below is deliberately out of sequence — skip it now.** It watches the
-pools for degradation, which needs a Kuma push monitor and the hypervisor's node
-exporter, and neither exists until the infra VM is built. It lives in this guide
-because the script runs on the *hypervisor*, and
+**Parts 9 and 10 below are deliberately out of sequence — skip them now.** Both
+run on the *hypervisor*, which is why they live in this guide, and both report
+into things the infra VM has not built yet: a Kuma push monitor and this host's
+node exporter.
 [uptime-kuma-setup.md step 7](uptime-kuma-setup.md#7-go-back-to-the-proxmox-guide-for-the-pool-monitor)
-sends you back to it at the right moment. It is the only part of the build order
-that cannot be finished in its own guide's turn.
+sends you back here at the right moment. They are the only parts of the build
+order that cannot be finished in their own guide's turn.
+
+**Part 10 splits, and the split is worth knowing about.** Its shutdown chain —
+steps 1 to 5 — depends on nothing but the UPS and this host, so it can be done
+the day the hardware is plugged in, long before Uptime Kuma exists. Only its
+reporting half waits. If you have the UPS now, do the first half now: it is the
+half that protects the pools.
 
 ---
 
@@ -969,6 +981,339 @@ on a five-minute poll. It is better latency, and it needs a working outbound MTA
 — Proxmox's stock postfix only delivers locally, so it is a mail relay to
 configure rather than a checkbox. Worth adding as a belt to this braces; not
 worth blocking on.
+
+---
+
+## Part 10 — Survive a power cut
+
+> **Steps 1–5 need nothing but the UPS and this host** — do them the day the
+> hardware arrives. **Steps 6–8 need the infra VM**: a Kuma push monitor, and
+> the `prometheus-node-exporter` that
+> [grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host) installs
+> here. Same dependency as [Part 9](#part-9--notice-when-a-mirror-degrades), and
+> arriving here in build order needs no extra installs.
+
+ZFS survives having the power pulled — that is what the transaction log is for.
+The things that do not are the writes in flight inside three VMs, the 02:00
+backup window, and the 04:30 patch-reboot window. A power cut offers roughly
+zero seconds to finish any of them, so the fix is not better crash tolerance but
+**a few minutes of borrowed time and an orderly shutdown inside it.**
+
+The hardware is a **CyberPower CP900EPFCLCD** — 900 VA / 540 W, line-interactive,
+PFC sinewave — connected to this host by its **USB data cable**, not just its
+power lead. That cable is the whole integration; without it the UPS is a battery
+that nothing can ask any questions.
+
+**What goes on the battery outlets.** These units split their sockets into
+battery-backed and surge-only, and the difference is invisible until it matters.
+The server, the **UDR** and any switch between them belong on the battery side —
+the network has to outlive the server so the shutdown can be reported while it
+happens.
+
+> **Check where your modem or ONT is plugged in.** Notifications leave the lab
+> through hosted ntfy.sh, so the WAN termination is part of the alerting path.
+> On an unprotected socket it dies with the mains, and the entire reporting half
+> of this Part goes silent at exactly the moment it exists for. Everything else
+> still works — the shutdown is driven over USB and needs no network at all —
+> you simply find out afterwards.
+
+What this buys is **an orderly shutdown, not continuity**: no generator, no
+second UPS, nothing offsite. The lab goes down. It goes down on purpose, in the
+right order, and it comes back by itself.
+
+### 1. Install NUT and confirm the UPS is seen
+
+```bash
+apt install nut-server nut-client
+```
+
+```bash
+lsusb | grep -i cyber
+```
+
+A line naming CyberPower means the kernel has the device. Then ask NUT whether
+it recognises it as a UPS:
+
+```bash
+nut-scanner -U
+```
+
+That prints a ready-made `ups.conf` stanza. The next step writes one by hand
+anyway, so the file carries this lab's own comments rather than a generated
+block — but a scanner that finds nothing is the signal to stop and check the
+cable before going further.
+
+### 2. Configure NUT
+
+**Standalone mode**, with `upsd` listening on loopback only. Nothing else on the
+LAN talks to it, because no VM runs a NUT client — step 3 is where that decision
+lives.
+
+```bash
+echo "MODE=standalone" > /etc/nut/nut.conf
+```
+
+```bash
+cat > /etc/nut/ups.conf <<'EOF'
+# Named `ups`, not after the model. The name appears in upsmon.conf, upsd.users,
+# upssched.conf and every upsc call, and it should survive a hardware swap --
+# the same function-not-product rule the Kuma monitors follow.
+[ups]
+  driver = usbhid-ups
+  port = auto
+  desc = "CyberPower CP900EPFCLCD"
+EOF
+```
+
+```bash
+cat > /etc/nut/upsd.conf <<'EOF'
+# Loopback only. The guests are shut down by Proxmox itself, not by NUT clients,
+# so nothing off this host ever needs to reach upsd.
+LISTEN 127.0.0.1 3493
+EOF
+```
+
+Generate the monitoring password rather than inventing one, the same way every
+init script in this repo mints a secret. **The next three blocks run in one
+shell session** — the variable is what carries the password into both files, and
+a fresh shell between them writes an empty password into `upsmon.conf`, which
+fails later with a message about credentials rather than about a typo:
+
+```bash
+NUT_PASS="$(openssl rand -hex 24)"
+```
+
+```bash
+cat > /etc/nut/upsd.users <<EOF
+[upsmon]
+  password = ${NUT_PASS}
+  upsmon primary
+EOF
+```
+
+```bash
+cat > /etc/nut/upsmon.conf <<EOF
+MONITOR ups@localhost 1 upsmon ${NUT_PASS} primary
+MINSUPPLIES 1
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+POWERDOWNFLAG /etc/killpower
+NOTIFYCMD /usr/sbin/upssched
+NOTIFYFLAG ONLINE   SYSLOG+EXEC
+NOTIFYFLAG ONBATT   SYSLOG+EXEC
+NOTIFYFLAG LOWBATT  SYSLOG+EXEC
+NOTIFYFLAG SHUTDOWN SYSLOG
+NOTIFYFLAG COMMBAD  SYSLOG
+NOTIFYFLAG COMMOK   SYSLOG
+EOF
+```
+
+Both files now hold that password, so both get locked down:
+
+```bash
+chown root:nut /etc/nut/upsd.users /etc/nut/upsmon.conf && chmod 640 /etc/nut/upsd.users /etc/nut/upsmon.conf
+```
+
+```bash
+systemctl restart nut-server nut-monitor
+```
+
+```bash
+upsc ups
+```
+
+`ups.status` should read `OL` — on line. You will also see `output.voltage`
+somewhere in the 260–270 V range, which is **wrong** and is a known quirk of
+this model under `usbhid-ups`
+([NUT #581](https://github.com/networkupstools/nut/issues/581)). It is cosmetic
+and it is the reason nothing in this Part alerts on a voltage reading. Charge,
+runtime, load and status are the fields to trust.
+
+### 3. Set the guest shutdown order and timeout
+
+**No VM runs a NUT client, deliberately.** Proxmox already does this job:
+`pve-guests.service` shuts every guest down when the host halts, calling
+`pvesh create /nodes/localhost/stopall`, which goes through the guest agent,
+falls back to ACPI, and forces off after a per-guest timeout.
+
+Three things make that the better answer rather than merely the easier one.
+`scripts/init-host.sh` already installs `qemu-guest-agent` on both Ubuntu VMs
+and HAOS ships it, so the clean path works for all three — the same investment
+that makes `vzdump`'s Snapshot mode consistent in
+[Part 8](#part-8--schedule-whole-vm-backups). The home-assistant VM is an
+**appliance** this repo has no shell inside, so a design needing a client in
+every guest would have had a hole in it from the start. And one shutdown path is
+easier to reason about than four racing opinions about when to begin.
+
+Two things are left to defaults today and should not be. **The order matters
+because Uptime Kuma runs on the infra VM**, and it should be the last thing
+alive so it can report for as long as possible. Guests shut down in *reverse*
+start order, and guests with no configured order fall back to VMID — which here
+already gives `ha → apps → infra`. That is correct by accident, which is not a
+good enough reason to leave it implicit:
+
+```bash
+qm set 101 --startup order=1,down=90
+```
+
+```bash
+qm set 102 --startup order=2,down=90
+```
+
+```bash
+qm set 103 --startup order=3,down=90
+```
+
+**`down=90` is the other half, and it is arithmetic rather than taste.** Proxmox
+defaults to 180 s per guest, so three guests is **9 minutes** of worst case —
+the dominant term in the backstop sizing in step 4, and more than this UPS can
+comfortably fund. Both Ubuntu VMs halt in well under 90 s, so the trim costs
+nothing real and brings the worst case to 4.5 minutes.
+
+```bash
+for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; done
+```
+
+### 4. Decide when to shut down
+
+The trigger is the UPS's own low-battery flag, with an `upssched` timer started
+on `ONBATT` and cancelled on `ONLINE` as a backstop. That much is the standard
+arrangement. What is worth knowing before you read the file is **which of the
+two actually fires**.
+
+At this load the unit gives roughly 15–20 minutes and raises `LB` near the end
+of it — on the order of 4–5 minutes remaining. Against a 4.5-minute worst-case
+guest shutdown, `LB` alone leaves no margin at all. **So the backstop is not
+insurance for a tired battery; it is what fires in practice, and its value is
+the actual policy.** The `LB` path stays as the floor beneath it.
+
+Size it by the relationship, not by the number:
+
+> **backstop + worst-case guest shutdown < measured runtime**
+
+300 s + 270 s is 9.5 minutes, against a runtime step 8 measures rather than
+assumes. If that measurement comes back short, this is the number to move.
+
+```bash
+cat > /etc/nut/upssched.conf <<'EOF'
+CMDSCRIPT /usr/local/bin/upssched-cmd
+PIPEFN /run/nut/upssched.pipe
+LOCKFN /run/nut/upssched.lock
+
+# The backstop. See Part 10 step 4 for the arithmetic: this value plus the
+# worst-case guest shutdown must stay under the measured runtime.
+AT ONBATT  * START-TIMER  onbatt-shutdown 300
+AT ONLINE  * CANCEL-TIMER onbatt-shutdown
+
+# Report immediately. Kuma runs on a guest of this host and dies with it, so the
+# window between ONBATT and the infra VM halting is the ONLY one in which an
+# outage can be reported at all. A five-minute poll would routinely miss it.
+AT ONBATT  * EXECUTE      power-event
+AT ONLINE  * EXECUTE      power-event
+AT LOWBATT * EXECUTE      power-event
+EOF
+```
+
+```bash
+cat > /usr/local/bin/upssched-cmd <<'EOF'
+#!/usr/bin/env bash
+# Called by upssched (running as the `nut` user) for each AT rule above.
+set -uo pipefail
+
+case "$1" in
+  onbatt-shutdown)
+    # Goes through upsmon rather than calling shutdown directly. That is what
+    # writes POWERDOWNFLAG, which is what tells the UPS to cut power afterwards
+    # so the box comes back when mains returns. Calling `shutdown` here would
+    # halt the host perfectly correctly and silently skip the half that revives
+    # it -- a failure you would discover during an outage, not before one.
+    logger -t upssched-cmd "backstop timer expired - forcing shutdown"
+    /usr/sbin/upsmon -c fsd
+    ;;
+  power-event)
+    /usr/local/bin/ups-health-push.sh
+    ;;
+  *)
+    logger -t upssched-cmd "unrecognised argument: $1"
+    ;;
+esac
+EOF
+```
+
+```bash
+chmod +x /usr/local/bin/upssched-cmd
+```
+
+`power-event` calls a script **step 6** creates. Until then that branch logs a
+failure and does nothing else, which is harmless and exactly what you should see
+if you wired the UPS up before Uptime Kuma existed.
+
+### 5. Make the lab come back on its own
+
+Two halves, and **either one alone leaves the box dark.**
+
+The first is the BIOS setting from [Part 1](#part-1--prerequisites) — *Restore
+on AC Power Loss* set to *Power On*. The second is killpower: `upsmon` writes
+`/etc/killpower` before halting, and a systemd shutdown hook then runs
+`upsdrvctl shutdown`, telling the UPS to cut its own output after a delay and
+restore it when mains returns. **That interruption is what the BIOS setting
+reacts to.**
+
+Without it there is a specific, quiet failure. If mains comes back while the
+host is still halting, the UPS never interrupts its output, so nothing ever
+power-cycles — and the server sits off after an outage it appeared to handle
+perfectly, waiting for someone to walk over and press the button.
+
+**A long-standing Debian defect sits exactly here.** Look at the hook the
+package ships:
+
+```bash
+cat /usr/lib/systemd/system-shutdown/nutshutdown
+```
+
+If it gates the killpower call on `upsmon -K`, that command has been reported to
+always return false, so `upsdrvctl shutdown` never runs
+([Debian #835555](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=835555)).
+**Do not edit that file** — it lives under `/usr/lib` and is not a conffile, so
+the next `nut-client` upgrade silently reverts you. Add your own beside it:
+
+```bash
+cat > /usr/lib/systemd/system-shutdown/zz-nut-killpower <<'EOF'
+#!/bin/sh
+# Cut UPS output after a power-fail shutdown, so the UPS cycles the load when
+# mains returns and the BIOS "restore on AC power loss" setting boots the box.
+#
+# A SEPARATE file on purpose. Debian's own nutshutdown gates on `upsmon -K`,
+# which has been reported to always return false (Debian #835555) -- but it
+# lives under /usr/lib and is not a conffile, so editing it in place is
+# silently reverted by the next nut-client upgrade. This runs alongside it from
+# a plain file test. If nutshutdown is ever fixed, both run and the second one
+# is a harmless no-op.
+#
+# Only on poweroff/halt. A REBOOT must not cut the UPS.
+case "$1" in
+  poweroff|halt)
+    [ -f /etc/killpower ] && /sbin/upsdrvctl shutdown
+    ;;
+esac
+EOF
+```
+
+```bash
+chmod +x /usr/lib/systemd/system-shutdown/zz-nut-killpower
+```
+
+```bash
+sh -n /usr/lib/systemd/system-shutdown/zz-nut-killpower && echo "syntax ok"
+```
+
+```bash
+upsdrvctl -t shutdown
+```
+
+`-t` is a dry run: it confirms the driver would accept the command without
+actually cutting power. That is all it proves. The real proof is the drill in
+**step 8**, because this is the half most likely to be silently broken and the
+only one whose failure waits for a real outage to show itself.
 
 ---
 
