@@ -323,6 +323,21 @@ Register an ACME account against Let's Encrypt:
 pvenode acme account register default <your-acme-email>
 ```
 
+**It prompts for a directory endpoint — pick `0`, Let's Encrypt V2
+(production).** This is the same call
+[traefik-setup.md](traefik-setup.md) makes: first issuance goes **straight to
+the production CA**, one challenge total, with staging kept only for debugging
+issuance that keeps failing.
+
+Going to staging first would cost a second netcup propagation wait — up to ten
+minutes each — for a certificate browsers still refuse, and it would tell you
+nothing, because the failure you are actually likely to hit here is netcup being
+slow rather than the CA objecting, and that looks identical against either
+endpoint. The rate limit worth respecting (roughly five failed validations per
+hostname per hour) is not in play for one exact name ordered once. If issuance
+*does* keep failing, the CA is the lever to move then — not the account you
+register now.
+
 Stage the credentials in a file for the plugin to read:
 
 ```bash
@@ -356,6 +371,11 @@ pvenode config set --acmedomain0 pve.thefipster.de,plugin=netcup
 ```bash
 pvenode acme cert order
 ```
+
+**Expect it to sit at `pending` for a long stretch** — that is the validation
+delay above waiting on netcup, not a hang. Watch it under *pve → Certificates*
+or in the task log rather than interrupting it; a cancelled order leaves a
+challenge record behind that the next attempt has to race.
 
 Verify the issuer and the subject — this one runs on the host and checks the
 certificate only, not yet the port:
