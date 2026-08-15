@@ -154,12 +154,14 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
-**Three services join neither, deliberately.** Treat all three as stated
-exceptions, not gaps to close. The reasoning lives in `sso-applications.md`, and
+**Four services join neither, deliberately.** Treat every one as a stated
+exception, not a gap to close. The reasoning lives in `sso-applications.md`, and
 each absence is commented in place so someone about to "fix" it reads why first.
-Two of them have no OIDC, so the convention would point at forward-auth; the
-first one **does** have OIDC and declines it anyway, which makes it the single
-exception to "anything with native OIDC uses it".
+Kuma and Home Assistant have no OIDC, so the convention would point them at
+forward-auth; **Vaultwarden and the Proxmox web UI both have OIDC and decline
+it**, which makes them the exceptions to "anything with native OIDC uses it" —
+one holds the credentials for repairing Authentik, the other is the console for
+repairing the machine Authentik runs on.
 
 - **Vaultwarden.** It holds the credentials for repairing Authentik, so a vault
   that dies with the identity provider is the one outage with no way out —
@@ -180,6 +182,15 @@ exception to "anything with native OIDC uses it".
   notifications, presence and inbound automations. Break-glass would mean editing
   Traefik config over SSH while the lights do not respond.
   `infra/traefik/dynamic/ha.yaml` carries no `middlewares` key.
+- **The Proxmox web UI.** The one exception on a machine this repo cannot write
+  to, and the one where **both** patterns are foreclosed. It has a native OIDC
+  realm and declines it: this is the console for repairing the machine Authentik
+  runs on, and an additive realm would leave `root@pam` as the real break-glass
+  anyway, so it buys a moving part and removes nothing. Forward-auth is not
+  available either — the hypervisor terminates its **own** TLS on 443 with its
+  own exact certificate, so there is no Traefik router to label. Its absence is
+  therefore not the same shape as the three above, and it is **not** among the
+  hosts named in the `infra/authentik/compose.yaml` comment below.
 
 `infra/authentik/compose.yaml` carries **no** `/outpost.goauthentik.io/` router
 for any of the three hosts, with a comment naming all three and why.

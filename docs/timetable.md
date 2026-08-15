@@ -52,6 +52,7 @@ one document.
 | **1 min** | infra VM | Grafana alert rule group evaluation. A rule fires only after its `for:` holds — 5 m, 15 m or 1 h depending on the rule | [`rules.yaml`](../infra/monitoring/grafana/provisioning/alerting/rules.yaml) |
 | **~10 min** | infra VM | Forgejo pull-mirror sync from GitHub — **per repository**, set in Forgejo's own UI, so this is a convention rather than a declaration | [forgejo-setup.md step 6](forgejo-setup.md#6-mirror-a-repo-from-github) |
 | **daily** | infra VM | Traefik's ACME renewal check; it renews the wildcard when under 30 days remain. Traefik's built-in behaviour — nothing in the compose overrides it | [`traefik/compose.yaml`](../infra/traefik/compose.yaml) |
+| **daily** | Proxmox host | Proxmox's ACME renewal check; it renews the exact `pve.thefipster.de` certificate when under 30 days remain. `pve-daily-update.timer`, which also does the APT update check — nothing here overrides either | [proxmox-setup.md Part 3](proxmox-setup.md#give-the-host-a-real-certificate) |
 
 **Kuma's two push monitors invert the rule.** They are not polls — Kuma waits to
 be called, so the interval is a deadline and silence past it is the alarm. Each

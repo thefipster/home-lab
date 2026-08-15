@@ -24,19 +24,23 @@ convention):
   non-browser traffic (git push, `docker login`/registry, CI).
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support.
 
-**Three** services join **neither**, deliberately — see
+**Four** services join **neither**, deliberately — see
 [Vaultwarden](#vaultwarden-deliberately-not-joined),
-[Uptime Kuma](#uptime-kuma-deliberately-not-joined) and
-[Home Assistant](#home-assistant-deliberately-not-joined). They are listed here
-so this registry stays an honest account of every service's relationship to
-Authentik, not only the ones that joined. All three are decisions, not gaps: in
-each case the break-glass path for an Authentik outage would need `ssh` at
-precisely the moment you are least able to use it.
+[Uptime Kuma](#uptime-kuma-deliberately-not-joined),
+[Home Assistant](#home-assistant-deliberately-not-joined) and
+[the Proxmox web UI](#the-proxmox-web-ui-deliberately-not-joined). They are
+listed here so this registry stays an honest account of every service's
+relationship to Authentik, not only the ones that joined. Every one is a
+decision, not a gap: in each case the break-glass path for an Authentik outage
+would need `ssh` at precisely the moment you are least able to use it.
 
-**Only one of the three could have joined.** Kuma and Home Assistant have no
-OIDC support at all, so the convention would have pointed them at forward-auth.
-Vaultwarden **has** OIDC, which makes it the single service in the lab that
-declines a pattern it qualifies for.
+**They divide by whether they could have joined at all.** Kuma and Home
+Assistant have no OIDC support, so the convention would have pointed them at
+forward-auth and the answer is about the proxy. Vaultwarden and the Proxmox web
+UI both **have** OIDC and decline it, which makes them the services in the lab
+that turn down a pattern they qualify for — and for reasons that rhyme. One
+holds the credentials for repairing Authentik; the other is the console for
+repairing the machine Authentik runs on.
 
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
@@ -48,6 +52,7 @@ declines a pattern it qualifies for.
 | Vaultwarden | **none** (deliberate) | Vaultwarden's own master-password login | [vaultwarden-setup.md, step 5](vaultwarden-setup.md#5-create-your-account) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](uptime-kuma-setup.md#4-create-the-admin-account) |
 | Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](home-assistant-setup.md#7-make-it-reachable-through-traefik) |
+| Proxmox web UI | **none** (deliberate) | Proxmox's own `root@pam` login | [proxmox-setup.md, Part 3](proxmox-setup.md#give-the-host-a-real-certificate) |
 
 ## Forward-auth: Dockge, Traefik dashboard & Homepage
 
@@ -215,18 +220,49 @@ Nothing to click in Authentik, and nothing to undo:
 `infra/traefik/dynamic/ha.yaml` carries **no** `middlewares` key. Both absences
 are deliberate and commented in place.
 
+## The Proxmox web UI (deliberately not joined)
+
+The exception the convention points hardest at, and the only one on a machine
+this repo cannot write to. Proxmox has a native **OpenID Connect realm** — so
+unlike Kuma and Home Assistant, the answer here is not forward-auth-by-default,
+it is a real OIDC integration that would work. It is **not** configured.
+
+This is the console you use to repair the machine Authentik runs on. Authentik
+is a container on the infra VM; the infra VM is a guest of this hypervisor. When
+SSO is broken badly enough to matter, this UI is how you open a console, roll
+back a snapshot, or start a VM that will not start — and it should not be
+reached through the thing you are repairing.
+
+An OIDC realm is *additive*, so `root@pam` would survive it and break-glass
+would technically remain. That is exactly what makes it not worth doing: the
+realm would add a moving part between you and a box you only visit when
+something is already wrong, without removing the local login you would fall back
+to anyway.
+
+**It is also the one lab UI Traefik does not front**, which forecloses the other
+pattern entirely. The hypervisor terminates its own TLS with its own certificate
+([proxmox-setup.md, Part 3](proxmox-setup.md#serve-it-on-443)), for the same
+independence reason — so there is no Traefik router here to attach a
+`middlewares` label to, and forward-auth was never available even as a fallback.
+
+Nothing to click in Authentik, and nothing to undo. Note that this absence is
+**not** the same shape as the three above: `infra/authentik/compose.yaml`
+correctly carries no outpost router for this host, but that file's comment names
+the hosts Traefik routes and deliberately gated — this host is not among them
+because Traefik does not route it at all.
+
 ## The backup job (not an application at all)
 
 `infra/backup/` is a systemd timer on the infra VM
 ([backup-setup.md](backup-setup.md)). It has no browser UI to gate and speaks no
 OIDC, so it is not a candidate for either pattern — recorded here so that the
-absence reads as a decision rather than an oversight, the same as the three
+absence reads as a decision rather than an oversight, the same as the sections
 above.
 
-It is not counted among the **three** deliberate non-joiners for that reason:
-those are services that could have joined and did not. This one was never
-eligible. It authenticates to exactly one thing, the repository over SSH, with a
-key in `/root/.ssh/id_ed25519` that Authentik has no part in.
+It is **not** counted among the deliberate non-joiners for that reason: those
+are services that could have joined and did not. This one was never eligible. It
+authenticates to exactly one thing, the repository over SSH, with a key in
+`/root/.ssh/id_ed25519` that Authentik has no part in.
 
 ## Access bindings
 

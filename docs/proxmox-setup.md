@@ -284,6 +284,186 @@ The initramfs rebuild above is what makes the value survive the next boot:
 echo 17179869184 > /sys/module/zfs/parameters/zfs_arc_max
 ```
 
+### Give the host a real certificate
+
+The UI you accepted a warning for above can have a genuine one, and it is worth
+doing now rather than later: every step from here on that talks to this host
+over HTTPS stops needing an exception, and so does every browser you ever open
+it in.
+
+Proxmox ships its **own** ACME client, and it speaks the same DNS-provider API
+set as `acme.sh` — netcup included. So the hypervisor issues its own certificate
+and depends on nothing else in the lab to do it. That independence is the whole
+design here, and [Serve it on 443](#serve-it-on-443) below says why it is worth
+paying for.
+
+**Ask for the exact name, never a wildcard.** [Traefik](traefik-setup.md) will
+later request `*.thefipster.de`, and Coolify's proxy requests a wildcard of its
+own — both validating at the same `_acme-challenge.thefipster.de`. netcup's zone
+updates are not atomic, so two clients writing one FQDN is how a challenge times
+out with nothing to explain it; the same hazard is why the wildcard carries no
+apex SAN (`infra/traefik/compose.yaml`). An exact certificate for
+`pve.thefipster.de` validates at `_acme-challenge.pve.thefipster.de` — a
+different record — and races with nobody.
+
+You need three values from netcup's customer control panel, the same three
+Traefik will want later: **customer number**, **API key**, **API password**.
+Once [Vaultwarden](vaultwarden-setup.md) exists that is where they live; for now
+have them to hand.
+
+Register an ACME account against Let's Encrypt:
+
+```bash
+pvenode acme account register default <your-acme-email>
+```
+
+Stage the credentials in a file for the plugin to read:
+
+```bash
+printf 'NC_Apikey=%s\nNC_Apipw=%s\nNC_CID=%s\n' '<api-key>' '<api-password>' '<customer-number>' > /tmp/netcup.env
+```
+
+```bash
+pvenode acme plugin add dns netcup --api netcup --data /tmp/netcup.env --validation-delay 900
+```
+
+```bash
+rm -f /tmp/netcup.env
+```
+
+**That `rm` is a step, not tidying up.** Proxmox reads the file once and copies
+the values into `/etc/pve/priv/acme/plugins.cfg`; leaving the original behind
+means a second plaintext copy of your DNS credentials sitting in `/tmp`, where
+nothing will ever remind you it is there.
+
+The 900-second validation delay matches the `NETCUP_PROPAGATION_TIMEOUT` that
+[traefik-setup.md](traefik-setup.md) sets for the same reason: netcup publishes
+TXT records slowly, often around ten minutes, regardless of which client is
+asking. Expect the wait rather than assuming the order has hung.
+
+Point the node at the name and order the certificate:
+
+```bash
+pvenode config set --acmedomain0 pve.thefipster.de,plugin=netcup
+```
+
+```bash
+pvenode acme cert order
+```
+
+Verify the issuer and the subject — this one runs on the host and checks the
+certificate only, not yet the port:
+
+```bash
+openssl s_client -connect localhost:8006 -servername pve.thefipster.de </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates
+```
+
+The issuer must be Let's Encrypt and the subject `CN=pve.thefipster.de`. If it
+still reads `CN=pve.thefipster.de` with a Proxmox issuer, the order did not
+replace anything — re-read the task log under *pve → Certificates*.
+
+Renewal needs nothing from you. Proxmox's own `pve-daily-update.timer` renews
+when fewer than 30 days remain, which is the same policy Traefik applies to the
+wildcard, on a different clock ([timetable.md](timetable.md)).
+
+### Serve it on 443
+
+pveproxy cannot be moved off 8006 — the port is not configurable — so the way to
+answer on 443 is to rewrite the destination port *below* pveproxy rather than
+put another web server in front of it.
+
+```bash
+mkdir -p /etc/nftables.d
+```
+
+```bash
+cat > /etc/nftables.d/pve-https-redirect.nft <<'EOF'
+#!/usr/sbin/nft -f
+# Serve the Proxmox web UI on :443 by rewriting the destination port to :8006.
+#
+# Its OWN table, declared-then-deleted-then-created so this file is idempotent.
+# It deliberately does not touch /etc/nftables.conf, so it coexists with
+# proxmox-firewall instead of fighting it for ownership of the ruleset.
+#
+# dstnat priority puts this ahead of any filter chain, so a firewall downstream
+# sees dport 8006 -- which Proxmox's own management rules already permit.
+# Nothing new has to be opened.
+#
+# DNAT rewrites the destination only, so pveproxy still sees the real client
+# address. A socket proxy or an nginx front end would have had every connection
+# arrive from loopback instead.
+table inet pve-https
+delete table inet pve-https
+table inet pve-https {
+  chain prerouting {
+    type nat hook prerouting priority dstnat; policy accept;
+    tcp dport 443 redirect to :8006
+  }
+}
+EOF
+```
+
+```bash
+cat > /etc/systemd/system/pve-https-redirect.service <<'EOF'
+[Unit]
+Description=Serve the Proxmox web UI on :443 by redirecting to :8006
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/pve-https-redirect.nft
+ExecStop=-/usr/sbin/nft delete table inet pve-https
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+The `-` on `ExecStop` is deliberate: deleting a table that is not there must not
+fail the unit.
+
+```bash
+systemctl enable --now pve-https-redirect.service
+```
+
+```bash
+nft list table inet pve-https
+```
+
+**`:8006` stays open.** This adds a door; it does not close one — and that door
+is the fallback the day the rule is wrong.
+
+> **Verify from a LAN client, not from this host.** Locally-generated traffic
+> never traverses `prerouting`, so running the check below *on the hypervisor*
+> bypasses the rule entirely and fails in a way that looks exactly like a broken
+> rule. This is the single most expensive misunderstanding in this Part.
+>
+> ```bash
+> curl -sI https://pve.thefipster.de | head -1
+> ```
+>
+> Or from the Windows workstation:
+>
+> ```powershell
+> (Invoke-WebRequest -Uri https://pve.thefipster.de -Method Head).StatusCode
+> ```
+
+**Why this host and not Traefik.** Every other UI in the lab is fronted by
+Traefik on the infra VM, and this one deliberately is not. Traefik can only
+serve a name that resolves to the infra VM, so `pve.thefipster.de` would have to
+become a *service* name pointing there — forcing a new name on the machine, which
+Alloy's scrape target, the restic repository and the FQDN typed into the
+installer would all have to follow. The deeper objection stands even if that
+rename were free: it would make the hypervisor's management UI depend on one of
+the hypervisor's own guests, and this UI is the repair surface. It is where you
+start a VM that will not start and open a console to find out why. Same
+reasoning that keeps [Vaultwarden](vaultwarden-setup.md) out of SSO, one level
+down — and it is why the Proxmox web UI appears in
+[sso-applications.md](sso-applications.md#the-proxmox-web-ui-deliberately-not-joined)
+as a deliberate non-joiner rather than as a gap.
+
 ### Update and reboot
 
 ```bash
