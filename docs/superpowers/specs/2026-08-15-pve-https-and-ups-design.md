@@ -12,11 +12,13 @@ on the one machine in the lab with no checkout of this repo.
    the host and all three guests, and reporting into the lab's existing
    notification and metrics layers.
 
-Neither one adds a compose stack, an init script or a file under `infra/`. The
-hypervisor has no checkout, so both land as guide text with inline heredocs —
+Neither one adds a compose stack or an init script. The hypervisor has no
+checkout, so almost all of it lands as guide text with inline heredocs —
 the same call [grafana-setup.md step 6](../../grafana-setup.md#6-add-the-proxmox-host)
 and [proxmox-setup.md Part 9](../../proxmox-setup.md#part-9--notice-when-a-mirror-degrades)
-already make.
+already make. The one exception is the Grafana alert rule below, which is
+provisioned from this repo like every other rule and so is a real file change on
+the infra VM.
 
 ---
 
@@ -340,11 +342,12 @@ battery is replaced.
 
 # Change surface
 
-Everything is documentation. No file under `infra/`, `apps/`, `scripts/` or
-`home-assistant/` changes.
+Almost everything is documentation. Nothing under `apps/`, `scripts/` or
+`home-assistant/` changes, and no new compose stack or init script exists.
 
 | File | Change |
 |---|---|
+| `infra/monitoring/grafana/provisioning/alerting/rules.yaml` | The `UpsBatteryAging` rule — the one non-documentation change, provisioned like every other rule. |
 | `docs/proxmox-setup.md` | Part 1 gains the BIOS power-restore setting. Part 3 gains two subsections: the ACME certificate, and the 443 redirect. A new **Part 10** holds the whole UPS build, following Part 9's out-of-sequence precedent. |
 | `docs/dns-records.md` | No new record. The `pve` row's *Serves* column gains the UI on 443 and the fact that the name is now an ACME subject. |
 | `docs/sso-applications.md` | A deliberate non-row for the Proxmox web UI, and the wording change that follows from it being the exception that *has* OIDC. |
