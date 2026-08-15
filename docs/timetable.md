@@ -45,6 +45,7 @@ one document.
 | Every | Machine | Operation | Declared in |
 |---|---|---|---|
 | **5 min** | Proxmox host | ZFS pool health pushed to Kuma, and `zfs_pool_*` written for Prometheus (`OnBootSec=2min`, then `OnUnitActiveSec=5min`) | [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
+| **5 min** | Proxmox host | UPS state pushed to Kuma, and `ups_*` written for Prometheus (same `OnBootSec`/`OnUnitActiveSec` shape). Also fired **immediately** by NUT's `upssched` on every power event, which is the push that matters | [proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut) |
 | **60 s** | infra VM | Uptime Kuma checks — Kuma's default, used by every monitor except the two push rows below | [uptime-kuma-monitors.md](uptime-kuma-monitors.md) |
 | **15 s** | infra VM | Prometheus scrape **and** rule evaluation | [`prometheus.yml`](../infra/monitoring/prometheus/prometheus.yml) |
 | **15 s** | infra VM | Alloy scrapes (every target but one) and its Docker discovery refresh | [`config.alloy`](../infra/monitoring/alloy/config.alloy) |
@@ -54,13 +55,14 @@ one document.
 | **daily** | infra VM | Traefik's ACME renewal check; it renews the wildcard when under 30 days remain. Traefik's built-in behaviour — nothing in the compose overrides it | [`traefik/compose.yaml`](../infra/traefik/compose.yaml) |
 | **daily** | Proxmox host | Proxmox's ACME renewal check; it renews the exact `pve.thefipster.de` certificate when under 30 days remain. `pve-daily-update.timer`, which also does the APT update check — nothing here overrides either | [proxmox-setup.md Part 3](proxmox-setup.md#give-the-host-a-real-certificate) |
 
-**Kuma's two push monitors invert the rule.** They are not polls — Kuma waits to
-be called, so the interval is a deadline and silence past it is the alarm. Each
-one has to outlast the job that feeds it:
+**Kuma's push monitors invert the rule.** They are not polls — Kuma waits to be
+called, so the interval is a deadline and silence past it is the alarm. Each one
+has to outlast the job that feeds it:
 
 | Heartbeat | Monitor | Fed by |
 |---|---|---|
 | **300 s**, 2 retries | Hypervisor Storage | the 5-minute ZFS timer above |
+| **300 s**, 2 retries | Site Power | the 5-minute UPS timer above, plus every `upssched` power event |
 | **90000 s** (25 h), 0 retries | Backup Job | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
 
 That arithmetic is the pattern to copy: **heartbeat > period + jitter + worst

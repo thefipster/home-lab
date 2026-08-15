@@ -1315,6 +1315,269 @@ actually cutting power. That is all it proves. The real proof is the drill in
 **step 8**, because this is the half most likely to be silently broken and the
 only one whose failure waits for a real outage to show itself.
 
+### 6. Report UPS state to Kuma and Prometheus
+
+This mirrors `zfs-health-push.sh` from
+[Part 9](#part-9--notice-when-a-mirror-degrades) deliberately, because it is the
+same problem: a condition on a machine with no checkout of the repo, wanted in
+two places at once. One `upsc` read does both jobs.
+
+Create the Kuma monitor first — its row is in
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#power--proxmox-host) — and
+copy its push URL.
+
+```bash
+cat > /usr/local/bin/ups-health-push.sh <<'EOF'
+#!/usr/bin/env bash
+# Report UPS state to Uptime Kuma, and write battery/load metrics for Prometheus.
+# One upsc read, two consumers -- same shape as zfs-health-push.sh.
+set -uo pipefail
+
+PUSH_URL="${PUSH_URL:?PUSH_URL is not set}"
+UPS="${UPS:-ups@localhost}"
+TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/prometheus/node-exporter}"
+
+# Fail closed. If upsc cannot read the UPS then the USB link is itself the
+# fault, so say so rather than leaving a stale-looking healthy metric beside a
+# silent failure.
+if ! vars="$(upsc "$UPS" 2>/dev/null)"; then
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=down" \
+    --data-urlencode "msg=upsc cannot read $UPS" >/dev/null
+  exit 1
+fi
+
+get() { printf '%s\n' "$vars" | awk -F': ' -v k="$1" '$1 == k { print $2; exit }'; }
+
+status="$(get ups.status)"
+charge="$(get battery.charge)"
+runtime="$(get battery.runtime)"
+load="$(get ups.load)"
+
+# ups.status is a space-separated SET, not one word: "OL", "OL CHRG",
+# "OB DISCHRG", "OB LB". Match on padded substrings rather than equality.
+on_line=0;  case " $status " in *" OL "*) on_line=1 ;; esac
+on_batt=0;  case " $status " in *" OB "*) on_batt=1 ;; esac
+low_batt=0; case " $status " in *" LB "*) low_batt=1 ;; esac
+
+# ---- metrics: temp file then mv, so node_exporter never reads a half-written
+# ---- file. The -w test is load-bearing: this script also runs as `nut` from
+# ---- upssched, which cannot write here. That path pushes and skips metrics,
+# ---- which is fine -- the timer below owns the metrics.
+if [ -d "$TEXTFILE_DIR" ] && [ -w "$TEXTFILE_DIR" ]; then
+  tmp="$(mktemp "$TEXTFILE_DIR/ups.prom.XXXXXX")"
+  {
+    echo '# HELP ups_status_on_line Whether the UPS reports running on mains.'
+    echo '# TYPE ups_status_on_line gauge'
+    echo "ups_status_on_line $on_line"
+    echo '# HELP ups_status_on_battery Whether the UPS reports running on battery.'
+    echo '# TYPE ups_status_on_battery gauge'
+    echo "ups_status_on_battery $on_batt"
+    echo '# HELP ups_status_low_battery Whether the UPS has raised low battery.'
+    echo '# TYPE ups_status_low_battery gauge'
+    echo "ups_status_low_battery $low_batt"
+    if [ -n "$charge" ]; then
+      echo '# HELP ups_battery_charge_percent Battery charge.'
+      echo '# TYPE ups_battery_charge_percent gauge'
+      echo "ups_battery_charge_percent $charge"
+    fi
+    if [ -n "$runtime" ]; then
+      echo '# HELP ups_battery_runtime_seconds Estimated runtime remaining.'
+      echo '# TYPE ups_battery_runtime_seconds gauge'
+      echo "ups_battery_runtime_seconds $runtime"
+    fi
+    if [ -n "$load" ]; then
+      echo '# HELP ups_load_percent Load as a percentage of capacity.'
+      echo '# TYPE ups_load_percent gauge'
+      echo "ups_load_percent $load"
+    fi
+  } > "$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$TEXTFILE_DIR/ups.prom"
+fi
+
+# ---- health: pushed to Kuma. No voltage anywhere -- this model misreports it.
+if [ "$on_line" = 1 ] && [ "$low_batt" = 0 ]; then
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=up" \
+    --data-urlencode "msg=on mains, battery ${charge:-?}%" >/dev/null
+else
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=down" \
+    --data-urlencode "msg=$status, battery ${charge:-?}%, ${runtime:-?}s left" >/dev/null
+fi
+EOF
+```
+
+```bash
+chmod +x /usr/local/bin/ups-health-push.sh
+```
+
+The push URL is a bearer token in a query string, so it goes in a
+mode-restricted file rather than in the unit — and **the mode here differs from
+Part 9's on purpose**:
+
+```bash
+install -m 640 -o root -g nut /dev/null /etc/default/ups-health-push
+```
+
+```bash
+echo 'PUSH_URL=https://uptime.thefipster.de/api/push/<token>' > /etc/default/ups-health-push
+```
+
+Part 9's equivalent is mode 600 and root-only. This one cannot be: `upssched`
+runs as the `nut` user, so a root-only environment file would make every instant
+power-event push fail on an unreadable file — the one push that matters most,
+failing silently, while the five-minute timer carried on looking healthy.
+
+### 7. Put it on a timer
+
+```bash
+cat > /etc/systemd/system/ups-health-push.service <<'EOF'
+[Unit]
+Description=Report UPS state to Uptime Kuma
+After=nut-monitor.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/ups-health-push
+ExecStart=/usr/local/bin/ups-health-push.sh
+EOF
+```
+
+```bash
+cat > /etc/systemd/system/ups-health-push.timer <<'EOF'
+[Unit]
+Description=Report UPS state every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+```
+
+```bash
+systemctl enable --now ups-health-push.timer
+```
+
+Verify it pushed, rather than trusting that it will:
+
+```bash
+systemctl start ups-health-push.service && systemctl status ups-health-push.service
+```
+
+The monitor in Kuma should go green within a minute, with a message naming the
+battery percentage. Then check the other half:
+
+```bash
+cat /var/lib/prometheus/node-exporter/ups.prom
+```
+
+```bash
+curl -s localhost:9100/metrics | grep '^ups_'
+```
+
+Alloy already scrapes this endpoint, so nothing changes on the infra VM — the
+metrics arrive on the next scrape, and `UpsBatteryAging` in Grafana
+([grafana-setup.md](grafana-setup.md#dashboards-and-alerts)) starts evaluating
+against them.
+
+If the unit fails with `status=22` and `curl: (22) ... 404`, it is the same
+diagnosis as Part 9's push — [that troubleshooting
+block](#part-9--notice-when-a-mirror-degrades) applies unchanged, including the
+IPv6 check.
+
+### 8. Pull the plug, once, on purpose
+
+The runtime figure cannot come from the datasheet — it depends on this lab's
+actual load — and it is the input to step 4's arithmetic. Killpower is worse: it
+is the half most likely to be silently broken, and its failure mode is a box
+that stays dark after an outage it appeared to survive. Neither can be settled
+by reading.
+
+So pull the mains plug on the UPS and watch the whole chain:
+
+1. The on-battery push arrives on your phone within seconds.
+2. The backstop fires at 300 s.
+3. Guests shut down in order — `ha`, then `apps`, then `infra`.
+4. The host halts.
+5. The UPS cuts its output.
+6. Plug mains back in. The UPS restores output, the board powers on, and Proxmox
+   starts the guests in order.
+
+Watch the first three from a shell before you lose it:
+
+```bash
+journalctl -fu nut-monitor
+```
+
+And note what the UPS thought it had left, which is the number this drill exists
+to produce:
+
+```bash
+upsc ups battery.runtime
+```
+
+**Two outputs.** The **measured runtime**, which goes back into step 4 if
+`300 + 270 < measured` no longer holds — and proof that the lab comes back
+without you. Re-run it when the battery is replaced, for the same reason
+[backup-restore-drill.md](backup-restore-drill.md) is re-run yearly: a path
+nobody has exercised is a hypothesis, not a capability.
+
+### Troubleshooting Part 10
+
+**`upsc` says "Driver not connected".** The driver did not start, usually after
+an edit to `ups.conf`. Debian generates a unit per UPS from that file:
+
+```bash
+systemctl restart nut-driver-enumerator && systemctl restart nut-server
+```
+
+**The five-minute push works but the instant one never arrives.**
+`/etc/default/ups-health-push` is not readable by `nut`. That is the mode-640
+`root:nut` detail from step 6, and it fails exactly this way:
+
+```bash
+ls -l /etc/default/ups-health-push
+```
+
+**The box stayed dark after an outage it survived.** Either the BIOS setting or
+killpower. After a forced shutdown the flag file should exist — if it does not,
+`upsmon` never reached its shutdown path; if it does, re-read the hook in
+step 5:
+
+```bash
+ls -l /etc/killpower
+```
+
+**Everything is green but you do not trust it.** Ask the UPS to report on
+itself; `ups.status` is the field every decision in this Part turns on:
+
+```bash
+upsc ups ups.status
+```
+
+### Layout on the server (Part 10)
+
+| Path | Holds |
+|---|---|
+| `/etc/nut/nut.conf` | `MODE=standalone` |
+| `/etc/nut/ups.conf` | the `[ups]` stanza and the driver |
+| `/etc/nut/upsd.conf` | the loopback-only listener |
+| `/etc/nut/upsd.users`, `/etc/nut/upsmon.conf` | the generated password — both mode 640 `root:nut` |
+| `/etc/nut/upssched.conf` | the backstop timer and the power-event hooks |
+| `/usr/local/bin/upssched-cmd` | what those hooks run |
+| `/usr/local/bin/ups-health-push.sh` | the metrics + Kuma push |
+| `/etc/default/ups-health-push` | the push URL — mode 640 `root:nut`, **not** 600 |
+| `/etc/systemd/system/ups-health-push.{service,timer}` | the five-minute cadence |
+| `/usr/lib/systemd/system-shutdown/zz-nut-killpower` | the killpower hook, beside Debian's broken one |
+| `/etc/killpower` | written by `upsmon`, read by the hook above — exists only between a forced shutdown and the power cut |
+
 ---
 
 ## Why these sizes

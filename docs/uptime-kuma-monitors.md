@@ -239,9 +239,10 @@ machine). Pinging `ha.` would pointlessly ping the infra VM —
 |---|---|---|
 | Hypervisor Storage | Push | *(push URL — the host calls Kuma)* |
 
-The **first** of the two monitors here that watch a **condition** rather than a
-service — [Backup](#backup--infra-vm) below is the other — and neither one's
-target is something Kuma dials. Set the heartbeat interval to **300 s** with 2
+One of the monitors here that watches a **condition** rather than a service —
+[Site Power](#power--proxmox-host) and [Backup Job](#backup--infra-vm) are the
+others, and none of their targets is something Kuma dials. Set the heartbeat
+interval to **300 s** with 2
 retries; a timer on the Proxmox host calls the push URL on that cadence. Create
 the monitor first, then paste its URL into
 [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades),
@@ -275,14 +276,54 @@ look at on a graph. The coupling is also what makes a staleness alert
 unnecessary — a script that stops writing metrics stops pushing heartbeats, and
 this monitor says so.
 
+## Power — Proxmox host
+
+| Name | Type | Target |
+|---|---|---|
+| Site Power | Push | *(push URL — the host calls Kuma)* |
+
+Heartbeat **300 s** with 2 retries, the same cadence as
+[Hypervisor Storage](#hypervisor-storage--proxmox-host) above and sized by the
+same arithmetic. The name follows the function-not-product rule: what breaks for
+a user is site power, not a UPS.
+
+**It is pushed from two places, and the second one is not a latency
+optimisation.** A five-minute timer carries the metrics and the heartbeat, and
+NUT's `upssched` fires the same script the instant the UPS reports `ONBATT`,
+`ONLINE` or `LOWBATT`. That second path exists because **Kuma runs on a guest of
+the machine that is about to shut down**: the window between going on battery
+and the infra VM halting is the only one in which an outage can be reported at
+all, and a five-minute poll would routinely sleep straight through it.
+
+**The deadman here is weak, and that is structural.** For Hypervisor Storage,
+silence means the script or the host died while the lab was otherwise up. Here,
+the failure this monitor exists for takes Kuma down with it, so silence is
+*expected* during the very event being watched. It still catches a broken script
+on a healthy lab, which is worth having — but the event push is the alarm, not
+the heartbeat.
+
+**And the alert only leaves the house if the WAN termination is powered.**
+Notifications go to hosted ntfy.sh, so a modem or ONT on an unprotected socket
+makes this whole section silent while the shutdown itself proceeds perfectly —
+that runs over USB and needs no network. Which sockets to use is in
+[proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut).
+
+Battery **ageing** deliberately goes the other way, to Grafana as
+`UpsBatteryAging`, for the same reason pool capacity does: a battery losing
+runtime over three to five years is something to see on a graph, not to be woken
+by. `Site Power` stays green throughout that decline, which is exactly why the
+rule exists ([grafana-setup.md](grafana-setup.md#dashboards-and-alerts)).
+
 ## Backup — infra VM
 
 | Name | Type | Target |
 |---|---|---|
 | Backup Job | Push | *(push URL — the infra VM calls Kuma)* |
 
-The second **Push** monitor, and the second thing in this lab that watches a
-condition rather than a service. Heartbeat interval **90000 s** (25 h), 0
+A **Push** monitor watching a condition rather than a service, like
+[Hypervisor Storage](#hypervisor-storage--proxmox-host) and
+[Site Power](#power--proxmox-host) above — and the only one of them fed from the
+infra VM. Heartbeat interval **90000 s** (25 h), 0
 retries: the job runs once a day, so the window has to be longer than a day —
 with an hour of slack for the timer's `RandomizedDelaySec` and for a first run
 that uploads everything.
