@@ -33,7 +33,14 @@ Router. **The repo root is the machine map** — one directory per VM — while
 service name and nesting them would add a `../` to every cross-guide link:
 
 - **Proxmox host** — hypervisor only, no Docker. A bad container can't
-  take the box down.
+  take the box down. Two things run on it that are **not** Docker and not
+  declared by any compose file here: it terminates its **own** TLS for
+  `pve.thefipster.de` on 443 — its own ACME client, its own exact certificate,
+  the lab's one UI outside Traefik, so the repair surface does not depend on a
+  guest — and it runs **NUT** for the UPS, shutting all three guests down
+  through Proxmox's own guest shutdown rather than through NUT clients. Neither
+  has an init script: this machine has no checkout of the repo, so both live as
+  guide text in `docs/proxmox-setup.md`.
 - **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
@@ -113,6 +120,19 @@ Three DNS facts are counter-intuitive and all are deliberate:
 
 Traefik is the only thing that terminates TLS and does routing on the infra VM.
 A stack becomes reachable by **two things**, not by any central config:
+
+> **Read that first line literally — it says *on the infra VM*.** The Proxmox
+> host terminates its own TLS on its own machine, with its own ACME client and
+> its own **exact** certificate for `pve.thefipster.de` served on 443
+> (`docs/proxmox-setup.md` Part 3). That is the one place a second certificate
+> in the lab is correct rather than a mistake, and it is deliberate on both
+> counts: routing `pve.` through Traefik would make it a *service* name pointing
+> at the infra VM — renaming the machine out from under Alloy's scrape target,
+> the restic repository and the installer's FQDN — and would put the
+> hypervisor's repair surface behind one of its own guests. An **exact** name
+> rather than a wildcard is what keeps its `_acme-challenge` record from racing
+> Traefik's on netcup's non-atomic zone updates. Full reasoning:
+> `docs/superpowers/specs/2026-08-15-pve-https-and-ups-design.md`.
 
 1. Joining the external `proxy` Docker network (declared `external: true`; created
    once by the init scripts).

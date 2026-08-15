@@ -21,6 +21,8 @@ got.
 | Backup layer 1: `vzdump` whole-VM to the `vmbackup` mirror | ✅ deployed — scheduled and verified, [Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). Every stateful infra stack wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) — which now costs real data, see the apps row below |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
+| Proxmox web UI on 443 with its own certificate | ⬜ planned — [Part 3](proxmox-setup.md#give-the-host-a-real-certificate). Its own Let's Encrypt certificate from Proxmox's ACME client, not Traefik's wildcard, so the one UI you repair the lab with does not depend on one of the lab's own guests |
+| UPS: orderly shutdown, and coming back | ⬜ planned — [Part 10](proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. The open piece is the commissioning drill, which is what turns the backstop arithmetic from an estimate into a measurement |
 | CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |
 | CI: code analysis | ✅ deployed — analyzers enforced in the build. One decision still open: whether a SonarQube stack earns its place ([roadmap](roadmap/ci-code-analysis.md)) |
@@ -34,14 +36,20 @@ got.
 
 `✅` runs today · `◐` one half runs, the other is still waiting · `📄` written
 and reviewed, waiting on hardware or a build step · `⬜` not started. **No `📄`
-rows are left**: every guide in the build order has now been run on the machine
-it describes, so nothing here is verified by reading alone any more.
+rows are left.** Every guide in the build order has been run on the machine it
+describes; the two `⬜` rows on the hypervisor are written and not yet run,
+which is a different thing from a guide nobody has ever exercised.
 
 **Every machine in the build order is built.** All infra stacks run, both backup
 layers included; the apps VM runs Coolify with the whole third-party catalog on
 it; the HA VM is up, routed and onboarded. What remains is reach rather than
 existence:
 
+- **The hypervisor's two new Parts** — a real certificate on 443
+  ([Part 3](proxmox-setup.md#give-the-host-a-real-certificate)) and the UPS
+  ([Part 10](proxmox-setup.md#part-10--survive-a-power-cut)). Both are written
+  against hardware that is now on the desk rather than hypothetical, and the UPS
+  half is not finished until the plug has actually been pulled once.
 - **Home Assistant's metrics token**, so `job="homeassistant"` stops being red
   ([step 8](home-assistant-setup.md#8-wire-up-metrics)).
 - **Container logs from the apps VM** ([roadmap](roadmap/apps-vm-logs.md)) —
