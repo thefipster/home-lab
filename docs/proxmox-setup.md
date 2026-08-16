@@ -1176,12 +1176,32 @@ upsc ups
 > noting it has no NSS certificate database, which is expected on a
 > loopback-only setup and is not an error — ignore it and read the line after.
 
-`ups.status` should read `OL` — on line. You will also see `output.voltage`
-somewhere in the 260–270 V range, which is **wrong** and is a known quirk of
-this model under `usbhid-ups`
-([NUT #581](https://github.com/networkupstools/nut/issues/581)). It is cosmetic
-and it is the reason nothing in this Part alerts on a voltage reading. Charge,
-runtime, load and status are the fields to trust.
+`ups.status` should read `OL` — on line. Three other fields in that output are
+worth reading now rather than during an outage:
+
+| Field | On this lab | Means |
+|---|---|---|
+| `battery.runtime.low` | `300` | the `LB` threshold — the UPS raises low battery with this many seconds left. Step 4's arithmetic turns on it. |
+| `ups.delay.shutdown` | `20` | how long the UPS waits after being told to cut power before it actually does. The pause you will see in step 8's drill. |
+| `driver.flag.allow_killpower` | `0` | **not a problem, despite the name.** It gates the `driver.killpower` instant command, which lets an *already running* driver cut power on request. The hook in step 5 calls `upsdrvctl shutdown` after the driver has stopped, which starts a fresh one with `-k` — a different path that does not consult this flag. |
+
+`battery.runtime.low` is writable with `upsrw` if you ever want `LB` to arrive
+earlier. Step 4 explains why this lab does not move it and uses a timer instead.
+
+> **Voltage on this model reads correctly, and that is worth stating because
+> older reports say otherwise.** `output.voltage` matching `input.voltage` at
+> roughly mains is the expected result on NUT 2.8.1 with the CyberPower HID 0.8
+> subdriver. The 260–270 V misreporting in
+> [NUT #581](https://github.com/networkupstools/nut/issues/581) did **not**
+> reproduce here. Nothing in this Part alerts on a voltage reading anyway —
+> charge, runtime, load and status are what the decisions turn on — but if you
+> hit that bug on some other build, it is cosmetic rather than a sign the driver
+> picked the wrong device.
+
+> **`lsusb` names the wrong model, and it is not a mismatch.** The USB ID
+> database maps `0764:0501` to a `CP1500 AVR UPS`, so the earlier `lsusb` check
+> prints that regardless of which unit you own. `upsc` is the one that asks the
+> device: `device.model` and `ups.model` both read `CP900EPFCLCD`.
 
 ### 3. Set the guest shutdown order and timeout
 
@@ -1235,11 +1255,20 @@ on `ONBATT` and cancelled on `ONLINE` as a backstop. That much is the standard
 arrangement. What is worth knowing before you read the file is **which of the
 two actually fires**.
 
-At this load the unit gives roughly 15–20 minutes and raises `LB` near the end
-of it — on the order of 4–5 minutes remaining. Against a 4.5-minute worst-case
-guest shutdown, `LB` alone leaves no margin at all. **So the backstop is not
-insurance for a tired battery; it is what fires in practice, and its value is
-the actual policy.** The `LB` path stays as the floor beneath it.
+**`LB` arrives too late to be the primary trigger, and the unit tells you so
+itself.** `battery.runtime.low` reads `300` — the UPS raises low battery with
+five minutes left. Against a 4.5-minute worst-case guest shutdown that is thirty
+seconds of margin, on an estimate produced by a battery whose accuracy is the
+thing you are trying not to depend on.
+
+**So the backstop is not insurance for a tired battery; it is what fires in
+practice, and its value is the actual policy.** The `LB` path stays as the floor
+beneath it, for the case where the battery empties faster than the timer expects.
+
+Raising `battery.runtime.low` with `upsrw` is the other way to buy margin, and
+this lab does not take it: it moves the decision *into* the UPS's own runtime
+estimate, which is exactly the number that drifts as the battery ages. A wall
+clock started at `ONBATT` does not care how good that estimate is.
 
 Size it by the relationship, not by the number:
 
@@ -1247,6 +1276,14 @@ Size it by the relationship, not by the number:
 
 300 s + 270 s is 9.5 minutes, against a runtime step 8 measures rather than
 assumes. If that measurement comes back short, this is the number to move.
+
+> **`battery.runtime` is only worth reading under the real load.** It is an
+> estimate for whatever is drawing power *right now*, so a figure taken before
+> the server is plugged in describes a lab that does not exist — comfortably
+> over an hour at router-and-switch load, and a fraction of that once the host
+> is on the same battery. Check `ups.load` alongside it: a single-digit
+> percentage on a box with this CPU and eight SSDs means the host is not on the
+> UPS yet, and the runtime number is measuring the wrong thing.
 
 ```bash
 cat > /etc/nut/upssched.conf <<'EOF'
@@ -1451,7 +1488,8 @@ if [ -d "$TEXTFILE_DIR" ] && [ -w "$TEXTFILE_DIR" ]; then
   mv -f "$tmp" "$TEXTFILE_DIR/ups.prom"
 fi
 
-# ---- health: pushed to Kuma. No voltage anywhere -- this model misreports it.
+# ---- health: pushed to Kuma. No voltage anywhere: it reads correctly on this
+# ---- unit, but it is not what any decision here turns on.
 if [ "$on_line" = 1 ] && [ "$low_batt" = 0 ]; then
   curl -fsS --max-time 10 --get "$PUSH_URL" \
     --data-urlencode "status=up" \
