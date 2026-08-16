@@ -71,8 +71,16 @@ cd ~/home-lab && scripts/init-apps-alloy.sh
 It creates `/opt/alloy` for Alloy's read positions and starts the stack itself —
 this machine has no Dockge to start it from.
 
+> **Every `docker` command on this machine needs `sudo`, unlike the infra VM's
+> guides.** This VM skips [`init-docker.sh`](../scripts/init-docker.sh), which is
+> what adds your user to the `docker` group over there; Coolify's installer
+> brings the Engine and does not do it. A bare `docker ps` here fails with
+> `permission denied while trying to connect to the docker API`, which reads
+> like a broken daemon and is not one. The init script uses `run_root`
+> internally for the same reason.
+
 ```bash
-docker compose -f ~/home-lab/apps/alloy/compose.yaml logs alloy | tail -20
+sudo docker compose -f ~/home-lab/apps/alloy/compose.yaml logs alloy | tail -20
 ```
 
 Expect no errors mentioning the Loki endpoint. A `401`, `404` or TLS error here
@@ -85,12 +93,16 @@ pinned by this repo and have changed across versions. Pick any container Coolify
 manages:
 
 ```bash
-docker ps --format '{{.Names}}'
+sudo docker ps --format '{{.Names}}'
 ```
 
 ```bash
-docker inspect --format '{{json .Config.Labels}}' <a-coolify-container> | tr ',' '\n' | grep -i coolify
+sudo docker inspect --format '{{json .Config.Labels}}' <a-coolify-container> | tr ',' '\n' | grep -i coolify
 ```
+
+Pick one of the **catalog** containers — Paperless, Mealie, BookStack or
+LubeLogger. Not `alloy-alloy-1`: that is this collector, which is deliberately
+not a Coolify resource and carries no `coolify.*` labels at all.
 
 The config maps **`coolify.name`** to the `coolify_resource` label. If that key
 is absent and a differently-named one is there, change the single
@@ -98,7 +110,7 @@ is absent and a differently-named one is there, change the single
 [`apps/alloy/config.alloy`](../apps/alloy/config.alloy) and restart:
 
 ```bash
-docker compose -f ~/home-lab/apps/alloy/compose.yaml up -d
+sudo docker compose -f ~/home-lab/apps/alloy/compose.yaml up -d
 ```
 
 Getting this wrong is **silent** — the label is simply absent and everything
@@ -167,7 +179,7 @@ but only into a Loki it can reach, so its own failures are visible on this
 machine and nowhere else:
 
 ```bash
-docker compose -f ~/home-lab/apps/alloy/compose.yaml logs alloy
+sudo docker compose -f ~/home-lab/apps/alloy/compose.yaml logs alloy
 ```
 
 **`{job="docker"}` returns only `instance="apps"`.** The opposite: the infra

@@ -53,14 +53,19 @@ echo "==> Creating ${DATA_DIR}"
 run_root mkdir -p "${DATA_DIR}"
 
 echo "==> Starting the collector"
-( cd "${STACK_DIR}" && docker compose up -d )
+# run_root, NOT a bare `docker compose`. This machine skips init-docker.sh, so
+# nothing ever added the invoking user to the `docker` group — Coolify's
+# installer brings the Engine and does not do it either. A bare call here fails
+# with "permission denied ... unix:///var/run/docker.sock". init-coolify.sh
+# already takes this precaution for the same reason.
+( cd "${STACK_DIR}" && run_root docker compose up -d )
 
 cat <<EOF
 
 Done. Nothing else runs on this machine.
 
-Verify from here:
-  docker compose -f ${STACK_DIR}/compose.yaml logs alloy
+Verify from here (sudo: this machine has no docker group membership):
+  sudo docker compose -f ${STACK_DIR}/compose.yaml logs alloy
 
 Then in Grafana (Explore -> Loki), from any browser:
   {job="docker", instance="apps"}
