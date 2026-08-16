@@ -139,7 +139,22 @@ services:
 
   # ---------------------------------------------------------------------------
   # Loki — log storage. Fed by Alloy: every container's stdout plus OTLP logs
-  # from the apps. Not routed; Grafana is the only reader.
+  # from the apps.
+  #
+  # ROUTED, which reverses what this service used to say about itself ("not
+  # routed; Grafana is the only reader"). The apps VM runs its own logs-only
+  # Alloy (apps/alloy/) and pushes here over the LAN, so Loki needs an ingest
+  # path that leaves this box. Same reversal Alloy went through when it became
+  # the OTLP endpoint.
+  #
+  # The router is scoped to the PUSH PATH, deliberately. Routing the whole host
+  # would put Loki's QUERY api on the LAN unauthenticated — and its DELETE api
+  # with it, which is live because loki.yaml runs the compactor with
+  # retention_enabled: true. Grafana still reads over monitoring-net, so the
+  # write path is the only thing exposed.
+  #
+  # No auth, matching otlp.thefipster.de — the lab's other ingest endpoint. To
+  # require it later, add ONE basic-auth middleware label here and one there.
   # ---------------------------------------------------------------------------
   loki:
     image: grafana/loki:3            # major pin
@@ -149,8 +164,24 @@ services:
       - ./loki/loki.yaml:/etc/loki/loki.yaml:ro
       # Image runs as UID 10001 — init-monitoring.sh chowns it.
       - /opt/monitoring/loki:/loki
+    labels:
+      traefik.enable: "true"
+      # Push only. PathPrefix is anchored at the start of the path, so this
+      # cannot be widened by a query that merely contains the string.
+      traefik.http.routers.loki-push.rule: Host(`loki.thefipster.de`) && PathPrefix(`/loki/api/v1/push`)
+      traefik.http.routers.loki-push.entrypoints: websecure
+      traefik.http.services.loki-push.loadbalancer.server.port: "3100"
+      # No middlewares label: this is machine-to-machine ingest with no browser
+      # flow, so forward-auth would break the push outright. See
+      # docs/sso-applications.md.
     networks:
       - monitoring-net
+      # Joined so Traefik can reach :3100 without a published port — exactly how
+      # Alloy's OTLP listeners are reached. The consequence worth knowing: every
+      # container on `proxy` can now dial loki:3100 directly. Same single-tenant
+      # trust domain that already accepts the docker.sock mounts, but it is a
+      # widening.
+      - proxy
 
   # ---------------------------------------------------------------------------
   # Tempo — trace storage (phase 4). Alloy writes OTLP traces here; Grafana
