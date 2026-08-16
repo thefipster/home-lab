@@ -9,7 +9,7 @@
 //             otlp.thefipster.de) and fans it into the SAME Prometheus/Loki,
 //             plus traces into Tempo.
 //
-// Built incrementally as phases 1-4 of dev/roadmap/monitoring.md (see the
+// Built incrementally as phases 1-4 of dev/roadmap/done/monitoring.md (see the
 // dated specs for the narrative); this file is the finished form.
 //
 // Component health: http://127.0.0.1:12345 on the infra VM (loopback-bound,

@@ -197,7 +197,7 @@ see [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups
 It is meant to be covered by the file-level backup layer instead. That layer
 exists — [backup-setup.md](backup-setup.md) — but it runs on the **infra VM**,
 and this machine has not joined the restic repository yet
-([roadmap/backup.md](../../dev/roadmap/backup.md)); joining is one more key on the
+([roadmap/backup.md](../../dev/roadmap/apps-vm-backup.md)); joining is one more key on the
 hypervisor and an `.env` value, not a redesign. Until it happens, treat
 everything under `/data` as **unbacked** and deploy accordingly.
 

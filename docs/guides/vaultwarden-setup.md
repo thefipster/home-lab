@@ -245,7 +245,7 @@ sync on open and on a timer instead.
 | Attachments, Sends, icon cache, `rsa_key.pem` | `/opt/vaultwarden/data` |
 | Dockge entry | `/opt/stacks/vaultwarden` → symlink into this repo |
 
-**Both `/opt` paths are tier 1 in [roadmap/backup.md](../../dev/roadmap/backup.md), and
+**Both `/opt` paths are tier 1 in [roadmap/backup.md](../../dev/roadmap/done/backup.md), and
 they must be captured together.** The database holds the vault; `rsa_key.pem`
 beside it signs every access token the server issues. Restore one without the
 other and every client is logged out of a database it can no longer prove
@@ -275,7 +275,7 @@ limits that page (roughly one attempt per 300 s after a burst of 3).
 Postgres, matching Authentik, Forgejo and Grafana. It also makes the backup
 story uniform — `pg_dump` against a live database, rather than the WAL-aware
 copy that Uptime Kuma's SQLite still needs
-([roadmap/backup.md](../../dev/roadmap/backup.md#why-dumps-not-raw-directory-copies-for-the-databases)).
+([roadmap/backup.md](../../dev/roadmap/done/backup.md#why-dumps-not-raw-directory-copies-for-the-databases)).
 Its own database, not a shared one, for the same reason every other stack has
 its own: independent version pinning and independent restores.
 

@@ -421,7 +421,7 @@ in the same sitting means drift never accumulates
 A *nightly rebuild* went the same way; its last remaining purpose was
 re-scanning published images for CVEs disclosed after the build, and that gap is
 stated without an automated answer in
-[roadmap/ci-supply-chain.md](../../dev/roadmap/ci-supply-chain.md). The lab therefore runs
+[roadmap/ci-supply-chain.md](../../dev/roadmap/done/ci-supply-chain.md). The lab therefore runs
 **no CI schedule at all**, which
 [timetable.md](../reference/timetable.md#deliberate-absences) records as a decision rather
 than an omission.
@@ -434,12 +434,13 @@ current. What stays on this side is the runner (`infra/forgejo/config.yml`), the
 registry, and the tokens above.
 
 **What that build does leave on this side.** Supply-chain work landed in those
-workflows ([roadmap/ci-supply-chain.md](../../dev/roadmap/ci-supply-chain.md)), and two of
+workflows ([roadmap/ci-supply-chain.md](../../dev/roadmap/done/ci-supply-chain.md)), and two of
 its effects are visible from this machine rather than from the YAML. Every image
 is now pushed with
 an **SBOM attestation stored beside it** in the registry, so a tag now costs
 more disk than the image alone — which is what makes the registry cleanup rules
-in that roadmap worth doing before the 40 GB fills. And a **Trivy scan runs
+([roadmap/registry-hygiene.md](../../dev/roadmap/registry-hygiene.md)) worth
+doing before the 40 GB fills. And a **Trivy scan runs
 after the build and before the push**, failing the run on a `CRITICAL` finding:
 a run that goes red having built nothing new is the expected shape of that, not
 a broken runner. Neither needs a token, a runner label or a change to this

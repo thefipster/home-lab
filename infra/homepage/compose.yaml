@@ -26,7 +26,7 @@
 # NO /opt/homepage either, and this is the FIRST stack in the repo with no
 # persistent data directory at all: everything Homepage owns is the git-tracked
 # YAML in ./config. That is also why it has no backup.sh — see
-# dev/roadmap/backup.md.
+# dev/roadmap/done/backup.md.
 
 name: homepage
 

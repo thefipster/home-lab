@@ -87,7 +87,7 @@ tier 1 — irreplaceable. Meanwhile:
 - The apps VM's 300 GB data disk — where Coolify puts all app volumes — is
   `backup=0`: excluded from `vzdump` by design, so **layer 1 covers none of
   it**.
-- Layer 2 (restic) is not built, and [roadmap/backup.md](../roadmap/backup.md)
+- Layer 2 (restic) is not built, and [roadmap/backup.md](../roadmap/done/backup.md)
   **explicitly scopes the apps VM out**: "its own state, its own story. Not
   this roadmap."
 - No other document owns it. The gap has no owner.
@@ -173,7 +173,7 @@ already-compressed data that zstd cannot shrink (registry layers, TSDB
 chunks), 14 archives approach or pass the pool. The `ZfsPoolAlmostFull` /
 `DiskAlmostFull` alerts will catch it in time, so this is **Watch**, not Gate.
 
-One inconsistency worth naming: [roadmap/backup.md](../roadmap/backup.md)
+One inconsistency worth naming: [roadmap/backup.md](../roadmap/done/backup.md)
 declares the TSDBs tier 3 — "deliberately **not** backed up… a backup that
 hauls the TSDB around nightly is a backup nobody keeps running" — yet layer 1
 hauls exactly those directories around nightly, because whole-VM archives
@@ -262,7 +262,7 @@ once Home Assistant is real, ESPHome nodes and Ethernet Zigbee coordinators:
 the least-trustworthy firmware in the building. Meanwhile several decisions
 lean on the LAN being friendly: node exporters bind `:9100` on all interfaces
 unauthenticated, Coolify's first-run window is "reachable and unprotected" on
-a LAN port, and the [apps-VM logs roadmap](../roadmap/apps-vm-logs.md) already
+a LAN port, and the [apps-VM logs roadmap](../roadmap/done/apps-vm-logs.md) already
 flags that a Loki ingest path "changes that, and the LAN is not a trust
 boundary this repo has leaned on before" — correctly implying it has been, so
 far.

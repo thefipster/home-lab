@@ -149,7 +149,7 @@ damage rather than a visible failure:
 | LubeLogger | `lube.thefipster.de` | Postgres | — | OIDC | 2 — hand-entered service history |
 | BookStack | `wiki.thefipster.de` | **MariaDB** | — | OIDC | 2 — authored, but small and diffable |
 
-Tiers use the language of [docs/roadmap/backup.md](../roadmap/backup.md):
+Tiers use the language of [docs/roadmap/backup.md](../roadmap/done/backup.md):
 **tier 1 is irreplaceable**. Paperless is the only entry here whose loss can
 destroy something that exists nowhere else, and Vaultwarden's loss locks you out
 of everything else — including the lab.

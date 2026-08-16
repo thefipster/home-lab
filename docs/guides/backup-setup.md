@@ -6,7 +6,7 @@
 last stack on this VM. The backup job also reports to a Kuma push monitor, so
 [uptime-kuma-setup.md](uptime-kuma-setup.md) has to be done as well.
 
-This is **layer 2** of [roadmap/backup.md](../../dev/roadmap/backup.md). Layer 1 —
+This is **layer 2** of [roadmap/backup.md](../../dev/roadmap/done/backup.md). Layer 1 —
 whole-VM `vzdump` onto the `vmbackup` mirror — is already built, in
 [proxmox-setup.md Part 8](proxmox-setup.md#part-8--schedule-whole-vm-backups),
 and the two answer different questions. **Layer 1 answers "the disk died".
@@ -37,7 +37,7 @@ Three things shape everything below:
   cover every shape there is: four Postgres stacks, one SQLite, two with no
   database at all, and two whose restores are deliberately narrow. Every row of
   the tier-1 table in
-  [roadmap/backup.md](../../dev/roadmap/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
+  [roadmap/backup.md](../../dev/roadmap/done/backup.md#tier-1--irreplaceable-this-is-the-backup-set)
   is covered. **Homepage is the one stack with neither file** — it has no `/opt`
   directory and no `.env`, so a snapshot of it would be a snapshot of a git
   checkout ([homepage-setup.md](homepage-setup.md#design-notes)).
@@ -950,11 +950,14 @@ the machine it protects. That is a real second copy on its own drives, but
 nothing here is offsite until someone points
 restic at B2, netcup Storage Space or rclone — client-side encryption means that
 step is credentials and a bandwidth check, not a redesign
-([roadmap/backup.md](../../dev/roadmap/backup.md#phases) phase 3). **The weekly check has
+([roadmap/backup-offsite.md](../../dev/roadmap/backup-offsite.md)). **The weekly check has
 no deadman**: `run.sh` pings Kuma, `restic check` does not, so a repository that
 has quietly become unreadable stays quiet — the monitor proves the backup ran,
-not that it can be restored from. And **until a restore drill has actually been
-run, treat a stack as untested** — that is phase 5, and the procedure is
+not that it can be restored from
+([roadmap/restic-check-heartbeat.md](../../dev/roadmap/restic-check-heartbeat.md)). And
+**until a restore drill has actually been run, treat a stack as untested** —
+what remains unproven is
+[roadmap/backup-proofs.md](../../dev/roadmap/backup-proofs.md), and the procedure is
 [backup-restore-drill.md](../drills/backup-restore-drill.md), with each run recorded in
 `dev/reviews/` as a dated finding.
 

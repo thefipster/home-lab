@@ -255,7 +255,7 @@ central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
 it. **Every stack that holds state is wired** — Authentik, Dockge, Forgejo,
 monitoring, Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2
-row in `dev/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
+row in `dev/roadmap/done/backup.md` has a `backup.sh` and a `restore.sh` beside its
 compose file. **Homepage is the one stack with neither, deliberately**: it has
 no `/opt` directory and no `.env`, so every byte it owns is already in this
 repo and a snapshot of it would be a snapshot of a checkout.
@@ -368,9 +368,11 @@ apps VM joins by adding a second key line on the host, not by a redesign. It
 needs **no DNS row of its own** — `pve` already has its exact record — and no
 Authentik entry, both recorded as non-rows in their registries.
 
-Two known gaps, stated rather than fixed: the weekly `restic check` has **no**
-heartbeat, so a repository that has become unreadable stays quiet; and the apps
-VM's 300 GB data disk is covered by nothing, because layer 1 excludes it
+Two known gaps, stated rather than fixed — and both are now ranked tasks
+(`dev/roadmap/restic-check-heartbeat.md`, `dev/roadmap/apps-vm-backup.md`): the
+weekly `restic check` has **no** heartbeat, so a repository that has become
+unreadable stays quiet; and the apps VM's 300 GB data disk is covered by
+nothing, because layer 1 excludes it
 (`backup=0`) and the apps VM has not joined the repository. `RESTIC_PASSWORD` is
 the one secret that cannot live only in the backup — nor only in Vaultwarden,
 which is inside it.
@@ -691,7 +693,7 @@ the single source of truth; Dockge only drives start/stop/logs.
   (`dev/specs/2026-08-05-forgejo-release-workflow-design.md`); and
   a *nightly rebuild*, whose last surviving purpose was re-scanning published
   images for CVEs disclosed after the build — that gap is now stated without an
-  automated answer in `dev/roadmap/ci-supply-chain.md`. Don't re-propose
+  automated answer in `dev/roadmap/done/ci-supply-chain.md`. Don't re-propose
   either; `docs/reference/timetable.md` records the absence as a decision.
 - **The runner is `capacity: 1`.** Jobs run one after another, so anything that
   makes a run wider makes it longer. That is a real constraint on what to
@@ -799,8 +801,13 @@ flag.
 looks like that.** Nothing in it is needed in order to build the lab, and that
 is the test for what belongs there.
 
-- `dev/roadmap/` — forward-looking decisions for work not built yet; a piece
-  graduates from roadmap to guide when it lands. Live, and edited routinely.
+- `dev/roadmap/` — one file per **open task**, each small enough to pick up in
+  a sitting and carrying its own recommendation; the repo root's `ROADMAP.md`
+  ranks them. A task graduates to a guide when it lands, and its roadmap file
+  moves to `dev/roadmap/done/` — where it stays the **design record** (guides
+  still link into the backup tiers and couplings there), edited for accuracy
+  rather than reopened: new work gets a new task file. Live, and edited
+  routinely.
 - `dev/specs/` — dated design specs (`YYYY-MM-DD-<topic>-design.md`).
 - `dev/plans/` — dated implementation plans (`YYYY-MM-DD-<topic>.md`).
 - `dev/reviews/` — dated findings from replaying the guides end to end.

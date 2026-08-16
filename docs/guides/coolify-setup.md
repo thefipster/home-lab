@@ -252,7 +252,7 @@ the apps-VM analogue of the infra VM's `/opt/<stack>` convention, and for the sa
 reason: a backup job needs a path it can walk. That disk is excluded from whole-VM
 `vzdump` (`backup=0`), and the file-level layer runs on the infra VM only — this
 machine has not joined the restic repository yet
-([roadmap/backup.md](../../dev/roadmap/backup.md)) — so treat
+([roadmap/backup.md](../../dev/roadmap/apps-vm-backup.md)) — so treat
 everything under `/data` as unbacked. Directories are created by hand before a
 deploy; each stack's README carries the exact `mkdir`.
 

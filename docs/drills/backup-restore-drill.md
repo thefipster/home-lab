@@ -7,7 +7,7 @@ exists, `run.sh` produces snapshots, and each stack you intend to drill has a
 `restore.sh`.
 
 A backup nobody has restored from is a hypothesis. This is
-[roadmap/backup.md](../../dev/roadmap/backup.md) phase 5: the procedure that turns it
+[roadmap/backup.md](../../dev/roadmap/done/backup.md) phase 5: the procedure that turns it
 into a fact, per stack, and the record of what each stack's result actually
 proves. **Re-run yearly**, and whenever a stack's `backup.sh` changes shape.
 
@@ -303,4 +303,5 @@ argument.
 ## Next
 
 Back to [backup-setup.md](../guides/backup-setup.md) for the mechanism itself, or
-[roadmap/backup.md](../../dev/roadmap/backup.md) for what phase 5 still asks for.
+[roadmap/backup-proofs.md](../../dev/roadmap/backup-proofs.md) for what is still
+unproven.

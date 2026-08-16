@@ -136,7 +136,7 @@ where the reasoning goes — not this table.
 - **No container logs.** Alloy tails the *infra* VM's Docker socket, so nothing
   running here reaches Loki — these four, and Coolify's own containers alike.
   This is a gap for the whole machine, not for these applications:
-  [dev/roadmap/apps-vm-logs.md](../dev/roadmap/apps-vm-logs.md).
+  [dev/roadmap/done/apps-vm-logs.md](../dev/roadmap/done/apps-vm-logs.md).
 - **No container-state monitoring.** Uptime Kuma's container monitors read the
   infra VM's Docker socket and cannot see this machine's daemon at all. HTTP
   checks through Coolify's proxy are the only signal available for anything
@@ -144,7 +144,7 @@ where the reasoning goes — not this table.
 
 ## Backup
 
-Tiers use the language of [dev/roadmap/backup.md](../dev/roadmap/backup.md),
+Tiers use the language of [dev/roadmap/done/backup.md](../dev/roadmap/done/backup.md),
 where **tier 1 is irreplaceable**.
 
 | Service | Tier | What is at stake |
@@ -160,7 +160,8 @@ Every one of those lives under `/data/<stack>` on the second disk — which is
 covered by nothing else. The file-level `restic` layer now exists
 ([docs/guides/backup-setup.md](../docs/guides/backup-setup.md)), but it runs on the **infra
 VM** and this machine has not joined the repository
-([roadmap/backup.md](../dev/roadmap/backup.md) names that gap and scopes it out).
+([roadmap/apps-vm-backup.md](../dev/roadmap/apps-vm-backup.md) is that gap's
+own task, ranked first).
 So the honest state today is: the apps VM's *root* disk is backed up and its
 **application data is not**. Paperless is tier 1 and ships its own
 `document_exporter`; run it by hand and copy `/data/paperless/export` off the box

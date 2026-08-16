@@ -217,7 +217,7 @@ you go to read them. This is a deliberate omission, not an oversight.
 **Why it has no backup.** Every byte this stack owns is in git: the compose, the
 nine config files, and no `.env`. A restic snapshot of it would be a snapshot of
 a checkout. It is the only stack in the lab where that is true —
-[roadmap/backup.md](../../dev/roadmap/backup.md) records the absence beside the tiers.
+[roadmap/backup.md](../../dev/roadmap/done/backup.md) records the absence beside the tiers.
 
 **Why it is gated when Kuma is not.** Both are UIs with no OIDC, so the
 convention points both at forward-auth, and Kuma is a stated exception because

@@ -173,7 +173,7 @@ every stack above it, and nothing references Homepage.
 ## Backup
 
 **No `backup.sh`, deliberately** — recorded as a stated absence in
-[docs/roadmap/backup.md](../roadmap/backup.md) rather than left to be noticed.
+[docs/roadmap/backup.md](../roadmap/done/backup.md) rather than left to be noticed.
 
 Every byte this stack owns is in git: the compose, the five config files, and no
 `.env`. A restic snapshot of it would be a snapshot of a checkout. It is the
