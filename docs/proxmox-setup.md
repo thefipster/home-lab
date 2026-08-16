@@ -1717,6 +1717,18 @@ EOF
 systemctl enable --now ups-health-push.timer
 ```
 
+Confirm systemd actually took the accuracy setting, rather than that the file
+contains it — a timer still running on the default minute of slack looks
+identical on disk, and shows up later as `Site Power` going red on a lab that is
+perfectly fine:
+
+```bash
+systemctl show ups-health-push.timer -p AccuracyUSec
+```
+
+It should read `1s`. If it says `1min`, the unit was edited without a
+`systemctl daemon-reload`.
+
 Verify it pushed, rather than trusting that it will:
 
 ```bash
