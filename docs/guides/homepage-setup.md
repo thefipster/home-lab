@@ -26,7 +26,7 @@ dashboard.
 
 `home.thefipster.de` needs an exact host record pointing at the infra VM. The
 registry is [dns-records.md](../reference/dns-records.md); the router how-to is
-[wildcard-dns-udr.md](wildcard-dns-udr.md).
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md).
 
 ```bash
 getent hosts home.thefipster.de

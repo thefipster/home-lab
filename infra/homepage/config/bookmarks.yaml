@@ -2,7 +2,7 @@
 # duplicates a services.yaml entry is a second place to update when a name
 # changes.
 #
-# The UniFi Dream Router is NOT here. It has no DNS name in
+# The router is NOT here. It has no DNS name in
 # docs/reference/dns-records.md, and the only other way to link it would be a literal
 # address — which this repo does not write down anywhere.
 

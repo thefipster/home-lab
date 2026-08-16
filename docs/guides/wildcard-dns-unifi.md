@@ -1,6 +1,6 @@
-# Lab DNS on a UniFi Dream Router
+# Lab DNS on UniFi
 
-**Runs on:** the UniFi Dream Router
+**Runs on:** the UniFi Network Application
 
 **Prerequisite:** [proxmox-setup.md](proxmox-setup.md) complete — both VMs
 exist and have DHCP reservations, so the records below have something stable to
@@ -24,7 +24,7 @@ DNS answers "which host"; the proxy answers "which container". This guide only
 covers the DNS half — TLS is handled by [traefik-setup.md](traefik-setup.md).
 
 **This is split-horizon DNS.** These records exist only on the LAN, answered by
-the UDR. The public `thefipster.de` zone at netcup stays **empty of A
+the router. The public `thefipster.de` zone at netcup stays **empty of A
 records** — publicly the names resolve to nothing, so the lab's layout is never
 exposed. (The only public traces are the temporary `_acme-challenge` TXT
 records during certificate issuance, and the wildcard's Certificate
@@ -33,10 +33,10 @@ local wildcard can't shadow any real service.
 
 ## Prerequisites
 
-- The clients you'll test from use the **UDR as their DNS server** (the default
+- The clients you'll test from use the **router as their DNS server** (the default
   for DHCP clients). Local DNS records only apply to clients resolving
-  *through* the UDR.
-- **DHCP reservations** so the target IPs never change. UDR: *Client Devices →
+  *through* the router.
+- **DHCP reservations** so the target IPs never change. UniFi: *Client Devices →
   (select host) → Settings → **Fixed IP Address*** — the reservation targets
   are in the registry: [dns-records.md](../reference/dns-records.md).
 
@@ -102,7 +102,7 @@ getent hosts git.thefipster.de
 ```
 
 From **inside a container** (Docker's embedded DNS forwards to the host resolver
-→ UDR). Nothing in the lab has Docker yet at this point in the build — the infra
+→ router). Nothing in the lab has Docker yet at this point in the build — the infra
 VM gets it in [infra-vm-setup.md](infra-vm-setup.md), step 3; run this layer from
 there when you arrive:
 
@@ -123,12 +123,12 @@ If the UI won't take a wildcard on your firmware:
   service — the thing the wildcard avoids.
 - **Dedicated resolver on the lab.** Run AdGuard Home / Pi-hole / dnsmasq /
   CoreDNS in the stack, give it the wildcard, and set it as the network's DNS
-  server (UDR: *Settings → Networks → (your LAN) → DHCP Name Server → Manual*).
+  server (UniFi: *Settings → Networks → (your LAN) → DHCP Name Server → Manual*).
   Then all names — including wildcards — are managed **in this repo**, and the
   router change is one-time. Best long-term fit; heavier to set up.
 
 > `config.gateway.json` (the classic UniFi wildcard hack) targets self-hosted
-> controllers and is **not** reliable on UniFi OS consoles like the UDR — prefer
+> controllers and is **not** reliable on UniFi OS consoles — prefer
 > the UI record or a dedicated resolver instead.
 
 ## Next

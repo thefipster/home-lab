@@ -70,7 +70,7 @@ nobody has exercised is a hypothesis, not a capability.
 
 ## Still unproven by this drill
 
-**The alert leaving the house.** Only the server is on the UPS today. The UDR,
+**The alert leaving the house.** Only the server is on the UPS today. The router,
 the switch and the WAN termination are what let the on-battery notification
 reach you during a real outage — until they are on it, this drill passes while a
 genuine power cut shuts the lab down correctly and **silently**. The drill runs

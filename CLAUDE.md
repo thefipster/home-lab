@@ -27,8 +27,8 @@ guides, applied to the whole repo.
 
 ## Topology (why things are split the way they are)
 
-One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
-Router. **The repo root's lab directories are the machine map** — one per VM.
+One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi
+router. **The repo root's lab directories are the machine map** — one per VM.
 The rest of the root is not machines: `scripts/` stays flat because it holds one
 kind of file whose names already carry the service name, `docs/` holds what you
 read to build the lab, and `dev/` holds why it looks the way it does:
@@ -699,7 +699,7 @@ by what the reader is holding when they open the file:
 
 - **`docs/guides/`** — an instruction to carry out, on the machine its
   `**Runs on:**` line names. Numbered steps, each with verification. One per
-  build-order step: `proxmox-setup.md` → `wildcard-dns-udr.md` →
+  build-order step: `proxmox-setup.md` → `wildcard-dns-unifi.md` →
   **`infra-vm-setup.md`** → `traefik-setup.md` → `vaultwarden-setup.md` →
   `authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
   `grafana-setup.md` → `uptime-kuma-setup.md` → `homepage-setup.md` →
@@ -745,7 +745,7 @@ into a second `monitoring-setup.md` was merged away because, on a fresh
 checkout, the second guide was pure verification.
 
 The **registries** in `docs/reference/` centralize the manual operations that
-live outside the repo: `dns-records.md` (every UDR DNS record),
+live outside the repo: `dns-records.md` (every DNS record on the router),
 `sso-applications.md` (every Authentik
 application and its exact config values), `uptime-kuma-monitors.md` (every
 Kuma monitor, grouped by stack) and `timetable.md` (everything that runs on a

@@ -215,7 +215,7 @@ is installed by hand where it runs. ([backup-setup.md](backup-setup.md) does the
 same thing on a larger scale: its whole Part 1 is on the host, because the
 hypervisor owns the backup drive.) Open its shell (Proxmox UI → *pve* → **Shell**, or
 `ssh root@pve.thefipster.de` — that record has existed since
-[wildcard-dns-udr.md](wildcard-dns-udr.md)) and install Debian's node exporter:
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md)) and install Debian's node exporter:
 
 ```bash
 apt install prometheus-node-exporter

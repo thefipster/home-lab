@@ -73,7 +73,7 @@ unit, no Docker, and no repo checkout on `.40`.
   re-resolves per scrape, so a host IP change corrects itself. Resolution from
   inside a container is not a new assumption — it is one of the three verified
   DNS layers in
-  [wildcard-dns-udr.md](../../docs/guides/wildcard-dns-udr.md#verify-at-all-three-layers).
+  [wildcard-dns-udr.md](../../docs/guides/wildcard-dns-unifi.md#verify-at-all-three-layers).
 - **`instance` is set inline on the static target**, not derived. Prometheus
   only defaults `instance` from `__address__` when the label is absent, so
   setting `instance = "pve"` explicitly is what keeps the FQDN out of the

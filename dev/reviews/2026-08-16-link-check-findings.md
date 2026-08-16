@@ -152,6 +152,42 @@ It is the wrong tool for the question "how healthy are the links?", and the plan
 is a frozen record, so it will keep saying 124. **The number to trust for that
 question is the one above: zero.**
 
+## Addendum: the rewriter's frozen guard went stale the moment it ran
+
+Found later the same day, renaming `wildcard-dns-udr.md` to
+`wildcard-dns-unifi.md` with the same `retarget.py`.
+
+Its literal-path pass is skipped for the historical records, guarded by
+
+```python
+FROZEN = ('docs/superpowers/', 'docs/review/')
+```
+
+Those are the **pre-restructure** paths. The restructure moved that tree to
+`dev/specs/`, `dev/plans/` and `dev/reviews/`, so from the moment it finished,
+the guard matched nothing and the literal pass ran over every historical record
+unprotected. The tool disarmed its own safety catch by succeeding.
+
+It surfaced as exactly one bad edit, caught by reading the diff: the move map
+recorded inside `dev/plans/2026-08-16-docs-restructure.md` had its
+`wildcard-dns-udr.md` value rewritten to `wildcard-dns-unifi.md`, making the plan
+claim a mapping it never performed. Reverted. The four other `dev/` edits in that
+commit were markdown-link targets — address repairs, which the rule requires.
+
+The blast radius was small only because the rename's map had a single key. A map
+with the restructure's 25 keys would have rewritten paths throughout the frozen
+tree, and the link resolver would not have flagged any of it: rewriting
+`docs/roadmap/backup.md` to `dev/roadmap/backup.md` inside a plan's prose
+produces a path that *resolves*, so the broken-set diff stays clean while the
+record quietly becomes false.
+
+**Two lessons, and the second is the one that generalizes.** A path constant that
+names the tree a refactor is moving has to be updated *as part of* that refactor.
+And the verification here only ever checked that links resolve — it cannot see a
+frozen record being made to say something new, because the edit that corrupts it
+is precisely an edit that makes a path more valid. **Reading the diff over the
+frozen tree is not optional, and no resolver replaces it.**
+
 ## What this leaves open
 
 **Anchors are checked separately and are not clean.** The anchor resolver

@@ -1,7 +1,7 @@
 # Home Assistant OS (home-assistant VM)
 
 **Runs on:** the Proxmox host shell, then the HA VM's web UI — with side trips
-to the UDR (step 5) and an infra-VM shell (step 8)
+to the router (step 5) and an infra-VM shell (step 8)
 
 **Prerequisite:** [coolify-setup.md](coolify-setup.md) complete — the apps VM is
 finished, so this is the last machine in the lab.
@@ -157,14 +157,14 @@ watching for it to settle, not logging in.
 
 **Name it before you open it.** HAOS ships the guest agent, so Proxmox shows the
 VM's address on its **Summary** tab as soon as it boots. Use that to set things up
-on the **UDR** — a DHCP reservation for this VM's MAC, then the **one record the
+on the **router** — a DHCP reservation for this VM's MAC, then the **one record the
 registry deferred until now** ([dns-records.md](../reference/dns-records.md)):
 
 - `homeassistant.thefipster.de` → **this VM** (the *machine* — what Traefik dials)
 
 Its sibling `ha.thefipster.de` → the **infra VM** (the *service* — Traefik
 answers there) went in with the rest back in
-[wildcard-dns-udr.md](wildcard-dns-udr.md); verify both now:
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md); verify both now:
 
 ```bash
 getent hosts ha.thefipster.de homeassistant.thefipster.de

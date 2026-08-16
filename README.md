@@ -20,7 +20,7 @@ are no migration paths and no upgrade branches — if a guide tells you to
 ## Architecture
 
 ```
-UniFi Dream Router · DHCP + split-horizon DNS
+UniFi Cloud Gateway Ultra · DHCP + split-horizon DNS
     exact infra records → infra VM      ha. → infra VM      *.thefipster.de → apps VM
                                     │
                             LAN · one flat /24
@@ -116,7 +116,7 @@ everything else ([docs/guides/proxmox-setup.md, Part
 
 ## Networking & DNS
 
-Everything sits on the LAN behind a UniFi Dream Router. Names are real
+Everything sits on the LAN behind the router. Names are real
 subdomains of `thefipster.de`, resolved **locally** by the router (split
 horizon — the public zone holds no address records, A **or** AAAA): exact host
 records send the
@@ -125,7 +125,7 @@ infra services (`git.`, `auth.`, `grafana.`, …) to the infra VM, and the
 Coolify's proxy routes each hostname to the right app by the HTTP `Host`
 header — new apps need **no** new DNS records. The full record set is the
 registry [docs/reference/dns-records.md](docs/reference/dns-records.md); the router how-to is
-[docs/guides/wildcard-dns-udr.md](docs/guides/wildcard-dns-udr.md).
+[docs/guides/wildcard-dns-unifi.md](docs/guides/wildcard-dns-unifi.md).
 
 Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
@@ -154,7 +154,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    the pool-health monitor — is done at the end, since it needs a Kuma that
    does not exist until step 10; everything before it, the whole-VM backup job
    included, is done now.
-2. **[DNS](docs/guides/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
+2. **[DNS](docs/guides/wildcard-dns-unifi.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/reference/dns-records.md](docs/reference/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
@@ -241,7 +241,7 @@ is written down twice.
 
 | Document | Holds |
 |---|---|
-| **[docs/reference/dns-records.md](docs/reference/dns-records.md)** | every record on the UniFi Dream Router, plus the no-AAAA invariant the split horizon depends on |
+| **[docs/reference/dns-records.md](docs/reference/dns-records.md)** | every record on the router, plus the no-AAAA invariant the split horizon depends on |
 | **[docs/reference/sso-applications.md](docs/reference/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
 | **[docs/reference/uptime-kuma-monitors.md](docs/reference/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
 | **[docs/reference/timetable.md](docs/reference/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |

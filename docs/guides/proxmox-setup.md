@@ -69,7 +69,7 @@ Boot the server from the USB stick and pick **Install Proxmox VE (graphical)**.
 
 The installer auto-creates a Linux bridge **`vmbr0`** on the physical NIC. VMs
 attached to `vmbr0` sit directly on your LAN (bridged) and get IPs/DNS from the
-UDR — exactly what we want. No extra network config needed.
+router — exactly what we want. No extra network config needed.
 
 ---
 
@@ -83,9 +83,9 @@ last two are new to this build and the reason the reboot at the end matters.
 
 **First, put the host's name on the router.** You chose a static address in
 Part 2, so you already know it — add the single record
-`pve.thefipster.de` → `pve ip` on the UDR now
+`pve.thefipster.de` → `pve ip` on the router now
 ([dns-records.md](../reference/dns-records.md) is the registry,
-[wildcard-dns-udr.md](wildcard-dns-udr.md) the how-to). It takes a minute and
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md) the how-to). It takes a minute and
 every step from here on can use the name instead of an address. The *rest* of the
 record set waits for Part 6, when the VMs exist to point at.
 
@@ -621,14 +621,14 @@ prompted).
 
 ## Part 6 — Give the VMs their addresses (on the router)
 
-On the **UDR**, add a **DHCP reservation** for the MAC of each VM you just
+On the **router**, add a **DHCP reservation** for the MAC of each VM you just
 built — infra and apps — so the IPs are stable. The reservation targets are
 listed in [dns-records.md](../reference/dns-records.md) (see
-[wildcard-dns-udr.md](wildcard-dns-udr.md) for where reservations live).
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md) for where reservations live).
 
 Then add **every** DNS record from the registry
 ([dns-records.md](../reference/dns-records.md)) — the wildcard to the apps VM and the exact
-infra host records; [wildcard-dns-udr.md](wildcard-dns-udr.md) is the how-to.
+infra host records; [wildcard-dns-unifi.md](wildcard-dns-unifi.md) is the how-to.
 Add the complete set now: later guides assume the records exist.
 
 **One row waits, and only one:** `homeassistant.thefipster.de` points at the
@@ -736,7 +736,7 @@ to hold real retention instead of a single copy.
 
 ## Next — this guide is done for now
 
-**Continue with [wildcard-dns-udr.md](wildcard-dns-udr.md)**: the reservations
+**Continue with [wildcard-dns-unifi.md](wildcard-dns-unifi.md)**: the reservations
 and records from [Part 6](#part-6--give-the-vms-their-addresses-on-the-router),
 with [dns-records.md](../reference/dns-records.md) as the registry of exactly what to add.
 Every guide after it assumes those records exist.
@@ -1028,7 +1028,7 @@ that nothing can ask any questions.
 surge-protected, so there is no wrong socket to pick and nothing to check on the
 back panel — the only question is what you plug in, and **six is the budget**.
 
-The server is obvious. The **UDR** and any switch between it and the server are
+The server is obvious. The **router** and any switch between it and the server are
 not, and they matter for a reason the server does not: the network has to
 outlive the host so the shutdown can be reported *while it happens*, rather than
 reconstructed from logs afterwards.
@@ -2007,7 +2007,7 @@ more VMs. Left as a later optimization — the ISO path above is enough to get g
 
 ## Next
 
-**[wildcard-dns-udr.md](wildcard-dns-udr.md)** — put the lab's names on the
+**[wildcard-dns-unifi.md](wildcard-dns-unifi.md)** — put the lab's names on the
 router: the reservations and records from Part 6, with
 [dns-records.md](../reference/dns-records.md) as the registry of exactly what to add. Every
 guide after it assumes those records exist.

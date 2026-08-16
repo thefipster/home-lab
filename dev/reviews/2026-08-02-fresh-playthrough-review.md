@@ -207,7 +207,7 @@ is.
 **Status: Observation — flow, works as written.**
 [proxmox-setup.md Part 6](../../docs/guides/proxmox-setup.md#part-6--give-the-vms-their-addresses-on-the-router)
 instructs the reader to add the reservations **and every DNS record from the
-registry**, with [wildcard-dns-udr.md](../../docs/guides/wildcard-dns-udr.md) open as the
+registry**, with [wildcard-dns-udr.md](../../docs/guides/wildcard-dns-unifi.md) open as the
 how-to. The README's build order then lists that same guide as **step 2**, and
 its prerequisite line ("both VMs exist and have DHCP reservations") describes
 the state Part 6 produced — so a reader arriving at step 2 has already
@@ -220,7 +220,7 @@ registry keeps it honest. But the seam should say so. **Fix, smallest
 version:** one line at the top of wildcard-dns-udr.md — "If you just arrived
 from proxmox-setup.md Part 6, the records already exist; treat this guide as
 the how-to you were using and run the
-[verification](../../docs/guides/wildcard-dns-udr.md#verify-at-all-three-layers)."
+[verification](../../docs/guides/wildcard-dns-unifi.md#verify-at-all-three-layers)."
 The alternative (Part 6 becomes a pure pointer, "go do wildcard-dns-udr.md
 now, then come back") restructures more for the same effect.
 

@@ -1,15 +1,15 @@
 # DNS records (registry)
 
-**Runs on:** the UniFi Dream Router — registry, not a build step
+**Runs on:** the UniFi Network Application — registry, not a build step
 
 Every DNS entry the lab needs, in one place. All of these are **manual
-operations on the UniFi Dream Router** — they live on the router, not in this
+operations on the router** — they live there, not in this
 repo — so this registry is the record of what must exist. How to add them
 (UI path, wildcard caveats, fallbacks, verification at every layer):
-[wildcard-dns-udr.md](../guides/wildcard-dns-udr.md).
+[wildcard-dns-unifi.md](../guides/wildcard-dns-unifi.md).
 
 This is **split-horizon DNS**: these names resolve only on the LAN, answered
-by the UDR. The public `thefipster.de` zone at netcup holds **no address records
+by the router. The public `thefipster.de` zone at netcup holds **no address records
 of either family** — no A, and no AAAA either, which is a stricter requirement
 than it sounds and has its own section:
 [No AAAA records, anywhere](#no-aaaa-records-anywhere).
@@ -17,7 +17,7 @@ than it sounds and has its own section:
 ## Hosts
 
 Four machines, each needing a **fixed IP** so the records below have something
-stable to point at. UDR: *Client Devices → (select host) → Settings →
+stable to point at. UniFi: *Client Devices → (select host) → Settings →
 **Fixed IP Address***.
 
 | Host | Written below as |
@@ -125,7 +125,7 @@ would answer with the apps VM.
 
 ## No AAAA records, anywhere
 
-**The UDR answers A records only, so a single public AAAA takes the whole lab
+**The router answers A records only, so a single public AAAA takes the whole lab
 off the LAN at once.** Every row above is an IPv4 record on the router. The
 router does not synthesise an AAAA to go with it and does not suppress the
 question either — it forwards the AAAA query upstream, where whatever the public
@@ -149,7 +149,7 @@ quietly depending on a machine that is not in the topology.
 
 So the invariant is **no AAAA for `thefipster.de` or any name under it**, and it
 is a property of the *public* zone rather than of the router — nothing on the
-UDR can enforce it, which is why it is written down here instead. Giving the lab
+router can enforce it, which is why it is written down here instead. Giving the lab
 real IPv6 would mean local AAAA records on the router, which is a different piece
 of work; until that exists, this absence is what keeps the split horizon honest.
 
@@ -187,7 +187,7 @@ Traefik problem when it isn't.
 
 ## Verify
 
-From any LAN client resolving through the UDR:
+From any LAN client resolving through the router:
 
 Each exact record should return the host named in the table above — compare the
 answer against the router's reservation list, not against a document:
@@ -236,7 +236,7 @@ the FQDN into it — so that one row passes without consulting DNS and proves
 nothing about the zone.
 
 The full three-layer verification (workstation, VM, inside a container) is in
-[wildcard-dns-udr.md](../guides/wildcard-dns-udr.md#verify-at-all-three-layers).
+[wildcard-dns-unifi.md](../guides/wildcard-dns-unifi.md#verify-at-all-three-layers).
 
 ## Why this registry holds no addresses
 

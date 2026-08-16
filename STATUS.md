@@ -11,7 +11,7 @@ about the whole lab.
 | Piece | State |
 |-------|-------|
 | Proxmox host + the infra and apps VMs | ✅ deployed |
-| DNS (UDR split-horizon + wildcard) | ✅ deployed |
+| DNS (router split-horizon + wildcard) | ✅ deployed |
 | Traefik + Let's Encrypt (netcup DNS-01) | ✅ deployed |
 | Vaultwarden password manager | ✅ deployed — pinned `1.37.1`, restore drilled from an already-paired client, [guide](docs/guides/vaultwarden-setup.md) |
 | Authentik SSO (OIDC + forward-auth) | ✅ deployed — pinned `2026.5`, [guide](docs/guides/authentik-setup.md) |
@@ -24,7 +24,7 @@ about the whole lab.
 | Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](docs/guides/backup-setup.md). Every stateful infra stack wired and restore-drilled, one tagged snapshot each ([drill guide](docs/drills/backup-restore-drill.md), [findings](dev/reviews/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](dev/roadmap/backup.md)) — which now costs real data, see the apps row below |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](docs/guides/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | Proxmox web UI on 443 with its own certificate | ✅ deployed — [Part 3](docs/guides/proxmox-setup.md#give-the-host-a-real-certificate). Its own Let's Encrypt certificate from Proxmox's ACME client, not Traefik's wildcard, so the one UI you repair the lab with does not depend on one of the lab's own guests. Renewal is Proxmox's `pve-daily-update.timer` and has not had to run yet |
-| UPS: orderly shutdown, and coming back | ✅ deployed — [Part 10](docs/guides/proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. **Drilled end to end** ([drill](docs/drills/ups-power-cut-drill.md)): on-battery notification, backstop, guests down together, killpower, and the lab booting itself when mains returned. Only the server is on the UPS so far — adding the UDR, switch and WAN termination raises the load and is what lets the alert leave the house |
+| UPS: orderly shutdown, and coming back | ✅ deployed — [Part 10](docs/guides/proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. **Drilled end to end** ([drill](docs/drills/ups-power-cut-drill.md)): on-battery notification, backstop, guests down together, killpower, and the lab booting itself when mains returned. Only the server is on the UPS so far — adding the router, switch and WAN termination raises the load and is what lets the alert leave the house |
 | CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](docs/guides/forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |
 | CI: code analysis | ✅ deployed — analyzers enforced in the build. One decision still open: whether a SonarQube stack earns its place ([roadmap](dev/roadmap/ci-code-analysis.md)) |
@@ -49,7 +49,7 @@ existence:
 
 - **The rest of the load on the UPS.** The shutdown chain is drilled and works,
   but only the server is plugged in
-  ([Part 10](docs/guides/proxmox-setup.md#part-10--survive-a-power-cut)). The UDR, the switch
+  ([Part 10](docs/guides/proxmox-setup.md#part-10--survive-a-power-cut)). The router, the switch
   and the WAN termination are what let the on-battery alert actually leave the
   house — until they are on it, a real outage shuts the lab down correctly and
   silently.

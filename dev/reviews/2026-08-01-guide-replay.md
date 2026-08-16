@@ -65,7 +65,7 @@ one step in the guide that destroys data the reader might still want.
 ## 3. Proxmox guide — Part 7 belongs to the VMs, not to the hypervisor
 
 **Finding:** Part 7 should be split per VM and moved: the infra half between
-[wildcard-dns-udr.md](../../docs/guides/wildcard-dns-udr.md) and
+[wildcard-dns-udr.md](../../docs/guides/wildcard-dns-unifi.md) and
 [traefik-setup.md](../../docs/guides/traefik-setup.md), the apps half between
 [uptime-kuma-setup.md](../../docs/guides/uptime-kuma-setup.md) and
 [coolify-setup.md](../../docs/guides/coolify-setup.md).

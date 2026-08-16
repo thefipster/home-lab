@@ -88,7 +88,7 @@ services:
       # Check propagation against netcup's AUTHORITATIVE nameservers, not a
       # recursive resolver. Public resolvers (1.1.1.1/8.8.8.8) negative-cache
       # an "empty" answer if queried before netcup publishes the record, then
-      # keep serving that cached nothing past the timeout; the LAN's UDR would
+      # keep serving that cached nothing past the timeout; the LAN's router would
       # blackhole the TXT lookup via the split-horizon wildcard. Authoritative
       # servers answer for the zone directly with no cache — this is also
       # exactly what Let's Encrypt sees. (Verify yours match:

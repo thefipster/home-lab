@@ -239,7 +239,7 @@ lab — no A and no AAAA, the second half being the one that is easy to leave
 behind, since the router answers A only and forwards AAAA upstream
 ([dns-records.md](../reference/dns-records.md#no-aaaa-records-anywhere)). The UniFi router
 answers the lab's names locally
-([wildcard-dns-udr.md](wildcard-dns-udr.md)). Publicly the names resolve to
+([wildcard-dns-unifi.md](wildcard-dns-unifi.md)). Publicly the names resolve to
 nothing. The only fingerprint visible to the internet is the Certificate
 Transparency entry for `*.thefipster.de` — and a wildcard keeps the individual
 hostnames private.
