@@ -245,15 +245,23 @@ is written down twice.
 | **[docs/reference/sso-applications.md](docs/reference/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
 | **[docs/reference/uptime-kuma-monitors.md](docs/reference/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
 | **[docs/reference/timetable.md](docs/reference/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |
-| **[docs/drills/backup-restore-drill.md](docs/drills/backup-restore-drill.md)** | the per-stack restore procedure, and what each stack's result actually proves. A recurring drill — yearly, and whenever a `backup.sh` changes shape |
 | **[apps/services.md](apps/services.md)** | the third-party software on the apps VM — what runs and why, never how, since those compose files live in a Forgejo repo |
 
-**The four registries list their deliberate absences beside their entries**, and
+**The registries list their deliberate absences beside their entries**, and
 that is the point: a registry recording only what exists cannot tell you whether
 a gap was a decision. Vaultwarden, Kuma and Home Assistant have no SSO row;
 `coolify.` and `apps.` have no DNS row; Kuma does not monitor itself or the
 hypervisor; the lab runs no CI schedule at all. When adding a service, decide
 about each of them and say so in each.
+
+## Drills
+
+A guide runs once per rebuild. A drill runs forever — a procedure re-run on a
+schedule against a lab that is already built, to prove a property still holds.
+
+| Drill | Proves | Cadence |
+|---|---|---|
+| **[docs/drills/backup-restore-drill.md](docs/drills/backup-restore-drill.md)** | that each stack's snapshot actually restores it — per stack, with a marker that cannot lie | yearly, and whenever a `backup.sh` changes shape |
 
 ## Status
 
