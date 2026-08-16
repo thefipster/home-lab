@@ -1313,13 +1313,24 @@ With the parallel shutdown from step 3 that is 300 s + 90 s — **6.5 minutes**,
 against a runtime step 8 measures rather than assumes. Sequential shutdown would
 have made it 9.5, which is the three minutes step 3 declined to spend.
 
-**300 s is deliberately conservative, and there is headroom to spend later.**
-The whole budget is one worst-case shutdown away from the runtime figure, so
-once the drill produces a real number the backstop is the knob to open up —
-every second added to it is an outage length the lab rides out instead of
-shutting down for. Do that *after* everything is on the UPS, though: adding the
-router, the switch and the WAN termination raises the load and shortens the
-runtime that this arithmetic is measured against.
+**300 s is the settled value, not a placeholder to grow later**, and the reason
+is what a power interruption in this lab actually looks like. Real grid outages
+here are rare and brief; the realistic event is someone catching the cable, or a
+breaker going. For all of those, **five minutes is a grace period rather than a
+countdown** — `ONLINE` cancels the timer, so power restored inside the window
+costs nothing at all and the lab never notices.
+
+Past that window the lab shuts down with most of the battery untouched, and
+**that unused reserve is the point rather than waste.** It is the margin that
+absorbs everything this arithmetic cannot predict: a battery that has aged since
+the last drill, a load that grew when more equipment joined the UPS, a guest
+that hangs and eats its whole 90 seconds, the UPS's own `ups.delay.shutdown`
+pause. A longer backstop spends that margin to ride out medium-length outages
+that mostly do not happen — trading a reserve that protects every shutdown for a
+convenience that applies to few.
+
+The formula above is still how to re-derive this if the hardware changes. It is
+not an invitation to tune the number for its own sake.
 
 > **`battery.runtime` is only worth reading under the real load.** It is an
 > estimate for whatever is drawing power *right now*, so a figure taken before

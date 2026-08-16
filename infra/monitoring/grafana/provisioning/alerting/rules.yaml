@@ -94,10 +94,11 @@ groups:
       # during an actual outage IS the outage, not a fault. `for: 1h` because
       # the estimate dips transiently under load.
       #
-      # 900s against a shutdown budget of 570s (a 300s backstop plus three
-      # guests at down=90), so it warns while there is still comfortable
-      # margin. Both numbers are set in docs/proxmox-setup.md Part 10; if the
-      # commissioning drill moves the backstop, move this with it.
+      # 900s against a shutdown budget of 390s -- a 300s backstop plus one
+      # 90s window, since the guests share an `order` and stop in parallel.
+      # So this fires while the battery can still fund more than twice what a
+      # shutdown needs, which is the point: it is an ageing signal, not a
+      # last-moment one. Both numbers are set in docs/proxmox-setup.md Part 10.
       - uid: ups-battery-aging
         title: UpsBatteryAging
         condition: C
