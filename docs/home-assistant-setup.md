@@ -296,13 +296,46 @@ Confirm the target is up and the `ServiceDown` alert for it clears —
 **entity** metrics (sensor states), so they appear under `job="homeassistant"`
 and **not** on the Node Exporter Full dashboard.
 
+### 9. Add the host's own metrics
+
+Step 8 got Home Assistant's **entities** into Prometheus. This VM's CPU, RAM and
+disk are not among them — `/api/prometheus` exports entity states, and nothing
+on this appliance produces machine counters on its own. HAOS cannot run Debian's
+node exporter as a systemd unit the way the apps VM and the hypervisor do, so
+the equivalent is an integration that turns host readings into entities, which
+then flow out through the endpoint you just wired.
+
+In HA: *Settings → Devices & Services → Add Integration → **System Monitor***.
+It has no configuration to fill in.
+
+By default it creates only a few sensors. Add the ones worth graphing from
+*Settings → Devices & Services → Entities*, filtering on `System Monitor` and
+enabling the disabled ones — processor use, memory use, disk use, and load
+average are the set that matches what Node Exporter Full shows for the other
+three machines.
+
+Confirm they reached Prometheus. In Grafana's **Explore → Prometheus**:
+
+```promql
+{job="homeassistant", __name__=~"homeassistant_sensor.*"}
+```
+
+Expect the new sensors among the results within a scrape interval — 60 seconds
+here, not the 15 the other targets use.
+
+> **These will not appear on the Node Exporter Full dashboard, and that is not a
+> fault.** They carry `job="homeassistant"` and are entity metrics with entity
+> names; that dashboard is built on `job="node"` and the node exporter's metric
+> names. This VM is visible in monitoring, just not on that panel set. Building
+> a dashboard for these is separate work and deliberately not part of this
+> guide.
+
 ## Next
 
 That is every machine. The full sequence is the
 [README build order](../README.md#build-order).
 
-Worth doing from here: add the **System Monitor** integration for this VM's
-CPU/RAM/disk, and add this machine's two Kuma monitors from the registry
+Worth doing from here: add this machine's two Kuma monitors from the registry
 ([uptime-kuma-monitors.md](uptime-kuma-monitors.md#home-automation--home-assistant-vm)).
 
 ## Troubleshooting

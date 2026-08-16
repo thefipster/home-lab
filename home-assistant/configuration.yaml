@@ -40,9 +40,13 @@
 # --- metrics ----------------------------------------------------------------
 # Exposes /api/prometheus, scraped by Alloy on the infra VM as
 # job="homeassistant". These are ENTITY metrics — sensor states, not machine
-# counters — so they do not belong on the Node Exporter Full dashboard. Add the
-# System Monitor integration if you want this VM's CPU/RAM/disk in the same
-# feed; HAOS cannot run a node exporter as a systemd unit.
+# counters — so they do not belong on the Node Exporter Full dashboard.
+#
+# System Monitor integration turns this VM's CPU/RAM/disk into entities, which
+# then leave through this same endpoint — HAOS cannot run a node exporter as a
+# systemd unit, so that is the equivalent. It is step 9 of
+# docs/home-assistant-setup.md, not an optional extra: without it this machine
+# contributes no host metrics at all.
 #
 # Unaffected by the 2026.8 move: only the `http:` integration became UI-managed,
 # so this stays YAML and stays here.
