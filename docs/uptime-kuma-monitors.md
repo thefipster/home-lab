@@ -431,8 +431,8 @@ cannot.
 
 ## Deliberately not monitored
 
-Three absences that are decisions, not gaps. Listed so this registry stays an
-honest account of coverage.
+Absences that are decisions, not gaps. Listed so this registry stays an honest
+account of coverage.
 
 **Uptime Kuma itself.** A monitor for `uptime-kuma-uptime-kuma-1` would be
 pointless: a dead Kuma cannot report that it is dead, and a live one telling you it
@@ -440,6 +440,28 @@ is alive carries no information. This is the lab's one genuine monitoring blind
 spot and it is structural — closing it needs something *outside* the lab, either a
 push/heartbeat monitor to an external service or a second watcher on another
 machine. Neither exists yet.
+
+**The apps VM's log collector.** `apps/alloy` cannot be monitored from here, and
+the reason is the same property that makes Kuma useful everywhere else: its
+container-state monitors read a `docker.sock`, and the one it holds is the
+**infra VM's**. That is exactly what lets it report on stacks it shares no
+network with, and exactly what stops it seeing a container on another machine.
+The collector's own component UI is loopback-bound on the apps VM, so there is
+no endpoint to probe either.
+
+The signal that it has died is **logs from `instance="apps"` stopping**, noticed
+by eye in Grafana. That is a real blind spot, and it belongs beside the weekly
+`restic check` having no heartbeat rather than being papered over.
+
+Two closures were weighed and dropped. Binding the collector's `:12345` to the
+LAN and scraping its self-metrics would let the existing `ServiceDown` alert
+cover it with no new rule — rejected because it puts Alloy's component graph on
+the LAN where the infra VM's equivalent is deliberately loopback-only, buying an
+alert by making the two collectors disagree about their own exposure. An HTTP
+monitor on the push URL accepting the `405` a `GET` returns would prove DNS,
+Traefik, the certificate and Loki being up — the *receiving* half — while saying
+nothing about whether anything is pushing. A green tick that does not mean what
+it reads as is worse than a stated gap.
 
 **The Proxmox host's *availability*.** Tempting, and useless from here, for the
 reason in the table above: Kuma is a guest of the hypervisor, so any failure
