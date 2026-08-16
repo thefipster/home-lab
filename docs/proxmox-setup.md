@@ -1278,10 +1278,6 @@ for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; don
 All three lines should read `order=1` and `down=90`. Different `order` values
 are the thing to look for: that is the default behaviour coming back.
 
-```bash
-for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; done
-```
-
 ### 4. Decide when to shut down
 
 The trigger is the UPS's own low-battery flag, with an `upssched` timer started
