@@ -4,7 +4,9 @@
 
 What is actually running versus what is only written down. The
 [build order](README.md#build-order) says what to do; this says how far it has
-got.
+got. It sits at the repo root rather than in `docs/` because it is neither an
+instruction, a value to look up, nor a procedure — it answers "is this real?"
+about the whole lab.
 
 | Piece | State |
 |-------|-------|
