@@ -1219,30 +1219,64 @@ that makes `vzdump`'s Snapshot mode consistent in
 every guest would have had a hole in it from the start. And one shutdown path is
 easier to reason about than four racing opinions about when to begin.
 
-Two things are left to defaults today and should not be. **The order matters
-because Uptime Kuma runs on the infra VM**, and it should be the last thing
-alive so it can report for as long as possible. Guests shut down in *reverse*
-start order, and guests with no configured order fall back to VMID — which here
-already gives `ha → apps → infra`. That is correct by accident, which is not a
-good enough reason to leave it implicit:
+Two things are left to defaults today and should not be, and the first one is
+**that the guests shut down one after another at all.**
+
+Left alone, guests with no configured order fall back to VMID and stop
+sequentially — `ha`, then `apps`, then `infra`, each waiting on the last. That
+is the default, and on a machine running on battery it is the wrong shape:
+**sequential turns a 90-second worst case into a 270-second one**, spending
+three minutes of the only resource that is actually scarce here.
+
+Staging buys something when guests depend on each other — a database that must
+outlive its clients, storage one guest serves to another. **None of that exists
+in this lab.** The three VMs share the hypervisor and nothing else: Home
+Assistant is *proxied* by Traefik on the infra VM, but inbound routing is not a
+shutdown dependency, and neither the apps VM nor the HA VM mounts anything from
+infra or needs it to halt cleanly. Independent guests, so they can go together.
+
+So give all three the **same** `order`, which is how Proxmox is told to stop
+them in parallel:
 
 ```bash
 qm set 101 --startup order=1,down=90
 ```
 
 ```bash
-qm set 102 --startup order=2,down=90
+qm set 102 --startup order=1,down=90
 ```
 
 ```bash
-qm set 103 --startup order=3,down=90
+qm set 103 --startup order=1,down=90
 ```
 
-**`down=90` is the other half, and it is arithmetic rather than taste.** Proxmox
-defaults to 180 s per guest, so three guests is **9 minutes** of worst case —
-the dominant term in the backstop sizing in step 4, and more than this UPS can
-comfortably fund. Both Ubuntu VMs halt in well under 90 s, so the trim costs
-nothing real and brings the worst case to 4.5 minutes.
+**This also makes them start in parallel**, because one `order` field governs
+both directions — start ascending, stop descending. That is a fair trade rather
+than a cost tolerated: at boot there is no battery draining, nothing here
+depends on anything else being up first, and `cpuunits` already arbitrates the
+CPU contention of three guests booting at once (home-assistant 200, infra 100,
+apps 50 — see [Why these sizes](#why-these-sizes)).
+
+> **An earlier version of this guide staged the shutdown so that Uptime Kuma, on
+> the infra VM, would stay alive longest and keep reporting.** That reasoning
+> does not survive contact with the rest of the design. The power-event push in
+> step 6 fires the moment the UPS reports `ONBATT`, so you already know — and
+> everything Kuma has to say during the shutdown *after* that is a cascade of
+> expected red for machines you deliberately turned off. It was paying three
+> minutes of battery for notification noise.
+
+**`down=90` is the second thing, and it is arithmetic rather than taste.**
+Proxmox defaults to a 180-second timeout per guest, which is the ceiling on how
+long one hung guest can hold up the halt. Both Ubuntu VMs stop in well under 90
+seconds, so the trim costs nothing real — and in parallel it is now the whole
+worst case rather than one third of it.
+
+```bash
+for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; done
+```
+
+All three lines should read `order=1` and `down=90`. Different `order` values
+are the thing to look for: that is the default behaviour coming back.
 
 ```bash
 for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; done
@@ -1257,9 +1291,10 @@ two actually fires**.
 
 **`LB` arrives too late to be the primary trigger, and the unit tells you so
 itself.** `battery.runtime.low` reads `300` — the UPS raises low battery with
-five minutes left. Against a 4.5-minute worst-case guest shutdown that is thirty
-seconds of margin, on an estimate produced by a battery whose accuracy is the
-thing you are trying not to depend on.
+five minutes left, and it is an estimate produced by the battery gauge whose
+accuracy is the thing you are trying not to depend on. Waiting for it means
+starting a shutdown on the last of the reserve, on the word of the component
+most likely to be wrong about how much reserve is left.
 
 **So the backstop is not insurance for a tired battery; it is what fires in
 practice, and its value is the actual policy.** The `LB` path stays as the floor
@@ -1274,8 +1309,17 @@ Size it by the relationship, not by the number:
 
 > **backstop + worst-case guest shutdown < measured runtime**
 
-300 s + 270 s is 9.5 minutes, against a runtime step 8 measures rather than
-assumes. If that measurement comes back short, this is the number to move.
+With the parallel shutdown from step 3 that is 300 s + 90 s — **6.5 minutes**,
+against a runtime step 8 measures rather than assumes. Sequential shutdown would
+have made it 9.5, which is the three minutes step 3 declined to spend.
+
+**300 s is deliberately conservative, and there is headroom to spend later.**
+The whole budget is one worst-case shutdown away from the runtime figure, so
+once the drill produces a real number the backstop is the knob to open up —
+every second added to it is an outage length the lab rides out instead of
+shutting down for. Do that *after* everything is on the UPS, though: adding the
+router, the switch and the WAN termination raises the load and shortens the
+runtime that this arithmetic is measured against.
 
 > **`battery.runtime` is only worth reading under the real load.** It is an
 > estimate for whatever is drawing power *right now*, so a figure taken before
@@ -1597,11 +1641,13 @@ So pull the mains plug on the UPS and watch the whole chain:
 
 1. The on-battery push arrives on your phone within seconds.
 2. The backstop fires at 300 s.
-3. Guests shut down in order — `ha`, then `apps`, then `infra`.
+3. All three guests shut down **together** — they share one `order`, so this is
+   one 90-second window rather than three.
 4. The host halts.
-5. The UPS cuts its output.
+5. The UPS cuts its output, about 20 seconds later — that is
+   `ups.delay.shutdown`, not a stall.
 6. Plug mains back in. The UPS restores output, the board powers on, and Proxmox
-   starts the guests in order.
+   starts all three guests together.
 
 Watch the first three from a shell before you lose it:
 
