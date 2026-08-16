@@ -1007,7 +1007,7 @@ worth blocking on.
 ## Part 10 — Survive a power cut
 
 > **Steps 1–5 need nothing but the UPS and this host** — do them the day the
-> hardware arrives. **Steps 6–8 need the infra VM**: a Kuma push monitor, and
+> hardware arrives. **Steps 6–7 need the infra VM**: a Kuma push monitor, and
 > the `prometheus-node-exporter` that
 > [grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host) installs
 > here. Same dependency as [Part 9](#part-9--notice-when-a-mirror-degrades), and
@@ -1182,7 +1182,7 @@ worth reading now rather than during an outage:
 | Field | On this lab | Means |
 |---|---|---|
 | `battery.runtime.low` | `300` | the `LB` threshold — the UPS raises low battery with this many seconds left. Step 4's arithmetic turns on it. |
-| `ups.delay.shutdown` | `20` | how long the UPS waits after being told to cut power before it actually does. The pause you will see in step 8's drill. |
+| `ups.delay.shutdown` | `20` | how long the UPS waits after being told to cut power before it actually does. The pause you will see in [the drill](../drills/ups-power-cut-drill.md). |
 | `driver.flag.allow_killpower` | `0` | **not a problem, despite the name.** It gates the `driver.killpower` instant command, which lets an *already running* driver cut power on request. The hook in step 5 calls `upsdrvctl shutdown` after the driver has stopped, which starts a fresh one with `-k` — a different path that does not consult this flag. |
 
 `battery.runtime.low` is writable with `upsrw` if you ever want `LB` to arrive
@@ -1306,7 +1306,8 @@ Size it by the relationship, not by the number:
 > **backstop + worst-case guest shutdown < measured runtime**
 
 With the parallel shutdown from step 3 that is 300 s + 90 s — **6.5 minutes**,
-against a runtime step 8 measures rather than assumes. Sequential shutdown would
+against a runtime [the drill](../drills/ups-power-cut-drill.md) measures rather
+than assumes. Sequential shutdown would
 have made it 9.5, which is the three minutes step 3 declined to spend.
 
 **300 s is the settled value, not a placeholder to grow later**, and the reason
@@ -1486,9 +1487,10 @@ upsdrvctl -t shutdown
 ```
 
 `-t` is a dry run: it confirms the driver would accept the command without
-actually cutting power. That is all it proves. The real proof is the drill in
-**step 8**, because this is the half most likely to be silently broken and the
-only one whose failure waits for a real outage to show itself.
+actually cutting power. That is all it proves. The real proof is
+[ups-power-cut-drill.md](../drills/ups-power-cut-drill.md), because this is the
+half most likely to be silently broken and the only one whose failure waits for
+a real outage to show itself.
 
 > **Four parts of this Part can only fail during an outage, and each has a way
 > to be tested before one.** The signal the backstop sends
@@ -1496,7 +1498,7 @@ only one whose failure waits for a real outage to show itself.
 > the event path makes ([step 6](#6-report-ups-state-to-kuma-and-prometheus),
 > the script run as `nut`); that the push actually **notifies** (step 6's
 > by-hand `status=down`); and killpower — `upsdrvctl -t shutdown` above. Run all
-> four before the drill.
+> four before [the drill](../drills/ups-power-cut-drill.md).
 >
 > Each one is written the way it is because the obvious version passes while the
 > real path is broken: `root` can read files and signal processes that `nut`
@@ -1756,44 +1758,17 @@ diagnosis as Part 9's push — [that troubleshooting
 block](#part-9--notice-when-a-mirror-degrades) applies unchanged, including the
 IPv6 check.
 
-### 8. Pull the plug, once, on purpose
+### Prove it with a real outage
 
-The runtime figure cannot come from the datasheet — it depends on this lab's
-actual load — and it is the input to step 4's arithmetic. Killpower is worse: it
-is the half most likely to be silently broken, and its failure mode is a box
-that stays dark after an outage it appeared to survive. Neither can be settled
-by reading.
+Everything above is configuration, and two parts of it cannot be settled by
+reading: the **measured runtime** that step 4's arithmetic consumes, and
+**killpower**, whose failure mode is a box that stays dark after an outage it
+appeared to survive.
 
-So pull the mains plug on the UPS and watch the whole chain:
-
-1. The on-battery push arrives on your phone within seconds.
-2. The backstop fires at 300 s.
-3. All three guests shut down **together** — they share one `order`, so this is
-   one 90-second window rather than three.
-4. The host halts.
-5. The UPS cuts its output, about 20 seconds later — that is
-   `ups.delay.shutdown`, not a stall.
-6. Plug mains back in. The UPS restores output, the board powers on, and Proxmox
-   starts all three guests together.
-
-Watch the first three from a shell before you lose it:
-
-```bash
-journalctl -fu nut-monitor
-```
-
-And note what the UPS thought it had left, which is the number this drill exists
-to produce:
-
-```bash
-upsc ups battery.runtime
-```
-
-**Two outputs.** The **measured runtime**, which goes back into step 4 if
-`300 + 270 < measured` no longer holds — and proof that the lab comes back
-without you. Re-run it when the battery is replaced, for the same reason
-[backup-restore-drill.md](../drills/backup-restore-drill.md) is re-run yearly: a path
-nobody has exercised is a hypothesis, not a capability.
+Pulling the mains plug on purpose is what settles both, and it is a recurring
+drill rather than a build step — re-run when the battery is replaced and
+whenever equipment joins the UPS. It has its own document:
+**[ups-power-cut-drill.md](../drills/ups-power-cut-drill.md)**.
 
 ### Troubleshooting Part 10
 

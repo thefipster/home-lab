@@ -262,6 +262,7 @@ schedule against a lab that is already built, to prove a property still holds.
 | Drill | Proves | Cadence |
 |---|---|---|
 | **[docs/drills/backup-restore-drill.md](docs/drills/backup-restore-drill.md)** | that each stack's snapshot actually restores it — per stack, with a marker that cannot lie | yearly, and whenever a `backup.sh` changes shape |
+| **[docs/drills/ups-power-cut-drill.md](docs/drills/ups-power-cut-drill.md)** | that the lab shuts down in order on battery and comes back by itself — and measures the runtime the shutdown arithmetic depends on | when the battery is replaced, and whenever equipment joins the UPS |
 
 ## Status
 
