@@ -1141,6 +1141,29 @@ Both files now hold that password, so both get locked down:
 chown root:nut /etc/nut/upsd.users /etc/nut/upsmon.conf && chmod 640 /etc/nut/upsd.users /etc/nut/upsmon.conf
 ```
 
+Now start the driver — and **this is the step that is easy to skip and produces
+the most confusing failure if you do**:
+
+```bash
+systemctl restart nut-driver-enumerator
+```
+
+**The driver does not run inside `upsd`.** On Debian,
+`nut-driver-enumerator` reads `ups.conf` and generates one `nut-driver@<name>`
+unit per UPS in it; `nut-server` neither starts nor depends on those. So a
+stanza that has never been enumerated leaves you with a `upsd` that starts
+perfectly, a `nut-monitor` that starts perfectly, and `Driver not connected` in
+answer to every question. **Re-run the enumerator after every edit to
+`ups.conf`** — it is the one file whose changes are not picked up by restarting
+the obvious services.
+
+Check the driver is up before asking it anything, so a failure here is not
+mistaken for a configuration problem two steps later:
+
+```bash
+systemctl is-active 'nut-driver@ups'
+```
+
 ```bash
 systemctl restart nut-server nut-monitor
 ```
@@ -1148,6 +1171,10 @@ systemctl restart nut-server nut-monitor
 ```bash
 upsc ups
 ```
+
+> `upsc` prints `Init SSL without certificate database` first. That is it
+> noting it has no NSS certificate database, which is expected on a
+> loopback-only setup and is not an error — ignore it and read the line after.
 
 `ups.status` should read `OL` — on line. You will also see `output.voltage`
 somewhere in the 260–270 V range, which is **wrong** and is a known quirk of
@@ -1559,11 +1586,40 @@ nobody has exercised is a hypothesis, not a capability.
 
 ### Troubleshooting Part 10
 
-**`upsc` says "Driver not connected".** The driver did not start, usually after
-an edit to `ups.conf`. Debian generates a unit per UPS from that file:
+**`upsc` says "Driver not connected".** `upsd` is running and has no driver
+behind it. Two quite different causes, and this tells them apart:
+
+```bash
+systemctl is-active 'nut-driver@ups'
+```
+
+**`inactive` or `failed` with no such unit** — the unit was never generated,
+because `nut-driver-enumerator` has not run since `ups.conf` was written. This
+is the common one, and it recurs after *every* edit to that file:
 
 ```bash
 systemctl restart nut-driver-enumerator && systemctl restart nut-server
+```
+
+**`failed` with the unit present** — the driver was generated and could not talk
+to the UPS. Usually USB permissions on a fresh install, or the cable:
+
+```bash
+journalctl -u 'nut-driver@ups' -n 30 --no-pager
+```
+
+`no matching HID UPS found` with the device visible in `lsusb` means the `nut`
+user cannot open it — reload the udev rules the package ships and re-plug the
+data cable:
+
+```bash
+udevadm control --reload-rules && udevadm trigger --subsystem-match=usb
+```
+
+To watch the driver try, in the foreground, with everything it is doing:
+
+```bash
+upsdrvctl -D start ups
 ```
 
 **The five-minute push works but the instant one never arrives.**
