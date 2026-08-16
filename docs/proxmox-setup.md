@@ -1390,6 +1390,38 @@ chmod +x /usr/local/bin/upssched-cmd
 failure and does nothing else, which is harmless and exactly what you should see
 if you wired the UPS up before Uptime Kuma existed.
 
+**Everything `upssched` runs, runs as the `nut` user** — `upsmon` drops
+privileges for its notify path, keeping a root parent only to run
+`SHUTDOWNCMD`. So both branches above are unprivileged, and **both can fail in
+ways nothing on the happy path would ever reveal.** Test them now rather than
+discovering it 300 seconds into an outage.
+
+The backstop's branch signals `upsmon`, which an unprivileged process can only
+do if the PID it is signalling belongs to `nut`:
+
+```bash
+cat /run/nut/upsmon.pid
+```
+
+```bash
+ps -o pid,user,args -C upsmon
+```
+
+That PID must be the **`nut`** one, not the root parent — NUT writes the child's
+PID here precisely so `upsmon -c` works from this context. Then exercise the
+signal itself. `-c reload` travels the identical path as `-c fsd` and merely
+re-reads the configuration, so it is safe to run at any time:
+
+```bash
+runuser -u nut -- upsmon -c reload
+```
+
+A version banner and no permission error means the backstop can fire.
+`journalctl -u nut-monitor -n 5` should show the reload. **Running this as
+`root` proves nothing** — root can signal anything, so it passes whether or not
+the real path works. The push branch has an equivalent check in step 6, for the
+same reason and with the same trap.
+
 ### 5. Make the lab come back on its own
 
 Two halves, and **either one alone leaves the box dark.**
@@ -1457,6 +1489,14 @@ upsdrvctl -t shutdown
 actually cutting power. That is all it proves. The real proof is the drill in
 **step 8**, because this is the half most likely to be silently broken and the
 only one whose failure waits for a real outage to show itself.
+
+> **Three parts of this Part can only fail during an outage, and each has a way
+> to be tested before one.** The signal the backstop sends
+> ([step 4](#4-decide-when-to-shut-down), `upsmon -c reload` as `nut`), the push
+> the event path makes ([step 6](#6-report-ups-state-to-kuma-and-prometheus),
+> the script run as `nut`), and killpower — `upsdrvctl -t shutdown` above. Run
+> all three before the drill. Two of them pass trivially as `root` while the
+> real path is broken, which is the whole reason they are written as they are.
 
 ### 6. Report UPS state to Kuma and Prometheus
 
