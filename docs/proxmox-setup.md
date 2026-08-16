@@ -1476,7 +1476,17 @@ cat > /usr/local/bin/ups-health-push.sh <<'EOF'
 # One upsc read, two consumers -- same shape as zfs-health-push.sh.
 set -uo pipefail
 
-PUSH_URL="${PUSH_URL:?PUSH_URL is not set}"
+# PUSH_URL lives in /etc/default/ups-health-push, and this script has to read it
+# ITSELF rather than trust a caller to have done so. EnvironmentFile= is a
+# systemd mechanism, so it only covers the timer path. upssched runs this script
+# directly, inheriting upsmon's environment, where nothing has ever read that
+# file -- so on the event path the variable would simply be unset, and the one
+# push that matters most would be the only one that fails.
+if [ -z "${PUSH_URL:-}" ] && [ -r /etc/default/ups-health-push ]; then
+  . /etc/default/ups-health-push
+fi
+
+PUSH_URL="${PUSH_URL:?not set, and /etc/default/ups-health-push was not readable}"
 UPS="${UPS:-ups@localhost}"
 TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/prometheus/node-exporter}"
 
@@ -1572,7 +1582,27 @@ echo 'PUSH_URL=https://uptime.thefipster.de/api/push/<token>' > /etc/default/ups
 Part 9's equivalent is mode 600 and root-only. This one cannot be: `upssched`
 runs as the `nut` user, so a root-only environment file would make every instant
 power-event push fail on an unreadable file — the one push that matters most,
-failing silently, while the five-minute timer carried on looking healthy.
+failing while the five-minute timer carried on looking healthy.
+
+**The mode is necessary and not sufficient**, which is worth being explicit
+about because the two failures look identical from the outside. The permission
+lets `nut` read the file; the `.` in the script above is what actually reads it.
+Getting the mode right while leaving the sourcing to `EnvironmentFile=` produces
+exactly the same symptom — `PUSH_URL is not set` from the event path only —
+and sends you to inspect a file that was correct all along.
+
+**Test the event path now, without waiting for a power cut.** This is the one
+verification that exercises what `upssched` will do: the `nut` user, no systemd,
+no environment handed in.
+
+```bash
+runuser -u nut -- /usr/local/bin/ups-health-push.sh
+```
+
+It should exit silently and push `up` to Kuma. If it prints `PUSH_URL ... not
+set`, the `nut` user cannot read `/etc/default/ups-health-push` — check the mode
+and group above. Running it as `root` instead proves nothing about this path,
+which is exactly the trap.
 
 ### 7. Put it on a timer
 
@@ -1713,12 +1743,25 @@ To watch the driver try, in the foreground, with everything it is doing:
 upsdrvctl -D start ups
 ```
 
-**The five-minute push works but the instant one never arrives.**
-`/etc/default/ups-health-push` is not readable by `nut`. That is the mode-640
-`root:nut` detail from step 6, and it fails exactly this way:
+**The five-minute push works but the instant one never arrives**, with
+`PUSH_URL ... not set` and `exec_cmd(...) returned 1` in `journalctl -u
+nut-monitor`. The timer path gets the variable from systemd's
+`EnvironmentFile=`; the event path has no systemd in it at all, so the script
+must read the file itself. Confirm both halves — that the script sources it, and
+that `nut` may read it:
+
+```bash
+grep -n 'ups-health-push' /usr/local/bin/ups-health-push.sh
+```
 
 ```bash
 ls -l /etc/default/ups-health-push
+```
+
+Then reproduce the exact failing path, which `root` cannot do for you:
+
+```bash
+runuser -u nut -- /usr/local/bin/ups-health-push.sh
 ```
 
 **The box stayed dark after an outage it survived.** Either the BIOS setting or
