@@ -50,7 +50,7 @@ Nominal allocation on `rpool` therefore falls from **294 GB to 278 GB** — abou
 - **The backup set is unchanged.** Removing Forgejo's registry blobs from it was
   considered and deferred; the reasoning is recorded below because the
   conclusion should survive, not because anything is built here.
-- **Registry retention** remains the [ci-supply-chain.md](../roadmap/ci-supply-chain.md)
+- **Registry retention** remains the [ci-supply-chain.md](../roadmap/done/ci-supply-chain.md)
   phase-3 item it already is.
 
 ## Decisions and why

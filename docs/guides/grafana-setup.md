@@ -952,7 +952,7 @@ rules remain visible in the Alerting UI and on panels, which is what you want
 once you have already been paged and are looking for the reason.
 
 The design decisions behind all of this, and the order they were built in, are
-recorded in [roadmap/monitoring.md](../../dev/roadmap/monitoring.md) and the dated specs
+recorded in [roadmap/monitoring.md](../../dev/roadmap/done/monitoring.md) and the dated specs
 under [dev/specs/](../../dev/specs/).
 
 ## Next

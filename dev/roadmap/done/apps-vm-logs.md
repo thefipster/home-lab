@@ -5,7 +5,7 @@ Grafana covers both Docker machines instead of one.
 
 This is a gap for the whole machine, not for any one application. Coolify's own
 containers, the applications it builds from your source, and the third-party
-services in [apps/services.md](../../apps/services.md) are all equally invisible
+services in [apps/services.md](../../../apps/services.md) are all equally invisible
 today. It is the last piece of the ambition
 [roadmap/monitoring.md](monitoring.md) opened with — "every stack on the infra VM
 and, later, the apps the apps VM runs".
@@ -24,7 +24,7 @@ socket for the apps VM in that container and there should not be one.
 
 ## ✅ Landed
 
-See [docs/apps-logs-setup.md](../../docs/guides/apps-logs-setup.md). A **second Alloy on the
+See [docs/apps-logs-setup.md](../../../docs/guides/apps-logs-setup.md). A **second Alloy on the
 apps VM**, logs-only, in `apps/alloy/` and started by
 `scripts/init-apps-alloy.sh`. The rejected alternative was Coolify's own logging
 driver pointed at Loki: no extra container, but a daemon-level change on a
@@ -32,7 +32,7 @@ machine Coolify expects to own, producing labels that would not match the infra
 VM's — so the single pane would have split in two.
 
 The design is recorded in
-[specs/2026-08-16-apps-vm-logs-design.md](../specs/2026-08-16-apps-vm-logs-design.md).
+[specs/2026-08-16-apps-vm-logs-design.md](../../specs/2026-08-16-apps-vm-logs-design.md).
 The three open questions this roadmap left were answered as follows.
 
 **Where the config lives.** In `apps/`, because the repo root is the machine map
@@ -66,4 +66,4 @@ absent, so a label on one machine and not the other does not split the job.
 collector — its `docker.sock` is the infra VM's — and the collector's UI is
 loopback-bound, so nothing probes it. A dead collector shows up as logs from
 `instance="apps"` stopping. Recorded in
-[uptime-kuma-monitors.md](../../docs/reference/uptime-kuma-monitors.md#deliberately-not-monitored).
+[uptime-kuma-monitors.md](../../../docs/reference/uptime-kuma-monitors.md#deliberately-not-monitored).

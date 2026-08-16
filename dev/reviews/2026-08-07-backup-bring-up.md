@@ -2,7 +2,7 @@
 
 The first application of [backup-setup.md](../../docs/guides/backup-setup.md) to the running
 lab, on the day the guide was written, followed by a restore drill for
-Authentik. This is the record [roadmap/backup.md](../roadmap/backup.md) phase 5
+Authentik. This is the record [roadmap/backup.md](../roadmap/done/backup.md) phase 5
 asks for, and it doubles as a guide replay: the guide had never been executed
 by anyone when this started.
 
@@ -457,7 +457,7 @@ that were not given. The checks they were run against are the ones in
 what is known.
 
 With these two, **all seven infra stacks have been wired and drilled.** Every
-tier-1 and tier-2 row in [roadmap/backup.md](../roadmap/backup.md) is covered
+tier-1 and tier-2 row in [roadmap/backup.md](../roadmap/done/backup.md) is covered
 by a `backup.sh`, a `restore.sh`, and a restore that has actually been
 performed.
 

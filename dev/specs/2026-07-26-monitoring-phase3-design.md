@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-26
 **Status:** Approved design, pending implementation plan
-**Roadmap:** [docs/roadmap/monitoring.md](../roadmap/monitoring.md) — this
+**Roadmap:** [docs/roadmap/monitoring.md](../roadmap/done/monitoring.md) — this
 spec covers **phase 3 only**; phases 4–5 stay on the roadmap.
 **Builds on:** [phase 1](2026-07-26-monitoring-phase1-design.md) (platform) and
 [phase 2](2026-07-26-monitoring-phase2-design.md) (logs), both deployed and

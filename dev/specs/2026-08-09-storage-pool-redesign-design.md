@@ -141,7 +141,7 @@ replacement stock, which is exactly what the 512s could not be.
 ### 5. The external drive is not replaced, and layer 3 is still layer 3
 
 Losing the USB drive does not create urgency that did not already exist.
-[roadmap/backup.md](../roadmap/backup.md) is explicit that it never closed
+[roadmap/backup.md](../roadmap/done/backup.md) is explicit that it never closed
 phase 3: it was "the second copy, on the same premises and plugged into the
 machine it protects", and carrying it elsewhere counted as a third copy only for
 as long as someone actually did — a human step nothing could alert on.
@@ -155,7 +155,7 @@ drive; what it does not gain is runway.
 That matters, because the one sizing pressure the roadmap names is unrelieved:
 Forgejo's registry blobs grow monotonically, and restic's dedup absorbs repeated
 image layers but cannot expire what the registry never expires. Registry hygiene
-([ci-supply-chain.md](../roadmap/ci-supply-chain.md) phase 3) is still the
+([ci-supply-chain.md](../roadmap/done/ci-supply-chain.md) phase 3) is still the
 only lever on it, and this change does not buy time on that clock.
 
 > The repo currently disagrees with itself about the drive it is replacing.

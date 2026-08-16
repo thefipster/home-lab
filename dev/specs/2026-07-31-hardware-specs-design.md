@@ -155,7 +155,7 @@ roadmap still scopes its implementation to the infra VM.
 Sizing: 500 GB against a backup set dominated by Forgejo's registry blobs, which
 grow monotonically. restic's dedup absorbs repeated image layers well but cannot
 delete what the registry never expires, so registry hygiene
-([ci-supply-chain.md](../roadmap/ci-supply-chain.md) phase 3) is also the
+([ci-supply-chain.md](../roadmap/done/ci-supply-chain.md) phase 3) is also the
 lever on whether this drive stays big enough.
 
 ## Monitoring the pools

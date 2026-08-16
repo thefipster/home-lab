@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-26
 **Status:** Approved design, pending implementation plan
-**Roadmap:** [docs/roadmap/monitoring.md](../roadmap/monitoring.md) — this
+**Roadmap:** [docs/roadmap/monitoring.md](../roadmap/done/monitoring.md) — this
 spec covers **phase 5**, the final phase; it completes the monitoring roadmap.
 **Builds on:** phases 1–4 (platform, logs, metrics, OTLP), all deployed and
 verified on the infra VM.

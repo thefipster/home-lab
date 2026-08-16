@@ -1,7 +1,7 @@
 # Design: file-level backup for the infra VM (roadmap phase 2, first slice)
 
 **Date:** 2026-08-07
-**Roadmap:** [roadmap/backup.md](../roadmap/backup.md) phase 2
+**Roadmap:** [roadmap/backup.md](../roadmap/done/backup.md) phase 2
 **Scope:** the shared mechanism plus **one** stack — Authentik — end to end.
 
 Layer 1 (whole-VM `vzdump`) is built and lives in

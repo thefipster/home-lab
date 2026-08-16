@@ -47,7 +47,7 @@ this Loki/Prometheus over the LAN.
 
 ## Phases
 
-1. **✅ Landed** — see [docs/guides/grafana-setup.md](../../docs/guides/grafana-setup.md).
+1. **✅ Landed** — see [docs/guides/grafana-setup.md](../../../docs/guides/grafana-setup.md).
    **Stack skeleton** — Grafana + Loki + Prometheus + Alloy compose;
    `grafana.thefipster.de` routed; Grafana wired to Authentik as an
    OAuth2/OIDC app (guide part, like Forgejo's). Retention short: Loki 14d,
@@ -57,7 +57,7 @@ this Loki/Prometheus over the LAN.
    `docker.sock` mount on Alloy — phase 2 adds the socket together with
    `discovery.docker`, so the root-equivalent grant follows the capability
    that needs it. Loki is intentionally empty until then.
-2. **✅ Landed** — see [docs/guides/grafana-setup.md](../../docs/guides/grafana-setup.md).
+2. **✅ Landed** — see [docs/guides/grafana-setup.md](../../../docs/guides/grafana-setup.md).
    **Logs** — Alloy `discovery.docker` + `loki.source.docker`: every container
    on the VM, labeled by compose project/service. Verify Authentik's JSON
    logs land parsed and Traefik access logs are on (`--accesslog=true`).
@@ -65,7 +65,7 @@ this Loki/Prometheus over the LAN.
    `container`) and **no ingest-time parsing** — JSON is parsed at query time
    with `| json`. Alloy took the `docker.sock` mount here, as phase 1 said it
    would.
-3. **✅ Landed** — see [docs/guides/grafana-setup.md](../../docs/guides/grafana-setup.md).
+3. **✅ Landed** — see [docs/guides/grafana-setup.md](../../../docs/guides/grafana-setup.md).
    **Metrics** — enable the endpoints that already exist: Traefik
    (`--metrics.prometheus`), Authentik (`AUTHENTIK_LISTEN__METRICS`, :9300),
    Forgejo (`FORGEJO__metrics__ENABLED`); host + per-container via Alloy's
@@ -76,7 +76,7 @@ this Loki/Prometheus over the LAN.
    the default). The enabling change the roadmap didn't foresee: Alloy had to
    join the `proxy` network, since it sat on `monitoring-net` alone and could
    not reach a single one of the three targets.
-4. **✅ Landed** — see [docs/guides/grafana-setup.md](../../docs/guides/grafana-setup.md).
+4. **✅ Landed** — see [docs/guides/grafana-setup.md](../../../docs/guides/grafana-setup.md).
    **OTLP intake** — Alloy listens on 4317/4318 for the future apps; add
    Tempo when the first app actually emits traces, not before.
    Shipped **with Tempo now** (7-day trace retention) rather than deferring it —
@@ -84,7 +84,7 @@ this Loki/Prometheus over the LAN.
    traces yet" didn't mean untestable. Routed through Traefik at
    `otlp.thefipster.de` with TLS (not plain ports), which is why Alloy gained
    the traefik labels phase 3 said it lacked.
-5. **✅ Landed** — see [docs/guides/grafana-setup.md](../../docs/guides/grafana-setup.md).
+5. **✅ Landed** — see [docs/guides/grafana-setup.md](../../../docs/guides/grafana-setup.md).
    **Dashboards + alerts** — a VM dashboard (CPU/RAM/disk), a Traefik
    dashboard (status codes, cert expiry), and 2–3 alerts that matter
    (disk >80 %, service down, cert not renewed). More than that is noise in
@@ -103,7 +103,7 @@ when a real need appears, not before.
 
 - **RAM: resolved.** The infra VM was resized for this stack before phase 1
   and its current allocation (24 GB —
-  [proxmox-setup.md](../../docs/guides/proxmox-setup.md#why-these-sizes)) is sized with these
+  [proxmox-setup.md](../../../docs/guides/proxmox-setup.md#why-these-sizes)) is sized with these
   containers in mind, so the stack needs no memory limits and retention isn't
   constrained by memory. Revisit only if phase 3's per-container metrics change
   the picture.

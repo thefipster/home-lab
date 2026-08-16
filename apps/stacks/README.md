@@ -43,7 +43,7 @@ the same step.
 
 **`/data` is not backed up yet.** It is excluded from whole-VM `vzdump`
 (`backup=0`), and the file-level layer runs on the infra VM only — this machine has not joined the
-restic repository yet ([roadmap/backup.md](../../dev/roadmap/backup.md)). Anything deployed here
+restic repository yet ([roadmap/backup.md](../../dev/roadmap/apps-vm-backup.md)). Anything deployed here
 is unbacked until it does; Paperless is tier 1 and is exported by hand in the meantime.
 
 **No published host ports.** Services use `expose:` and Coolify's proxy handles ingress. Nothing

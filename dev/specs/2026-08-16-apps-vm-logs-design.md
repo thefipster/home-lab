@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-16
 **Status:** design, approved — implementation follows
-**Supersedes the open questions in:** [roadmap/apps-vm-logs.md](../roadmap/apps-vm-logs.md)
+**Supersedes the open questions in:** [roadmap/apps-vm-logs.md](../roadmap/done/apps-vm-logs.md)
 
 > **Written before the docs restructure landed.** This spec was authored at
 > `docs/superpowers/specs/`, the location the convention named at the time, and

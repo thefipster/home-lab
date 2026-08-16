@@ -215,7 +215,7 @@ No `.env`, because there is no credential: the push endpoint takes none, matchin
 `otlp.thefipster.de`. No `/opt/stacks` symlink, because this machine has no
 Dockge. No `backup.sh`, because read positions are regenerable and this VM has
 not joined the restic repository anyway
-([roadmap/backup.md](../../dev/roadmap/backup.md)).
+([roadmap/backup.md](../../dev/roadmap/apps-vm-backup.md)).
 
 ## How it works
 

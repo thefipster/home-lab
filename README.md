@@ -102,11 +102,11 @@ possible instead of a single copy.
 VMs can write to it. The infra VM's half is built in
 [docs/guides/backup-setup.md](docs/guides/backup-setup.md); the apps VM has **not** joined the
 repository yet, which is why its 300 GB data disk is still covered by nothing
-([dev/roadmap/backup.md](dev/roadmap/backup.md)).
+([dev/roadmap/apps-vm-backup.md](dev/roadmap/apps-vm-backup.md)).
 
 **Nothing here is offsite.** Both backup layers live in the same box as the thing
-they protect, so a fire or a theft takes all three copies. Offsite is phase 3 of
-[dev/roadmap/backup.md](dev/roadmap/backup.md) and is not built.
+they protect, so a fire or a theft takes all three copies. Offsite is
+[dev/roadmap/backup-offsite.md](dev/roadmap/backup-offsite.md) and is not built.
 
 Mirrors only help if a failure is noticed, and a degraded mirror is precisely the
 failure that takes *nothing* down. A timer on the hypervisor reports pool health
@@ -273,4 +273,6 @@ schedule against a lab that is already built, to prove a property still holds.
 
 What actually runs today versus what is only written down is its own document:
 **[STATUS.md](STATUS.md)** — one row per piece of the lab, with the
-guide or roadmap entry each one points at.
+guide or roadmap entry each one points at. What is still worth building, and in
+what order, is **[ROADMAP.md](ROADMAP.md)** — one document per open task under
+[dev/roadmap/](dev/roadmap/), ranked.

@@ -238,7 +238,7 @@ Vaultwarden-placement decision is visibly resolved (recorded in
 
 - **The backup gate** (its #1, Gate) — see finding 1(b) above, where the
   landed text currently says the opposite.
-- **An owner for apps-VM backup** — [roadmap/backup.md:75](../roadmap/backup.md)
+- **An owner for apps-VM backup** — [roadmap/backup.md:75](../roadmap/done/backup.md)
   still scopes it out ("its own state, its own story"), though the obligation
   paragraph further down acknowledges the day it stops being harmless.
 - **The external deadman heartbeat** (its #2, Gate) — no new Part in

@@ -4,17 +4,27 @@ Goal: make every piece of **irreplaceable state on the infra VM** survive a
 lost disk, a lost VM, and a bad `rm -rf` — with a restore procedure that has
 actually been run, not just written down.
 
+> **Done — kept as the design record.** Both layers are built and every infra
+> stack is wired and drilled. What stayed open when this file moved to `done/`
+> lives on as its own tasks, ranked in [ROADMAP.md](../../../ROADMAP.md):
+> [apps-vm-backup.md](../apps-vm-backup.md),
+> [backup-offsite.md](../backup-offsite.md),
+> [backup-proofs.md](../backup-proofs.md) and
+> [restic-check-heartbeat.md](../restic-check-heartbeat.md). The tiers, the
+> couplings and the decisions below are still current and still linked from
+> the guides.
+
 Half the problem is already solved and worth naming: **the configuration is
 not at risk.** Compose files, init scripts, provisioning, guides and the three
-registries ([dns-records.md](../../docs/reference/dns-records.md),
-[sso-applications.md](../../docs/reference/sso-applications.md),
-[uptime-kuma-monitors.md](../../docs/reference/uptime-kuma-monitors.md)) live in git, on GitHub, mirrored
+registries ([dns-records.md](../../../docs/reference/dns-records.md),
+[sso-applications.md](../../../docs/reference/sso-applications.md),
+[uptime-kuma-monitors.md](../../../docs/reference/uptime-kuma-monitors.md)) live in git, on GitHub, mirrored
 into Forgejo. What is *not* in git is exactly what this roadmap is about: the
 bind-mounted data under `/opt/<stack>`, and the gitignored `.env` files.
 
 > **Vaultwarden changed the stakes of phase 2, and nothing else about this
 > plan.** Every other tier-1 entry below is painful to lose; the vault
-> ([vaultwarden-setup.md](../../docs/guides/vaultwarden-setup.md)) is the one whose loss is
+> ([vaultwarden-setup.md](../../../docs/guides/vaultwarden-setup.md)) is the one whose loss is
 > *unrecoverable by any other means*, because it is where the credentials for
 > rebuilding everything else are kept. Layer 1 already covers it — a whole-VM
 > `vzdump` of the infra VM includes `/opt/vaultwarden` like any other
@@ -50,7 +60,7 @@ that make it openable.
 | Forgejo DB | `/opt/forgejo/postgres` | Users, the Authentik OIDC source, issues/PRs, Actions history, and **package metadata** — registry blobs without it are unaddressable garbage. |
 | Authentik DB | `/opt/authentik/postgres` | Every application, provider, flow, policy, group and user. This is the entire body of clickwork that `sso-applications.md` describes; the registry records the *values*, not the objects. |
 | Authentik data/templates/certs | `/opt/authentik/data`, `/templates`, `/certs` | Branding uploads and any signing keypairs created in the UI. Small, and nothing regenerates them. |
-| Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The monitor registry ([uptime-kuma-monitors.md](../../docs/reference/uptime-kuma-monitors.md)) makes it *re-creatable*, by hand, one form at a time. |
+| Uptime Kuma | `/opt/uptime-kuma` | SQLite: monitors, the ntfy notification config, status pages, heartbeat history, the admin bcrypt hash. The monitor registry ([uptime-kuma-monitors.md](../../../docs/reference/uptime-kuma-monitors.md)) makes it *re-creatable*, by hand, one form at a time. |
 | Traefik ACME store | `/opt/traefik/letsencrypt/acme.json` | The Let's Encrypt account key **and** the wildcard cert. Reissuable — at ~10–15 min of netcup propagation, and against the duplicate-certificate rate limit (5/week) if the reissue loop goes wrong. Contains a private key: encrypt it. |
 | All `.env` files | `infra/{traefik,vaultwarden,authentik,forgejo,monitoring}/.env` | netcup API credentials, four Postgres passwords, `AUTHENTIK_SECRET_KEY`, the Vaultwarden `ADMIN_TOKEN` hash, the Grafana OIDC client secret, break-glass admin passwords. Gitignored on purpose, generated once, **never printed again**. |
 
@@ -116,13 +126,14 @@ is a backup nobody keeps running.
 ### Not on the infra VM, but part of the same story
 
 - **UDR DNS records** — router-side, no export worth automating.
-  [dns-records.md](../../docs/reference/dns-records.md) *is* the backup.
+  [dns-records.md](../../../docs/reference/dns-records.md) *is* the backup.
 - **The netcup public zone + API credentials** — netcup's problem, plus the
   `.env` above.
 - **The Proxmox host** — `/etc/pve`, and the `prometheus-node-exporter` unit
   that `grafana-setup.md` installs by hand. Out of scope here; folded into
   phase 1 because the host's backup job is where whole-VM backups live anyway.
-- **The apps VM (Coolify)** — its own state, its own story. Not this roadmap.
+- **The apps VM (Coolify)** — its own state, its own story. Not this roadmap —
+  now [apps-vm-backup.md](../apps-vm-backup.md).
 - **The home-assistant VM** — HAOS is an appliance and ships its own backup
   mechanism (*Settings → System → Backups*), which is what it uses. Layer 1
   covers its disk; nothing in this repo drives its file-level backups, the same
@@ -139,7 +150,7 @@ that brings back the OS, Docker, the checkout and every `/opt` tree at once.
 Requires no code in this repo. All three things this roadmap said were missing —
 a **schedule**, the **qemu-guest-agent** for fs-freeze, and a **target that is
 not the boot pool** — now exist as
-[proxmox-setup.md Part 8](../../docs/guides/proxmox-setup.md#part-8--schedule-whole-vm-backups):
+[proxmox-setup.md Part 8](../../../docs/guides/proxmox-setup.md#part-8--schedule-whole-vm-backups):
 a nightly job onto the `vmbackup` mirror — ~930 GB on different physical drives,
 against the 278 GB of VM roots it archives, so retention is possible rather than
 a single copy.
@@ -174,7 +185,7 @@ Why not just one:
 
 The target is the **`filebackup` pool** — 2 × 1 TB SATA SSD, mirrored — created
 on the Proxmox host in
-[proxmox-setup.md Part 3](../../docs/guides/proxmox-setup.md#part-3--post-install-housekeeping).
+[proxmox-setup.md Part 3](../../../docs/guides/proxmox-setup.md#part-3--post-install-housekeeping).
 It replaces the external USB drive the earlier hardware had, and it is a strict
 improvement in every respect but one: mirrored rather than single-disk, so it can
 repair corruption instead of merely detecting it, and internal rather than on a
@@ -212,19 +223,21 @@ drive**:
 grow monotonically. That is the same space the drive it replaced had, so this
 change bought redundancy and **not** runway. restic's dedup absorbs repeated
 image layers well but cannot delete what the registry never expires — so the
-registry-hygiene item in [ci-supply-chain.md](ci-supply-chain.md) phase 3 is
+registry-hygiene task ([registry-hygiene.md](../registry-hygiene.md)) is
 still the only real lever on whether this pool stays big enough.
 
 **One obligation this creates.** Layer 1 excludes the apps VM's 300 GB data disk
-(`backup=0`, [proxmox-setup.md Part 5](../../docs/guides/proxmox-setup.md#part-5--create-the-vms)),
+(`backup=0`, [proxmox-setup.md Part 5](../../../docs/guides/proxmox-setup.md#part-5--create-the-vms)),
 so that disk is covered by *nothing* until the apps VM runs its own restic job —
 which this roadmap scopes out. That was deliberate and, while the machine was
 empty, harmless. **It is not harmless any more.** That VM now runs the whole
-third-party catalog ([apps/services.md](../../apps/services.md)) with its data
+third-party catalog ([apps/services.md](../../../apps/services.md)) with its data
 under `/data/<stack>`, Paperless among it — tier 1, holding scanned documents
 whose originals are paper or gone. Until the machine joins this repository, its
 `document_exporter` run by hand is the only copy there is. The transport above is
-chosen so joining is a key and a config value rather than a rethink.
+chosen so joining is a key and a config value rather than a rethink — and
+joining is now its own task, ranked first:
+[apps-vm-backup.md](../apps-vm-backup.md).
 
 ### Why dumps, not raw directory copies, for the databases
 
@@ -232,7 +245,7 @@ Four Postgres instances (`vaultwarden`, `authentik`, `forgejo`, `grafana` — al
 `postgres:18-alpine`) and one SQLite (Kuma). Copying a live `PGDATA` yields a
 torn snapshot; stopping four stacks nightly is downtime this lab has no
 reason to take. `pg_dump` runs against a **live** database — the same argument
-[monitoring's phase-1 spec](../specs/2026-07-26-monitoring-phase1-design.md)
+[monitoring's phase-1 spec](../../specs/2026-07-26-monitoring-phase1-design.md)
 used to pick Postgres over SQLite for Grafana in the first place. Running it as
 `docker compose exec -T db pg_dump` uses the container's own client, so the
 dump tool always matches the server version.
@@ -255,7 +268,7 @@ image itself ships (`.dump`, streamed to stdout) — no `alpine` sidecar, and no
 stopped watcher, which is the option the recipe exists to avoid: a blind spot
 in the watcher is exactly what its own compose file argues against. Reasoning
 in full:
-[backup-setup.md](../../docs/guides/backup-setup.md#why-kuma-dumps-instead-of-copying).
+[backup-setup.md](../../../docs/guides/backup-setup.md#why-kuma-dumps-instead-of-copying).
 
 ## Architecture
 
@@ -312,7 +325,7 @@ the repository is cryptographically gone. It belongs in a password manager and
 on paper, before the first `restic init` — not in `/opt/backup/.env` alone.
 
 **And "a password manager" cannot mean *this* password manager, alone.** The
-lab now runs its own ([vaultwarden-setup.md](../../docs/guides/vaultwarden-setup.md)), and
+lab now runs its own ([vaultwarden-setup.md](../../../docs/guides/vaultwarden-setup.md)), and
 storing `RESTIC_PASSWORD` only there closes a circle: the vault is in the
 backup, the backup key is in the vault, and losing the infra VM loses both at
 once. Keep it in the vault by all means — that is the convenient copy — but the
@@ -323,13 +336,13 @@ reason.
 ## Phases
 
 1. ~~**Layer 1 — whole-VM backups, no repo code.**~~ ✅ **done** —
-   [proxmox-setup.md Part 8](../../docs/guides/proxmox-setup.md#part-8--schedule-whole-vm-backups).
+   [proxmox-setup.md Part 8](../../../docs/guides/proxmox-setup.md#part-8--schedule-whole-vm-backups).
    Nightly *Datacenter → Backup* job in snapshot mode onto the `vmbackup` mirror,
    with `qemu-guest-agent` in every guest for the fs-freeze and retention set on
    the storage. Was the biggest coverage-per-effort item in the roadmap, and it
    is the one piece of this design that needed no repo code at all.
 2. ~~**Layer 2 — the dump + restic job, on-box target.**~~ ✅ **built and
-   running** — [backup-setup.md](../../docs/guides/backup-setup.md). `infra/backup/`,
+   running** — [backup-setup.md](../../../docs/guides/backup-setup.md). `infra/backup/`,
    `scripts/init-backup.sh`, the four systemd units, and the per-stack shape
    described above. The repository is the `filebackup` pool over SFTP
    ([Where layer 2 writes](#where-layer-2-writes)) — local first, so the
@@ -388,28 +401,15 @@ reason.
 
    **Every tier-1 and tier-2 row above now has a `backup.sh` and a
    `restore.sh`.** Phase 2 is complete.
-3. **Offsite.** Point (or replicate) the repository at B2 / netcup Storage
-   Space / rclone. Client-side encryption means the target is untrusted by
-   construction — no additional design needed, only credentials and a
-   bandwidth check against the first full upload. This is what makes 3-2-1
-   true rather than aspirational. **Nothing on the box closes this phase:** both
-   layers now live in the same machine as the thing they protect, so a fire or a
-   theft takes every copy at once. The external drive that used to offer a
-   manual third copy is gone, and it was never a reliable one — it counted only
-   for as long as someone actually carried it somewhere, and nothing could alert
-   on a human step that didn't happen. An S3 target has no such failure mode.
+3. **Offsite.** ⬜ Extracted to its own task —
+   [backup-offsite.md](../backup-offsite.md). The one phase nothing on the box
+   can close, and the only remaining path to a copy that survives the building.
 4. **Notice when it stops.** ✅ folded into phase 2 — `run.sh` pings an Uptime
    Kuma push monitor, and only a fully clean run does.
 
-   Two things remain. The **weekly `restic check` has no heartbeat of its
-   own**: it is a separate unit and nothing pushes on its behalf, so a
-   repository that has quietly become unreadable stays quiet. Today that is
-   found with `systemctl status restic-check.service`, which means finding it
-   requires already suspecting it — the gap is stated rather than fixed, and
-   the guide says so too. Second, the optional
-   `backup_last_success_timestamp` metric for Alloy's textfile collector, for
-   the "why" half; it needs a `textfile` block on `prometheus.exporter.unix`
-   and has not been built.
+   What remains — the weekly `restic check`'s own heartbeat, and the optional
+   `backup_last_success_timestamp` metric for Alloy's textfile collector — is
+   extracted to [restic-check-heartbeat.md](../restic-check-heartbeat.md).
 
    One thing this phase learned the hard way: the push URL is the part that
    breaks. Kuma displays it with a query string attached, `.env` is sourced as
@@ -418,7 +418,7 @@ reason.
    guide did not prevent it on the first real bring-up; `run.sh` now detects
    that exact signature and fails loudly instead.
 5. **Prove it.** ⚠️ **Partly done — all seven stacks drilled**, recorded in
-   [review/2026-08-07-backup-bring-up.md](../reviews/2026-08-07-backup-bring-up.md).
+   [review/2026-08-07-backup-bring-up.md](../../reviews/2026-08-07-backup-bring-up.md).
    Each drill used the same method: change something *after* the backup, run
    `restore.sh`, confirm the change is gone and everything else survived.
 
@@ -459,19 +459,12 @@ reason.
    bring-up (the query string trap in phase 4), corrected, and a run then
    delivered its heartbeat and turned the monitor green.
 
-   Still unproven, and not to be claimed until it is:
-   a **VM-rollback** drill rather than an in-place restore,
-   the nightly timer firing unattended, the weekly `restic check`, and the
-   deadman's *silent* half — nothing has yet watched the monitor go **red**
-   because a heartbeat did not arrive, which is the property the arrangement
-   exists for. The full drill still reads: roll the infra VM
-   back to a snapshot, restore from restic, verify each stack comes up —
-   Vaultwarden accepting a login from a client that was already paired (which
-   is what proves `rsa_key.pem` and the database came back together), Authentik
-   with its providers intact, Forgejo serving a `docker pull`, Kuma with its
-   monitors.
+   What is still unproven — the VM-rollback drill, the nightly timer firing
+   unattended, the weekly `restic check`, and the deadman's *silent* half — is
+   extracted to [backup-proofs.md](../backup-proofs.md), and not to be claimed
+   until a drill has covered it.
 
-   The procedure is [backup-restore-drill.md](../../docs/drills/backup-restore-drill.md) —
+   The procedure is [backup-restore-drill.md](../../../docs/drills/backup-restore-drill.md) —
    what to mark before each restore, and what each stack's result actually
    proves. Record each further drill in `dev/reviews/` as its own dated
    finding, the same way the guide replays were. **Treat every phase as untested for the
@@ -483,8 +476,8 @@ reason.
   walk `/opt` — so the dumps in `/opt/backup/dumps` belong to the same run as
   the file trees around them.
 - **Sizing.** Forgejo's registry blobs dominate and grow monotonically; the
-  registry-hygiene item in [ci-supply-chain.md](ci-supply-chain.md) phase 3
-  (keep last N tags / max age) is also a backup-size lever. restic's dedup
+  registry-hygiene task ([registry-hygiene.md](../registry-hygiene.md), keep
+  last N tags / max age) is also a backup-size lever. restic's dedup
   handles repeated image layers well, but it cannot delete what the registry
   never expires.
 - **Restore is a documented procedure or it doesn't exist.** `docs/guides/backup-setup.md`
@@ -495,7 +488,7 @@ reason.
   hit first: a restored/rolled-back guest resumes with a stale clock and every
   TLS client fails with "certificate has expired or is not yet valid".
   `init-host.sh` already handles it on the infra VM
-  ([proxmox-setup.md Part 7](../../docs/guides/proxmox-setup.md#part-7--snapshot-before-you-build));
+  ([proxmox-setup.md Part 7](../../../docs/guides/proxmox-setup.md#part-7--snapshot-before-you-build));
   expect to see it during the drill and don't misdiagnose it as a bad restore.
 - **Non-goals:** continuous replication, PITR/WAL archiving, HA. This is a
   one-person lab — a daily RPO is the right answer, and anything tighter buys

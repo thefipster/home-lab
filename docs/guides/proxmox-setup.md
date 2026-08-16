@@ -149,7 +149,7 @@ zpool create -o ashift=12 -O compression=lz4 vmbackup mirror /dev/disk/by-id/<sa
 ```
 
 The second 1 TB SATA pair becomes `filebackup`, which holds the restic
-repository — see [roadmap/backup.md](../../dev/roadmap/backup.md):
+repository — see [roadmap/backup.md](../../dev/roadmap/done/backup.md):
 
 ```bash
 zpool create -o ashift=12 -O compression=lz4 filebackup mirror /dev/disk/by-id/<sata-1tb-c> /dev/disk/by-id/<sata-1tb-d>
@@ -587,7 +587,7 @@ The trade is real and worth stating plainly: this disk is meant to be covered by
 the **file-level** layer instead, which can restore a single directory. That
 layer now exists ([backup-setup.md](backup-setup.md)) — but it runs on the
 **infra VM**, and the apps VM has not joined the restic repository yet
-([roadmap/backup.md](../../dev/roadmap/backup.md)). Until it does, everything on the apps
+([roadmap/apps-vm-backup.md](../../dev/roadmap/apps-vm-backup.md)). Until it does, everything on the apps
 VM's data disk is unbacked. That is currently harmless because the VM has no
 services on it, and it stops being harmless the day it does.
 
@@ -1950,7 +1950,7 @@ Per-VM, the numbers and why:
 | `rpool` | 2 × 1 TB NVMe, mirror | Proxmox + all three VM **root** disks |
 | `data` | 2 × 512 GB NVMe, mirror | the apps VM's second disk |
 | `vmbackup` | 2 × 1 TB SATA SSD, mirror | `vzdump` archives — [Part 8](#part-8--schedule-whole-vm-backups) |
-| `filebackup` | 2 × 1 TB SATA SSD, mirror | restic repository — [roadmap/backup.md](../../dev/roadmap/backup.md) |
+| `filebackup` | 2 × 1 TB SATA SSD, mirror | restic repository — [roadmap/backup.md](../../dev/roadmap/done/backup.md) |
 
 **Every mirror answers a different question, and the bus follows the access
 pattern.** `rpool` and `data` are NVMe because they carry live VM I/O — three

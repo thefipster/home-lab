@@ -145,11 +145,12 @@ kinds are listed — the same rule the other registries follow.
   ([spec](../../dev/specs/2026-08-05-forgejo-release-workflow-design.md)) —
   and a **nightly rebuild**, whose remaining purpose was re-scanning published
   images for CVEs disclosed after the build
-  ([roadmap/ci-supply-chain.md](../../dev/roadmap/ci-supply-chain.md) states that gap and
+  ([roadmap/ci-supply-chain.md](../../dev/roadmap/done/ci-supply-chain.md) states that gap and
   why it now has no automated answer). Do not re-propose either.
 - **The weekly `restic check` has no heartbeat.** The nightly backup pings Kuma;
   the check pings nothing, so a repository that has become unreadable stays
-  quiet. Known gap ([roadmap/backup.md](../../dev/roadmap/backup.md)).
+  quiet. Known gap, now a ranked task
+  ([roadmap/restic-check-heartbeat.md](../../dev/roadmap/restic-check-heartbeat.md)).
 - **The apps VM has no backup job of either layer.** Its 300 GB data disk is
   excluded from `vzdump` (`backup=0`) and it has not joined the restic
   repository.

@@ -1,6 +1,6 @@
 # Monitoring — Grafana + Prometheus + Loki + Tempo + Alloy for the INFRA VM.
 #
-# The lab's complete observability stack (dev/roadmap/monitoring.md, all five
+# The lab's complete observability stack (dev/roadmap/done/monitoring.md, all five
 # phases; the dated specs hold the build narrative). Alloy is the ONLY
 # collector: it scrapes metrics (this stack, the infra services, the host),
 # tails every container's logs into Loki, and receives OTLP from the apps at
