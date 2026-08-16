@@ -1700,6 +1700,12 @@ Description=Report UPS state every 5 minutes
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=5min
+# systemd defaults AccuracySec to ONE MINUTE, deferring timers to batch wakeups.
+# The ZFS timer in Part 9 can live with that because its Kuma monitor has
+# retries to absorb a late beat. Site Power has none -- retries would make its
+# alert undeliverable (see step 6) -- so a minute of systemd's discretion turns
+# straight into false "site power lost" notifications.
+AccuracySec=1s
 Persistent=true
 
 [Install]

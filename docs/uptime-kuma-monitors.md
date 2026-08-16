@@ -282,11 +282,24 @@ this monitor says so.
 |---|---|---|
 | Site Power | Push | *(push URL — the host calls Kuma)* |
 
-Heartbeat **300 s** with **0 retries**. The cadence matches
-[Hypervisor Storage](#hypervisor-storage--proxmox-host) above; **the retry count
-deliberately does not, and copying it from there breaks this monitor
-completely.** The name follows the function-not-product rule: what breaks for a
-user is site power, not a UPS.
+Heartbeat **360 s** with **0 retries**. Neither number matches
+[Hypervisor Storage](#hypervisor-storage--proxmox-host) above, and **copying
+either one from there breaks this monitor** — in opposite directions. The name
+follows the function-not-product rule: what breaks for a user is site power, not
+a UPS.
+
+> **The heartbeat is 360 s against a 300 s push period because the retries are
+> gone.** [timetable.md](timetable.md#continuous-and-short-interval) states the
+> sizing rule — *heartbeat > period + jitter + worst plausible run time* — and
+> every push monitor that keeps retries can quietly ignore it, because a retry
+> absorbs one late beat. This one cannot. With the margin at zero, systemd
+> firing a minute late or a `curl` waiting on its `--max-time 10` produces a
+> **false** notification that site power was lost.
+>
+> The other half of that fix is on the host: the timer sets `AccuracySec=1s`,
+> because systemd otherwise defers timers by up to a minute to batch wakeups
+> ([proxmox-setup.md Part 10](proxmox-setup.md#7-put-it-on-a-timer)). Sixty
+> seconds of margin on top of that covers execution time and a slow push.
 
 > **Why 0 retries is not a preference here.** With retries above zero, an
 > explicit `status=down` push does not mark the monitor down — Kuma puts it in

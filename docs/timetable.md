@@ -45,7 +45,7 @@ one document.
 | Every | Machine | Operation | Declared in |
 |---|---|---|---|
 | **5 min** | Proxmox host | ZFS pool health pushed to Kuma, and `zfs_pool_*` written for Prometheus (`OnBootSec=2min`, then `OnUnitActiveSec=5min`) | [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
-| **5 min** | Proxmox host | UPS state pushed to Kuma, and `ups_*` written for Prometheus (same `OnBootSec`/`OnUnitActiveSec` shape). Also fired **immediately** by NUT's `upssched` on every power event, which is the push that matters | [proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut) |
+| **5 min** | Proxmox host | UPS state pushed to Kuma, and `ups_*` written for Prometheus. Same `OnBootSec`/`OnUnitActiveSec` shape as the ZFS timer, plus `AccuracySec=1s` — systemd otherwise defers by up to a minute to batch wakeups, which the retry-less `Site Power` monitor cannot absorb. Also fired **immediately** by NUT's `upssched` on every power event, which is the push that matters | [proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut) |
 | **60 s** | infra VM | Uptime Kuma checks — Kuma's default, used by every monitor except the two push rows below | [uptime-kuma-monitors.md](uptime-kuma-monitors.md) |
 | **15 s** | infra VM | Prometheus scrape **and** rule evaluation | [`prometheus.yml`](../infra/monitoring/prometheus/prometheus.yml) |
 | **15 s** | infra VM | Alloy scrapes (every target but one) and its Docker discovery refresh | [`config.alloy`](../infra/monitoring/alloy/config.alloy) |
@@ -62,11 +62,21 @@ has to outlast the job that feeds it:
 | Heartbeat | Monitor | Fed by |
 |---|---|---|
 | **300 s**, 2 retries | Hypervisor Storage | the 5-minute ZFS timer above |
-| **300 s**, **0 retries** | Site Power | the 5-minute UPS timer above, plus every `upssched` power event. Retries would put an explicit down push in PENDING, which does not notify — and this host halts before enough beats could arrive ([registry](uptime-kuma-monitors.md#power--proxmox-host)) |
+| **360 s**, **0 retries** | Site Power | the 5-minute UPS timer above, plus every `upssched` power event. Retries would put an explicit down push in PENDING, which does not notify — and this host halts before enough beats could arrive. With no retry to absorb a late beat, the heartbeat has to carry the whole margin itself ([registry](uptime-kuma-monitors.md#power--proxmox-host)) |
 | **90000 s** (25 h), 0 retries | Backup Job | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
 
 That arithmetic is the pattern to copy: **heartbeat > period + jitter + worst
 plausible run time**, or a healthy lab goes red on its own schedule.
+
+**How much it has to exceed depends on the retries, and that is easy to miss.**
+A monitor with retries can be sloppy about this rule, because a retry silently
+absorbs one late beat — which is why `Hypervisor Storage` runs a 300 s heartbeat
+against a 300 s period and has never complained. Take the retries away and the
+same numbers start reporting outages that did not happen: there is nothing left
+to absorb systemd's default one-minute timer slack, or a `curl` sitting on its
+timeout. `Site Power` is the monitor with no retries, and it is the one that had
+to be sized honestly — 360 against 300, with `AccuracySec=1s` on the timer so
+the jitter term is small rather than merely covered.
 
 ## Package updates
 
