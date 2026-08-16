@@ -1024,18 +1024,26 @@ PFC sinewave — connected to this host by its **USB data cable**, not just its
 power lead. That cable is the whole integration; without it the UPS is a battery
 that nothing can ask any questions.
 
-**What goes on the battery outlets.** These units split their sockets into
-battery-backed and surge-only, and the difference is invisible until it matters.
-The server, the **UDR** and any switch between them belong on the battery side —
-the network has to outlive the server so the shutdown can be reported while it
-happens.
+**What goes on it.** All six outlets on this model are battery-backed *and*
+surge-protected, so there is no wrong socket to pick and nothing to check on the
+back panel — the only question is what you plug in, and **six is the budget**.
 
-> **Check where your modem or ONT is plugged in.** Notifications leave the lab
-> through hosted ntfy.sh, so the WAN termination is part of the alerting path.
-> On an unprotected socket it dies with the mains, and the entire reporting half
-> of this Part goes silent at exactly the moment it exists for. Everything else
-> still works — the shutdown is driven over USB and needs no network at all —
-> you simply find out afterwards.
+The server is obvious. The **UDR** and any switch between it and the server are
+not, and they matter for a reason the server does not: the network has to
+outlive the host so the shutdown can be reported *while it happens*, rather than
+reconstructed from logs afterwards.
+
+> **Spend one of the six on your modem or ONT.** Notifications leave the lab
+> through hosted ntfy.sh, so the WAN termination is part of the alerting path
+> and it is the piece most likely to be sitting on a wall socket on the other
+> side of the room. Left on mains it dies with the mains, and the entire
+> reporting half of this Part goes silent at exactly the moment it exists for.
+> Everything else still works — the shutdown runs over USB and needs no network
+> at all — you simply find out afterwards.
+
+At 900 VA / 540 W the electrical headroom is not the constraint here; the outlet
+count is. Anything you add beyond the server, the network path and the WAN
+termination is spending a socket one of those might want later.
 
 What this buys is **an orderly shutdown, not continuity**: no generator, no
 second UPS, nothing offsite. The lab goes down. It goes down on purpose, in the

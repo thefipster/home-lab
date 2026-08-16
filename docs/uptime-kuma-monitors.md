@@ -303,9 +303,9 @@ on a healthy lab, which is worth having — but the event push is the alarm, not
 the heartbeat.
 
 **And the alert only leaves the house if the WAN termination is powered.**
-Notifications go to hosted ntfy.sh, so a modem or ONT on an unprotected socket
-makes this whole section silent while the shutdown itself proceeds perfectly —
-that runs over USB and needs no network. Which sockets to use is in
+Notifications go to hosted ntfy.sh, so a modem or ONT left on mains makes this
+whole section silent while the shutdown itself proceeds perfectly — that runs
+over USB and needs no network. What belongs on the UPS is in
 [proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut).
 
 Battery **ageing** deliberately goes the other way, to Grafana as
