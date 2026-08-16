@@ -183,8 +183,8 @@ dashboard's `instance` dropdown now offers **`apps`** alongside `infra` and
 
 ## Next
 
-**[home-assistant-setup.md](home-assistant-setup.md)** — the third VM, and the
-last machine in the lab.
+**[apps-logs-setup.md](apps-logs-setup.md)** — get this machine's container
+logs into Loki, so the single pane covers both Docker hosts.
 
 ## Troubleshooting
 
@@ -292,6 +292,6 @@ produce a second source of truth that silently drifts.
 
 ## Next
 
-**[home-assistant-setup.md](home-assistant-setup.md)** — the third VM.
+**[apps-logs-setup.md](apps-logs-setup.md)** — this machine's container logs.
 
 The full sequence is the [README build order](../../README.md#build-order).

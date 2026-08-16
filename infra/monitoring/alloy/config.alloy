@@ -252,7 +252,12 @@ discovery.relabel "containers" {
 loki.source.docker "containers" {
   host          = "unix:///var/run/docker.sock"
   targets       = discovery.docker.containers.targets
-  labels        = {"job" = "docker"}
+  // `instance` names the MACHINE, and the apps VM's collector sets it to
+  // "apps". Without it the two machines' logs are indistinguishable and a
+  // stack name present on both collides into one stream. The value set matches
+  // job="node" above — infra / apps / pve — so one word means one machine in
+  // both metrics and logs. {job="docker"} still covers everything.
+  labels        = {"job" = "docker", "instance" = "infra"}
   relabel_rules = discovery.relabel.containers.rules
   forward_to    = [loki.write.default.receiver]
 }

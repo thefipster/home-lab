@@ -46,6 +46,7 @@ All entries are type **Host (A)**:
 | `vault.thefipster.de` | `infra ip` | Vaultwarden password manager (via Traefik) |
 | `traefik.thefipster.de` | `infra ip` | Traefik dashboard (gated by Authentik) |
 | `grafana.thefipster.de` | `infra ip` | Grafana monitoring UI (via Traefik) |
+| `loki.thefipster.de` | `infra ip` | Loki log ingest — the apps VM's collector pushes here (via Traefik, **push path only**) |
 | `otlp.thefipster.de` | `infra ip` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `infra ip` | Uptime Kuma status monitoring (via Traefik) |
 | `ha.thefipster.de` | `infra ip` | Home Assistant UI — the **service** (via Traefik, which proxies to the row below) |
@@ -207,7 +208,7 @@ A quick way to see the whole shape at once, infra names together and the wildcar
 falling elsewhere:
 
 ```bash
-for n in git dockge home auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
+for n in git dockge home auth vault traefik grafana loki otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
 ```
 
 Everything through `ha` should share one address, `homeassistant` and `pve`
@@ -219,7 +220,7 @@ prefers, so a wrong AAAA hides behind a correct A record and shows up only as
 traffic taking a route you did not intend:
 
 ```bash
-for n in git dockge home auth vault traefik grafana otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
+for n in git dockge home auth vault traefik grafana loki otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
 ```
 
 Every row must come back as `::ffff:` followed by the same address the sweep

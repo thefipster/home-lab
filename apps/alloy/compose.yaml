@@ -1,0 +1,60 @@
+# Alloy — container logs from the APPS VM, and nothing else.
+#
+# This is the ONE running service this repo declares for this machine, and the
+# exception is deliberate. apps/ holds no compose because COOLIFY owns app
+# definitions, and mirroring them here would create a second source of truth
+# that drifts. Nothing in Coolify's store describes a log collector, so there is
+# nothing for this to drift from — the rule keeps its force and gains this one
+# stated exception. See apps/README.md.
+#
+# NOT a Coolify resource, on purpose: the thing that collects the logs must not
+# depend on the platform it exists to observe.
+#
+# What it is not: it does NOT scrape metrics (scripts/init-node-exporter.sh
+# covers this host, scraped from the infra VM as job="node", instance="apps")
+# and it does NOT receive OTLP (the apps emit straight to otlp.thefipster.de).
+# Logs are the only gap on this machine; this closes it and nothing else.
+#
+# Deploy: scripts/init-apps-alloy.sh — see docs/guides/apps-logs-setup.md.
+
+name: alloy
+
+services:
+  alloy:
+    # Same FULL PATCH pin as infra/monitoring/compose.yaml, and it must STAY the
+    # same: the two collectors have to produce identical labels, so they run
+    # identical versions. Alloy publishes only vX.Y.Z tags.
+    image: grafana/alloy:v1.18.1
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      # Component-health UI, bound to this VM's LOOPBACK only — no hostname, no
+      # cert, no router, exactly like the infra VM's. Reach it when debugging:
+      #   ssh -L 12345:127.0.0.1:12345 <apps-vm>
+      # This is also why Uptime Kuma has no monitor for this collector: there is
+      # nothing to probe and Kuma's docker.sock is the infra VM's. Recorded in
+      # docs/reference/uptime-kuma-monitors.md.
+      - "127.0.0.1:12345:12345"
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      # Read positions. Losing them re-reads logs rather than losing them, which
+      # is why this directory is in no backup.
+      - /opt/alloy:/var/lib/alloy/data
+      # Docker API — container discovery + log tailing. `:ro` is NOT a security
+      # boundary for a socket: the mount is read-only, the API behind it is not,
+      # so this is root-equivalent control of this VM's Docker. Same trade the
+      # infra VM already makes for Alloy, Dockge, Traefik and the Forgejo runner.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+# No `networks:` block, and that is not an omission. This container needs only
+# OUTBOUND LAN access to reach loki.thefipster.de, which compose's default
+# project network gives it — the same way Alloy on the infra VM reaches pve and
+# apps to scrape them. It joins no Coolify network and publishes nothing.
+#
+# No `hostname:` either. The infra VM's Alloy pins one because its embedded unix
+# exporter reads the container's UTS hostname and the node dashboard chains off
+# it; there is no unix exporter here, so nothing would read it.

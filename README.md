@@ -223,10 +223,15 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
     port with nothing in front of it. Its bundled proxy needs switching from
     HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
     installing the node exporter that Alloy on the infra VM already expects.
+15. **[Container logs](docs/guides/apps-logs-setup.md)** — a logs-only Alloy on this
+    machine, pushing to the infra VM's Loki so the single pane covers both
+    Docker hosts. The infra half has been live since the monitoring stack came
+    up; this is the collector. Check `loki.thefipster.de` resolves to the
+    **infra** VM first — the wildcard answers with this one.
 
 ### home-assistant VM — home automation
 
-15. **[Home Assistant OS](docs/guides/home-assistant-setup.md)** — the only VM not built
+16. **[Home Assistant OS](docs/guides/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO

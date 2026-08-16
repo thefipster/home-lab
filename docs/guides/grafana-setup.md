@@ -363,6 +363,14 @@ Then check nothing is silently missing — one row per running service:
 sum by (compose_service) (count_over_time({job="docker"}[5m]))
 ```
 
+Both Docker machines land in the same place once the apps VM's collector exists
+([apps-logs-setup.md](apps-logs-setup.md)) — until then this returns one row,
+which is correct at this point in the build:
+
+```logql
+sum by (instance) (count_over_time({job="docker"}[5m]))
+```
+
 Traefik's access log is JSON on stdout, collected like any other container's:
 
 ```logql
@@ -592,6 +600,8 @@ zfs list -t snapshot
 **Logs**
 
 - [ ] `{job="docker"}` returns lines within seconds
+- [ ] `sum by (instance) (count_over_time({job="docker"}[5m]))` returns `infra`
+      — and `apps` too, once that machine's collector is up
 - [ ] `{compose_project="authentik"}` returns — labelling works across stacks
 - [ ] `sum by (compose_service) (count_over_time({job="docker"}[5m]))` lists
       every running service
@@ -853,14 +863,21 @@ they live in other stacks. The membership exposes nothing by itself: Traefik
 routes only what labels tell it to, and Alloy's only labels are the deliberate
 OTLP routes.
 
-**Logs carry exactly four labels**, on purpose:
+**Logs carry a deliberately small label set**, and it is the same on both Docker
+machines:
 
 | Label | Example | Source |
 |-------|---------|--------|
 | `job` | `docker` | static, set by Alloy |
+| `instance` | `infra`, `apps` | static, set by Alloy — the machine, matching `job="node"`'s values |
 | `compose_project` | `monitoring`, `authentik`, `traefik` | the compose project name |
 | `compose_service` | `grafana`, `server`, `db` | the service name inside that project |
 | `container` | `monitoring-grafana-1` | the Docker container name |
+| `coolify_resource` | `paperless` | **apps VM only** — Coolify's own label, for resources deployed from a Dockerfile that carry no compose labels |
+
+`coolify_resource` exists on one machine and not the other, which does not split
+`{job="docker"}`: Loki treats an unset label as absent rather than as empty. See
+[apps-logs-setup.md](apps-logs-setup.md).
 
 Labels are Loki's index, and every distinct combination creates a stream. A
 label with unbounded values — a request ID, a path, a user — multiplies streams

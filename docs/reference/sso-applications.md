@@ -264,6 +264,24 @@ are services that could have joined and did not. This one was never eligible. It
 authenticates to exactly one thing, the repository over SSH, with a key in
 `/root/.ssh/id_ed25519` that Authentik has no part in.
 
+## The log ingest endpoint (not an application at all)
+
+`loki.thefipster.de` is a machine-to-machine ingest path — the apps VM's
+collector pushing container logs into Loki
+([apps-logs-setup.md](../guides/apps-logs-setup.md)). It has no browser UI to gate and
+speaks no OIDC, so it was never a candidate for either pattern, and forward-auth
+would break the push outright rather than prompting anyone.
+
+Recorded here for the same reason as the backup job above: so the absence reads
+as a decision. It is **not** counted among the deliberate non-joiners, which are
+services that could have joined and did not.
+
+It carries no credential of its own either, matching `otlp.thefipster.de` — the
+lab's other unauthenticated ingest endpoint. Gating one and not the other would
+be the inconsistency. Note that the Traefik router is scoped to the **push path
+only**, so Loki's query and delete APIs are not reachable from the LAN at all;
+that scoping, not authentication, is what bounds this surface.
+
 ## Access bindings
 
 An application with **no** bindings admits **any authenticated user**; the

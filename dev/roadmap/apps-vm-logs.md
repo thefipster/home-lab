@@ -22,32 +22,48 @@ through a **Docker socket**, and it is mounted from the machine Alloy runs on.
 `infra/monitoring/compose.yaml` bind-mounts the infra VM's socket; there is no
 socket for the apps VM in that container and there should not be one.
 
-## The shape of the answer
+## ✅ Landed
 
-Two candidate designs, both keeping Loki on the infra VM:
+See [docs/apps-logs-setup.md](../../docs/guides/apps-logs-setup.md). A **second Alloy on the
+apps VM**, logs-only, in `apps/alloy/` and started by
+`scripts/init-apps-alloy.sh`. The rejected alternative was Coolify's own logging
+driver pointed at Loki: no extra container, but a daemon-level change on a
+machine Coolify expects to own, producing labels that would not match the infra
+VM's — so the single pane would have split in two.
 
-- **A second Alloy, on the apps VM**, in `logs-only` configuration, pushing to
-  Loki over the LAN. Symmetric with the collector already running, reuses its
-  config idiom, and needs no change to what Loki accepts beyond an ingest path.
-  Costs a container and a socket mount on a machine this repo does not declare
-  stacks for — which is the interesting question, since Coolify owns that VM's
-  Docker.
-- **Coolify's own logging driver**, pointed at Loki. No extra container. Costs a
-  Docker daemon-level change on a machine Coolify expects to own outright, and
-  the labels would not match what Alloy produces on the infra VM, so the two
-  halves of the pane would not query alike.
+The design is recorded in
+[specs/2026-08-16-apps-vm-logs-design.md](../specs/2026-08-16-apps-vm-logs-design.md).
+The three open questions this roadmap left were answered as follows.
 
-The first looks right. Decide before building.
+**Where the config lives.** In `apps/`, because the repo root is the machine map
+and the collector runs on that machine. `apps/` declaring no running service is
+a rule about *applications* — Coolify owns those, and mirroring them here would
+create a second source of truth. Nothing in Coolify's store describes a log
+collector, so the rule keeps its force and gains one stated exception. Alloy as
+a systemd unit from Grafana's apt repo was rejected: it adds a third-party apt
+repo `init-unattended-upgrades.sh` would then have to exclude, and apt tracks
+latest — so the image-pin policy would stop applying to the one collector whose
+version parity with the other is the whole requirement.
 
-## Open questions
+**Whether Loki needs authentication.** No, matching `otlp.thefipster.de` — the
+lab's other ingest endpoint, which carries none and documents how to add one.
+What bounds the surface instead is **scope**: the Traefik router matches
+`PathPrefix('/loki/api/v1/push')` only, so Loki's query API and its delete API
+(live, because the compactor runs with `retention_enabled: true`) never leave the
+infra VM. Grafana still reads over `monitoring-net`. Publishing `:3100` on the
+LAN was rejected as the lab's first plaintext cross-machine hop.
 
-- **Where does the second Alloy's config live?** `apps/` holds no compose by
-  design. A logs-only collector is infrastructure, not an application, so it may
-  belong in `infra/` despite running elsewhere — or in the Forgejo repo with
-  everything else Coolify deploys.
-- **Does Loki need authentication?** It is currently reachable only inside the
-  infra VM's `monitoring-net`. Accepting pushes from another machine changes
-  that, and the LAN is not a trust boundary this repo has leaned on before.
-- **What labels make the two machines queryable together?** The infra VM's
-  container logs carry labels Alloy derives from Docker. The apps VM's must
-  match, or `{job="..."}` splits in two and every dashboard needs an edit.
+**What labels make the two machines queryable together.** An `instance` label on
+both collectors — `infra` and `apps` — beside the existing `job="docker"`, so
+every query that exists keeps working and `{job="docker", instance="apps"}`
+narrows. The values match `job="node"`'s, so one word means one machine in
+metrics and logs alike. The apps VM additionally maps Coolify's own container
+label to `coolify_resource`, because Coolify's Dockerfile-deployed resources
+carry no `com.docker.compose.*` labels at all; Loki treats an unset label as
+absent, so a label on one machine and not the other does not split the job.
+
+**The known gap, stated rather than closed.** Uptime Kuma cannot monitor this
+collector — its `docker.sock` is the infra VM's — and the collector's UI is
+loopback-bound, so nothing probes it. A dead collector shows up as logs from
+`instance="apps"` stopping. Recorded in
+[uptime-kuma-monitors.md](../../docs/reference/uptime-kuma-monitors.md#deliberately-not-monitored).

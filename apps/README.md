@@ -14,6 +14,13 @@ manages applications through its web UI, so app definitions live **in Coolify**,
 not here. Mirroring them into the repo would create a second source of truth that
 silently drifts from the one actually deploying things.
 
+**One exception, and it is stated rather than implied.** `alloy/` is a compose
+stack this repo declares and this machine runs. The rule above is about
+**applications**, and its reason is that Coolify owns app definitions — nothing
+in Coolify's store describes a log collector, so there is nothing for this to
+drift from. It is deliberately not a Coolify resource either: the thing that
+collects the logs must not depend on the platform it exists to observe.
+
 That holds for third-party software too — Paperless, Mealie and the rest are
 Coolify resources deployed from **one Forgejo repository each**, not stacks
 declared here. What this directory adds for them is a **catalog**:
@@ -31,6 +38,7 @@ What that leaves in this directory:
 |------|---------|
 | `services.md` | the catalog of **third-party** applications this VM runs as Coolify resources — what runs and why that one. Each one's compose lives in its own Forgejo repo, so this stays a pointer, not a second source of truth. |
 | `.env.example` | the three `NETCUP_*` names Coolify's bundled proxy needs for its own DNS-01 wildcard. Copied to `.env` by the init script. The **values** are entered in Coolify's UI — the file exists so the requirement is visible in the repo instead of only inside Coolify. |
+| `alloy/` | a **logs-only** Alloy that tails this machine's containers and pushes them to the infra VM's Loki. The one running service this repo declares here — see the exception above and [docs/apps-logs-setup.md](../docs/guides/apps-logs-setup.md). |
 | `stacks/` | **staging only**, and temporary. Stacks are drafted here, then pushed to their own Forgejo repo and **deleted from this directory** — see [stacks/README.md](stacks/README.md). A stack still sitting here is one that has not been split out yet, not an exception to the rule above. It holds no stack today; everything in the catalog has been split out. |
 
 ## Scripts that run on this machine
@@ -41,6 +49,7 @@ What that leaves in this directory:
 | [`init-unattended-upgrades.sh`](../scripts/init-unattended-upgrades.sh) | Automatic security updates. Also shared with the infra VM — Coolify's installer sets up none. |
 | [`init-coolify.sh`](../scripts/init-coolify.sh) | Preflight, swapfile, then Coolify's official installer — fetched to disk with its checksum printed, rather than piped into a root shell. |
 | [`init-node-exporter.sh`](../scripts/init-node-exporter.sh) | Host metrics for Alloy on the infra VM to scrape. The infra VM must **not** run this — Alloy collects its own host metrics there. |
+| [`init-apps-alloy.sh`](../scripts/init-apps-alloy.sh) | Creates `/opt/alloy` and starts the log collector. Starts its own stack, because this machine has no Dockge to start it from. |
 
 **[`init-docker.sh`](../scripts/init-docker.sh) is the one script this machine
 deliberately skips.** Coolify's installer brings its own Docker Engine, so this
