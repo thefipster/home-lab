@@ -22,7 +22,7 @@ got.
 | Backup layer 2: `restic` file-level to the `filebackup` mirror | ✅ deployed — [guide](backup-setup.md). Every stateful infra stack wired and restore-drilled, one tagged snapshot each ([drill guide](backup-restore-drill.md), [findings](review/2026-08-07-backup-bring-up.md)). Not yet done: a VM-rollback drill, and the apps VM has not joined ([roadmap](roadmap/backup.md)) — which now costs real data, see the apps row below |
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | Proxmox web UI on 443 with its own certificate | ✅ deployed — [Part 3](proxmox-setup.md#give-the-host-a-real-certificate). Its own Let's Encrypt certificate from Proxmox's ACME client, not Traefik's wildcard, so the one UI you repair the lab with does not depend on one of the lab's own guests. Renewal is Proxmox's `pve-daily-update.timer` and has not had to run yet |
-| UPS: orderly shutdown, and coming back | ⬜ planned — [Part 10](proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. The open piece is the commissioning drill, which is what turns the backstop arithmetic from an estimate into a measurement |
+| UPS: orderly shutdown, and coming back | ✅ deployed — [Part 10](proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. **Drilled end to end**: on-battery notification, backstop, guests down together, killpower, and the lab booting itself when mains returned. Only the server is on the UPS so far — adding the UDR, switch and WAN termination raises the load and is what lets the alert leave the house |
 | CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |
 | CI: code analysis | ✅ deployed — analyzers enforced in the build. One decision still open: whether a SonarQube stack earns its place ([roadmap](roadmap/ci-code-analysis.md)) |
@@ -36,20 +36,21 @@ got.
 
 `✅` runs today · `◐` one half runs, the other is still waiting · `📄` written
 and reviewed, waiting on hardware or a build step · `⬜` not started. **No `📄`
-rows are left.** Every guide in the build order has been run on the machine it
-describes; the UPS row is written and not yet run, which is a different thing
-from a guide nobody has ever exercised.
+rows are left**, and none are verified by reading alone: every guide in the
+build order has been run on the machine it describes, the hypervisor's two
+newest Parts included.
 
 **Every machine in the build order is built.** All infra stacks run, both backup
 layers included; the apps VM runs Coolify with the whole third-party catalog on
 it; the HA VM is up, routed and onboarded. What remains is reach rather than
 existence:
 
-- **The UPS** ([Part 10](proxmox-setup.md#part-10--survive-a-power-cut)). The
-  shutdown chain is written against hardware that is on the desk, and it is not
-  finished until the plug has actually been pulled once — that drill is what
-  turns the backstop arithmetic from an estimate into a measurement, and the
-  only thing that proves the lab comes back by itself.
+- **The rest of the load on the UPS.** The shutdown chain is drilled and works,
+  but only the server is plugged in
+  ([Part 10](proxmox-setup.md#part-10--survive-a-power-cut)). The UDR, the switch
+  and the WAN termination are what let the on-battery alert actually leave the
+  house — until they are on it, a real outage shuts the lab down correctly and
+  silently.
 - **Home Assistant's metrics token**, so `job="homeassistant"` stops being red
   ([step 8](home-assistant-setup.md#8-wire-up-metrics)).
 - **Container logs from the apps VM** ([roadmap](roadmap/apps-vm-logs.md)) —
