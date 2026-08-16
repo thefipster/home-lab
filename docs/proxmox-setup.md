@@ -1490,13 +1490,18 @@ actually cutting power. That is all it proves. The real proof is the drill in
 **step 8**, because this is the half most likely to be silently broken and the
 only one whose failure waits for a real outage to show itself.
 
-> **Three parts of this Part can only fail during an outage, and each has a way
+> **Four parts of this Part can only fail during an outage, and each has a way
 > to be tested before one.** The signal the backstop sends
-> ([step 4](#4-decide-when-to-shut-down), `upsmon -c reload` as `nut`), the push
+> ([step 4](#4-decide-when-to-shut-down), `upsmon -c reload` as `nut`); the push
 > the event path makes ([step 6](#6-report-ups-state-to-kuma-and-prometheus),
-> the script run as `nut`), and killpower — `upsdrvctl -t shutdown` above. Run
-> all three before the drill. Two of them pass trivially as `root` while the
-> real path is broken, which is the whole reason they are written as they are.
+> the script run as `nut`); that the push actually **notifies** (step 6's
+> by-hand `status=down`); and killpower — `upsdrvctl -t shutdown` above. Run all
+> four before the drill.
+>
+> Each one is written the way it is because the obvious version passes while the
+> real path is broken: `root` can read files and signal processes that `nut`
+> cannot, and a push that Kuma *records* is not the same as a push that Kuma
+> *sends*. Every one of these was found the hard way.
 
 ### 6. Report UPS state to Kuma and Prometheus
 
@@ -1643,6 +1648,33 @@ It should exit silently and push `up` to Kuma. If it prints `PUSH_URL ... not
 set`, the `nut` user cannot read `/etc/default/ups-health-push` — check the mode
 and group above. Running it as `root` instead proves nothing about this path,
 which is exactly the trap.
+
+**Then prove the other half: that a push becomes a notification.** Reaching Kuma
+and alarming Kuma are different things, and the gap between them is silent.
+Send a down by hand:
+
+```bash
+set -a; . /etc/default/ups-health-push; set +a; curl -fsS --get "$PUSH_URL" --data-urlencode "status=down" --data-urlencode "msg=notification test"
+```
+
+A push should arrive on your phone **within seconds**. Then put it back:
+
+```bash
+set -a; . /etc/default/ups-health-push; set +a; curl -fsS --get "$PUSH_URL" --data-urlencode "status=up" --data-urlencode "msg=notification test cleared"
+```
+
+**If Kuma shows the message but no notification arrives, the monitor has retries
+above zero.** An explicit `status=down` then lands the monitor in *pending*,
+which notifies nobody, and it takes one more down beat per retry to transition —
+beats that only arrive every five minutes, from a host that halts after five.
+`Site Power` is specified with **0 retries** in
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#power--proxmox-host) precisely
+for this, and it is the one setting on that monitor that cannot be copied from
+its neighbours.
+
+Check the notification is attached to this monitor at all while you are there —
+Kuma does not add one retroactively unless *Default enabled* and *Apply on all
+existing monitors* were ticked when it was created.
 
 ### 7. Put it on a timer
 

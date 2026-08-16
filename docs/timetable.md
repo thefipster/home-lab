@@ -62,7 +62,7 @@ has to outlast the job that feeds it:
 | Heartbeat | Monitor | Fed by |
 |---|---|---|
 | **300 s**, 2 retries | Hypervisor Storage | the 5-minute ZFS timer above |
-| **300 s**, 2 retries | Site Power | the 5-minute UPS timer above, plus every `upssched` power event |
+| **300 s**, **0 retries** | Site Power | the 5-minute UPS timer above, plus every `upssched` power event. Retries would put an explicit down push in PENDING, which does not notify — and this host halts before enough beats could arrive ([registry](uptime-kuma-monitors.md#power--proxmox-host)) |
 | **90000 s** (25 h), 0 retries | Backup Job | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
 
 That arithmetic is the pattern to copy: **heartbeat > period + jitter + worst

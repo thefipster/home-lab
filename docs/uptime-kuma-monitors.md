@@ -282,10 +282,29 @@ this monitor says so.
 |---|---|---|
 | Site Power | Push | *(push URL — the host calls Kuma)* |
 
-Heartbeat **300 s** with 2 retries, the same cadence as
-[Hypervisor Storage](#hypervisor-storage--proxmox-host) above and sized by the
-same arithmetic. The name follows the function-not-product rule: what breaks for
-a user is site power, not a UPS.
+Heartbeat **300 s** with **0 retries**. The cadence matches
+[Hypervisor Storage](#hypervisor-storage--proxmox-host) above; **the retry count
+deliberately does not, and copying it from there breaks this monitor
+completely.** The name follows the function-not-product rule: what breaks for a
+user is site power, not a UPS.
+
+> **Why 0 retries is not a preference here.** With retries above zero, an
+> explicit `status=down` push does not mark the monitor down — Kuma puts it in
+> **PENDING**, which sends no notification, and it needs one further down beat
+> per retry to transition. For a push monitor, beats only arrive when something
+> pushes, so those come from the 5-minute timer: two retries puts DOWN at
+> roughly **T+10 minutes**. The backstop halts this lab at **T+5**, taking Kuma
+> down with the infra VM it runs on. The alert is not delayed by the retries —
+> it becomes **undeliverable**, and no amount of testing during an outage would
+> ever produce it.
+>
+> **The rule that decides it: retries are affordable only if the machine doing
+> the pushing survives long enough to push again.** `Hypervisor Storage` keeps
+> its 2 because a degraded pool leaves the host running and the timer pushing —
+> ten minutes of extra latency on a mirror that is still serving is a fair price
+> for tolerating one dropped heartbeat. This host is about to switch itself off,
+> so it has exactly one chance to speak. `Backup Job` below is 0 for a related
+> reason.
 
 **It is pushed from two places, and the second one is not a latency
 optimisation.** A five-minute timer carries the metrics and the heartbeat, and
