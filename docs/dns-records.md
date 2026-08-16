@@ -50,7 +50,7 @@ All entries are type **Host (A)**:
 | `uptime.thefipster.de` | `infra ip` | Uptime Kuma status monitoring (via Traefik) |
 | `ha.thefipster.de` | `infra ip` | Home Assistant UI — the **service** (via Traefik, which proxies to the row below) |
 | `homeassistant.thefipster.de` | `ha ip` | the HA VM itself — the **machine**; Traefik's backend on `:80`, and the only lab name served over plain HTTP |
-| `pve.thefipster.de` | `pve ip` | Proxmox web UI, and the host node exporter Alloy scrapes (`:9100`) |
+| `pve.thefipster.de` | `pve ip` | Proxmox web UI on **443** (its own certificate, not Traefik's), and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
 escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
@@ -97,6 +97,31 @@ the name wants.
 above — which it needs anyway, so the wildcard does not answer with the apps VM
 and send Alloy to scrape the wrong machine. One name, two consumers, and the
 scrape is the one that would fail loudly first.
+
+## Serving the Proxmox UI on 443 adds no record either
+
+`pve.thefipster.de` answers on **443** with a genuine certificate
+([proxmox-setup.md, Part 3](proxmox-setup.md#serve-it-on-443)), and that changed
+nothing here. The name already points at the hypervisor, and the hypervisor is
+the machine the UI is on.
+
+That is not the obvious outcome, and it is worth saying why. Every other UI in
+the lab reaches you through Traefik, which would have required the
+service/machine split `ha.` and `homeassistant.` have — `pve.` pointing at the
+**infra VM** and a new name for the box. The rename alone would have moved
+Alloy's scrape target, the restic repository and the FQDN typed into the Proxmox
+installer. The reason it was rejected outright is worse than the churn: the
+hypervisor's management UI would then depend on one of the hypervisor's own
+guests, and that UI is what you open when a guest will not start.
+
+So this name keeps **one** meaning — the machine — while serving the web UI, the
+node exporter and the restic repository at once. It is now also an **ACME
+subject**, validating at `_acme-challenge.pve.thefipster.de`,
+which is a different FQDN from the wildcard's `_acme-challenge.thefipster.de`
+and is precisely what keeps the hypervisor's issuance from racing Traefik's.
+
+It still needs its **exact** record, for the reason it always did: the wildcard
+would answer with the apps VM.
 
 ## No AAAA records, anywhere
 

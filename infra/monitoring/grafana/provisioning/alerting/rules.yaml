@@ -85,6 +85,48 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [80] }
 
+      # ---- the UPS battery is ageing out -----------------------------------
+      # A dying UPS battery's only symptom is a shorter runtime, and `Site
+      # Power` in Uptime Kuma stays green throughout: it watches whether mains
+      # is present, not whether the battery could still fund a shutdown.
+      #
+      # Gated on being ON LINE POWER, which is the whole point -- a low runtime
+      # during an actual outage IS the outage, not a fault. `for: 1h` because
+      # the estimate dips transiently under load.
+      #
+      # 900s against a shutdown budget of 390s -- a 300s backstop plus one
+      # 90s window, since the guests share an `order` and stop in parallel.
+      # So this fires while the battery can still fund more than twice what a
+      # shutdown needs, which is the point: it is an ageing signal, not a
+      # last-moment one. Both numbers are set in docs/proxmox-setup.md Part 10.
+      - uid: ups-battery-aging
+        title: UpsBatteryAging
+        condition: C
+        for: 1h
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: "UPS runtime on {{ $labels.instance }} is below the shutdown budget while on mains"
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                ups_battery_runtime_seconds and on(instance) (ups_status_on_line == 1)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [900] }
+
       # ---- a scrape target is down ----------------------------------------
       # Known blind spot: if ALLOY ITSELF dies, `up` goes stale and the query
       # returns NoData -> OK, so this never fires for the most total failure.

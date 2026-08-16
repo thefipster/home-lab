@@ -25,8 +25,14 @@ container day can't take down everything at once.
 1. **Enable virtualization in BIOS/UEFI**: Intel **VT-x** / AMD **AMD-V** (often
    "SVM"). Enable **IOMMU** (VT-d / AMD-Vi) too if you ever want PCI passthrough
    — harmless to leave on.
-2. **Download the Proxmox VE ISO** from <https://www.proxmox.com/downloads>.
-3. **Write it to a USB stick**:
+2. **While you are in there, set "Restore on AC Power Loss" to *Power On***
+   (some boards call it "AC Back" or "After Power Failure"). Without it the UPS
+   work in [Part 10](#part-10--survive-a-power-cut) is half-finished: the host
+   shuts its guests down cleanly on battery and then stays dark when mains
+   returns, because nothing tells it to boot. It costs nothing now and needs a
+   second trip into the firmware later.
+3. **Download the Proxmox VE ISO** from <https://www.proxmox.com/downloads>.
+4. **Write it to a USB stick**:
    - Linux/macOS: `dd if=proxmox-ve_*.iso of=/dev/sdX bs=4M status=progress` (pick
      the right `/dev/sdX`!), or
    - Windows: **Rufus** in **DD/raw** mode, or **balenaEtcher**.
@@ -284,6 +290,206 @@ The initramfs rebuild above is what makes the value survive the next boot:
 echo 17179869184 > /sys/module/zfs/parameters/zfs_arc_max
 ```
 
+### Give the host a real certificate
+
+The UI you accepted a warning for above can have a genuine one, and it is worth
+doing now rather than later: every step from here on that talks to this host
+over HTTPS stops needing an exception, and so does every browser you ever open
+it in.
+
+Proxmox ships its **own** ACME client, and it speaks the same DNS-provider API
+set as `acme.sh` — netcup included. So the hypervisor issues its own certificate
+and depends on nothing else in the lab to do it. That independence is the whole
+design here, and [Serve it on 443](#serve-it-on-443) below says why it is worth
+paying for.
+
+**Ask for the exact name, never a wildcard.** [Traefik](traefik-setup.md) will
+later request `*.thefipster.de`, and Coolify's proxy requests a wildcard of its
+own — both validating at the same `_acme-challenge.thefipster.de`. netcup's zone
+updates are not atomic, so two clients writing one FQDN is how a challenge times
+out with nothing to explain it; the same hazard is why the wildcard carries no
+apex SAN (`infra/traefik/compose.yaml`). An exact certificate for
+`pve.thefipster.de` validates at `_acme-challenge.pve.thefipster.de` — a
+different record — and races with nobody.
+
+You need three values from netcup's customer control panel, the same three
+Traefik will want later: **customer number**, **API key**, **API password**.
+Once [Vaultwarden](vaultwarden-setup.md) exists that is where they live; for now
+have them to hand.
+
+Register an ACME account against Let's Encrypt:
+
+```bash
+pvenode acme account register default <your-acme-email>
+```
+
+**It prompts for a directory endpoint — pick `0`, Let's Encrypt V2
+(production).** This is the same call
+[traefik-setup.md](traefik-setup.md) makes: first issuance goes **straight to
+the production CA**, one challenge total, with staging kept only for debugging
+issuance that keeps failing.
+
+Going to staging first would cost a second netcup propagation wait — up to ten
+minutes each — for a certificate browsers still refuse, and it would tell you
+nothing, because the failure you are actually likely to hit here is netcup being
+slow rather than the CA objecting, and that looks identical against either
+endpoint. The rate limit worth respecting (roughly five failed validations per
+hostname per hour) is not in play for one exact name ordered once. If issuance
+*does* keep failing, the CA is the lever to move then — not the account you
+register now.
+
+Stage the credentials in a file for the plugin to read:
+
+```bash
+printf 'NC_Apikey=%s\nNC_Apipw=%s\nNC_CID=%s\n' '<api-key>' '<api-password>' '<customer-number>' > /tmp/netcup.env
+```
+
+```bash
+pvenode acme plugin add dns netcup --api netcup --data /tmp/netcup.env --validation-delay 900
+```
+
+```bash
+rm -f /tmp/netcup.env
+```
+
+**That `rm` is a step, not tidying up.** Proxmox reads the file once and copies
+the values into `/etc/pve/priv/acme/plugins.cfg`; leaving the original behind
+means a second plaintext copy of your DNS credentials sitting in `/tmp`, where
+nothing will ever remind you it is there.
+
+The 900-second validation delay matches the `NETCUP_PROPAGATION_TIMEOUT` that
+[traefik-setup.md](traefik-setup.md) sets for the same reason: netcup publishes
+TXT records slowly, often around ten minutes, regardless of which client is
+asking. Expect the wait rather than assuming the order has hung.
+
+Point the node at the name and order the certificate:
+
+```bash
+pvenode config set --acmedomain0 pve.thefipster.de,plugin=netcup
+```
+
+```bash
+pvenode acme cert order
+```
+
+**Expect it to sit at `pending` for a long stretch** — that is the validation
+delay above waiting on netcup, not a hang. Watch it under *pve → Certificates*
+or in the task log rather than interrupting it; a cancelled order leaves a
+challenge record behind that the next attempt has to race.
+
+Verify the issuer and the subject — this one runs on the host and checks the
+certificate only, not yet the port:
+
+```bash
+openssl s_client -connect localhost:8006 -servername pve.thefipster.de </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates
+```
+
+The issuer must be Let's Encrypt and the subject `CN=pve.thefipster.de`. If it
+still reads `CN=pve.thefipster.de` with a Proxmox issuer, the order did not
+replace anything — re-read the task log under *pve → Certificates*.
+
+Renewal needs nothing from you. Proxmox's own `pve-daily-update.timer` renews
+when fewer than 30 days remain, which is the same policy Traefik applies to the
+wildcard, on a different clock ([timetable.md](timetable.md)).
+
+### Serve it on 443
+
+pveproxy cannot be moved off 8006 — the port is not configurable — so the way to
+answer on 443 is to rewrite the destination port *below* pveproxy rather than
+put another web server in front of it.
+
+```bash
+mkdir -p /etc/nftables.d
+```
+
+```bash
+cat > /etc/nftables.d/pve-https-redirect.nft <<'EOF'
+#!/usr/sbin/nft -f
+# Serve the Proxmox web UI on :443 by rewriting the destination port to :8006.
+#
+# Its OWN table, declared-then-deleted-then-created so this file is idempotent.
+# It deliberately does not touch /etc/nftables.conf, so it coexists with
+# proxmox-firewall instead of fighting it for ownership of the ruleset.
+#
+# dstnat priority puts this ahead of any filter chain, so a firewall downstream
+# sees dport 8006 -- which Proxmox's own management rules already permit.
+# Nothing new has to be opened.
+#
+# DNAT rewrites the destination only, so pveproxy still sees the real client
+# address. A socket proxy or an nginx front end would have had every connection
+# arrive from loopback instead.
+table inet pve-https
+delete table inet pve-https
+table inet pve-https {
+  chain prerouting {
+    type nat hook prerouting priority dstnat; policy accept;
+    tcp dport 443 redirect to :8006
+  }
+}
+EOF
+```
+
+```bash
+cat > /etc/systemd/system/pve-https-redirect.service <<'EOF'
+[Unit]
+Description=Serve the Proxmox web UI on :443 by redirecting to :8006
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/pve-https-redirect.nft
+ExecStop=-/usr/sbin/nft delete table inet pve-https
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+The `-` on `ExecStop` is deliberate: deleting a table that is not there must not
+fail the unit.
+
+```bash
+systemctl enable --now pve-https-redirect.service
+```
+
+```bash
+nft list table inet pve-https
+```
+
+**`:8006` stays open.** This adds a door; it does not close one — and that door
+is the fallback the day the rule is wrong.
+
+> **Verify from a LAN client, not from this host.** Locally-generated traffic
+> never traverses `prerouting`, so running the check below *on the hypervisor*
+> bypasses the rule entirely and fails in a way that looks exactly like a broken
+> rule. This is the single most expensive misunderstanding in this Part.
+>
+> ```bash
+> curl -sI https://pve.thefipster.de | head -1
+> ```
+>
+> Or from the Windows workstation:
+>
+> ```powershell
+> (Invoke-WebRequest -Uri https://pve.thefipster.de -Method Head).StatusCode
+> ```
+
+**Why this host and not Traefik.** Every other UI in the lab is fronted by
+Traefik on the infra VM, and this one deliberately is not. Traefik can only
+serve a name that resolves to the infra VM, so `pve.thefipster.de` would have to
+become a *service* name pointing there — forcing a new name on the machine, which
+Alloy's scrape target, the restic repository and the FQDN typed into the
+installer would all have to follow. The deeper objection stands even if that
+rename were free: it would make the hypervisor's management UI depend on one of
+the hypervisor's own guests, and this UI is the repair surface. It is where you
+start a VM that will not start and open a console to find out why. Same
+reasoning that keeps [Vaultwarden](vaultwarden-setup.md) out of SSO, one level
+down — and it is why the Proxmox web UI appears in
+[sso-applications.md](sso-applications.md#the-proxmox-web-ui-deliberately-not-joined)
+as a deliberate non-joiner rather than as a gap.
+
 ### Update and reboot
 
 ```bash
@@ -535,13 +741,19 @@ and records from [Part 6](#part-6--give-the-vms-their-addresses-on-the-router),
 with [dns-records.md](dns-records.md) as the registry of exactly what to add.
 Every guide after it assumes those records exist.
 
-**Part 9 below is deliberately out of sequence — skip it now.** It watches the
-pools for degradation, which needs a Kuma push monitor and the hypervisor's node
-exporter, and neither exists until the infra VM is built. It lives in this guide
-because the script runs on the *hypervisor*, and
+**Parts 9 and 10 below are deliberately out of sequence — skip them now.** Both
+run on the *hypervisor*, which is why they live in this guide, and both report
+into things the infra VM has not built yet: a Kuma push monitor and this host's
+node exporter.
 [uptime-kuma-setup.md step 7](uptime-kuma-setup.md#7-go-back-to-the-proxmox-guide-for-the-pool-monitor)
-sends you back to it at the right moment. It is the only part of the build order
-that cannot be finished in its own guide's turn.
+sends you back here at the right moment. They are the only parts of the build
+order that cannot be finished in their own guide's turn.
+
+**Part 10 splits, and the split is worth knowing about.** Its shutdown chain —
+steps 1 to 5 — depends on nothing but the UPS and this host, so it can be done
+the day the hardware is plugged in, long before Uptime Kuma exists. Only its
+reporting half waits. If you have the UPS now, do the first half now: it is the
+half that protects the pools.
 
 ---
 
@@ -789,6 +1001,890 @@ on a five-minute poll. It is better latency, and it needs a working outbound MTA
 — Proxmox's stock postfix only delivers locally, so it is a mail relay to
 configure rather than a checkbox. Worth adding as a belt to this braces; not
 worth blocking on.
+
+---
+
+## Part 10 — Survive a power cut
+
+> **Steps 1–5 need nothing but the UPS and this host** — do them the day the
+> hardware arrives. **Steps 6–8 need the infra VM**: a Kuma push monitor, and
+> the `prometheus-node-exporter` that
+> [grafana-setup.md step 6](grafana-setup.md#6-add-the-proxmox-host) installs
+> here. Same dependency as [Part 9](#part-9--notice-when-a-mirror-degrades), and
+> arriving here in build order needs no extra installs.
+
+ZFS survives having the power pulled — that is what the transaction log is for.
+The things that do not are the writes in flight inside three VMs, the 02:00
+backup window, and the 04:30 patch-reboot window. A power cut offers roughly
+zero seconds to finish any of them, so the fix is not better crash tolerance but
+**a few minutes of borrowed time and an orderly shutdown inside it.**
+
+The hardware is a **CyberPower CP900EPFCLCD** — 900 VA / 540 W, line-interactive,
+PFC sinewave — connected to this host by its **USB data cable**, not just its
+power lead. That cable is the whole integration; without it the UPS is a battery
+that nothing can ask any questions.
+
+**What goes on it.** All six outlets on this model are battery-backed *and*
+surge-protected, so there is no wrong socket to pick and nothing to check on the
+back panel — the only question is what you plug in, and **six is the budget**.
+
+The server is obvious. The **UDR** and any switch between it and the server are
+not, and they matter for a reason the server does not: the network has to
+outlive the host so the shutdown can be reported *while it happens*, rather than
+reconstructed from logs afterwards.
+
+> **Spend one of the six on your modem or ONT.** Notifications leave the lab
+> through hosted ntfy.sh, so the WAN termination is part of the alerting path
+> and it is the piece most likely to be sitting on a wall socket on the other
+> side of the room. Left on mains it dies with the mains, and the entire
+> reporting half of this Part goes silent at exactly the moment it exists for.
+> Everything else still works — the shutdown runs over USB and needs no network
+> at all — you simply find out afterwards.
+
+At 900 VA / 540 W the electrical headroom is not the constraint here; the outlet
+count is. Anything you add beyond the server, the network path and the WAN
+termination is spending a socket one of those might want later.
+
+What this buys is **an orderly shutdown, not continuity**: no generator, no
+second UPS, nothing offsite. The lab goes down. It goes down on purpose, in the
+right order, and it comes back by itself.
+
+### 1. Install NUT and confirm the UPS is seen
+
+```bash
+apt install nut-server nut-client
+```
+
+```bash
+lsusb | grep -i cyber
+```
+
+A line naming CyberPower means the kernel has the device. Then ask NUT whether
+it recognises it as a UPS:
+
+```bash
+nut-scanner -U
+```
+
+That prints a ready-made `ups.conf` stanza. The next step writes one by hand
+anyway, so the file carries this lab's own comments rather than a generated
+block — but a scanner that finds nothing is the signal to stop and check the
+cable before going further.
+
+### 2. Configure NUT
+
+**Standalone mode**, with `upsd` listening on loopback only. Nothing else on the
+LAN talks to it, because no VM runs a NUT client — step 3 is where that decision
+lives.
+
+```bash
+echo "MODE=standalone" > /etc/nut/nut.conf
+```
+
+```bash
+cat > /etc/nut/ups.conf <<'EOF'
+# Named `ups`, not after the model. The name appears in upsmon.conf, upsd.users,
+# upssched.conf and every upsc call, and it should survive a hardware swap --
+# the same function-not-product rule the Kuma monitors follow.
+[ups]
+  driver = usbhid-ups
+  port = auto
+  desc = "CyberPower CP900EPFCLCD"
+EOF
+```
+
+```bash
+cat > /etc/nut/upsd.conf <<'EOF'
+# Loopback only. The guests are shut down by Proxmox itself, not by NUT clients,
+# so nothing off this host ever needs to reach upsd.
+LISTEN 127.0.0.1 3493
+EOF
+```
+
+Generate the monitoring password rather than inventing one, the same way every
+init script in this repo mints a secret. **The next three blocks run in one
+shell session** — the variable is what carries the password into both files, and
+a fresh shell between them writes an empty password into `upsmon.conf`, which
+fails later with a message about credentials rather than about a typo:
+
+```bash
+NUT_PASS="$(openssl rand -hex 24)"
+```
+
+```bash
+cat > /etc/nut/upsd.users <<EOF
+[upsmon]
+  password = ${NUT_PASS}
+  upsmon primary
+EOF
+```
+
+```bash
+cat > /etc/nut/upsmon.conf <<EOF
+MONITOR ups@localhost 1 upsmon ${NUT_PASS} primary
+MINSUPPLIES 1
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+POWERDOWNFLAG /etc/killpower
+NOTIFYCMD /usr/sbin/upssched
+NOTIFYFLAG ONLINE   SYSLOG+EXEC
+NOTIFYFLAG ONBATT   SYSLOG+EXEC
+NOTIFYFLAG LOWBATT  SYSLOG+EXEC
+NOTIFYFLAG SHUTDOWN SYSLOG
+NOTIFYFLAG COMMBAD  SYSLOG
+NOTIFYFLAG COMMOK   SYSLOG
+EOF
+```
+
+Both files now hold that password, so both get locked down:
+
+```bash
+chown root:nut /etc/nut/upsd.users /etc/nut/upsmon.conf && chmod 640 /etc/nut/upsd.users /etc/nut/upsmon.conf
+```
+
+Now start the driver — and **this is the step that is easy to skip and produces
+the most confusing failure if you do**:
+
+```bash
+systemctl restart nut-driver-enumerator
+```
+
+**The driver does not run inside `upsd`.** On Debian,
+`nut-driver-enumerator` reads `ups.conf` and generates one `nut-driver@<name>`
+unit per UPS in it; `nut-server` neither starts nor depends on those. So a
+stanza that has never been enumerated leaves you with a `upsd` that starts
+perfectly, a `nut-monitor` that starts perfectly, and `Driver not connected` in
+answer to every question. **Re-run the enumerator after every edit to
+`ups.conf`** — it is the one file whose changes are not picked up by restarting
+the obvious services.
+
+Check the driver is up before asking it anything, so a failure here is not
+mistaken for a configuration problem two steps later:
+
+```bash
+systemctl is-active 'nut-driver@ups'
+```
+
+```bash
+systemctl restart nut-server nut-monitor
+```
+
+```bash
+upsc ups
+```
+
+> `upsc` prints `Init SSL without certificate database` first. That is it
+> noting it has no NSS certificate database, which is expected on a
+> loopback-only setup and is not an error — ignore it and read the line after.
+
+`ups.status` should read `OL` — on line. Three other fields in that output are
+worth reading now rather than during an outage:
+
+| Field | On this lab | Means |
+|---|---|---|
+| `battery.runtime.low` | `300` | the `LB` threshold — the UPS raises low battery with this many seconds left. Step 4's arithmetic turns on it. |
+| `ups.delay.shutdown` | `20` | how long the UPS waits after being told to cut power before it actually does. The pause you will see in step 8's drill. |
+| `driver.flag.allow_killpower` | `0` | **not a problem, despite the name.** It gates the `driver.killpower` instant command, which lets an *already running* driver cut power on request. The hook in step 5 calls `upsdrvctl shutdown` after the driver has stopped, which starts a fresh one with `-k` — a different path that does not consult this flag. |
+
+`battery.runtime.low` is writable with `upsrw` if you ever want `LB` to arrive
+earlier. Step 4 explains why this lab does not move it and uses a timer instead.
+
+> **Voltage on this model reads correctly, and that is worth stating because
+> older reports say otherwise.** `output.voltage` matching `input.voltage` at
+> roughly mains is the expected result on NUT 2.8.1 with the CyberPower HID 0.8
+> subdriver. The 260–270 V misreporting in
+> [NUT #581](https://github.com/networkupstools/nut/issues/581) did **not**
+> reproduce here. Nothing in this Part alerts on a voltage reading anyway —
+> charge, runtime, load and status are what the decisions turn on — but if you
+> hit that bug on some other build, it is cosmetic rather than a sign the driver
+> picked the wrong device.
+
+> **`lsusb` names the wrong model, and it is not a mismatch.** The USB ID
+> database maps `0764:0501` to a `CP1500 AVR UPS`, so the earlier `lsusb` check
+> prints that regardless of which unit you own. `upsc` is the one that asks the
+> device: `device.model` and `ups.model` both read `CP900EPFCLCD`.
+
+### 3. Set the guest shutdown order and timeout
+
+**No VM runs a NUT client, deliberately.** Proxmox already does this job:
+`pve-guests.service` shuts every guest down when the host halts, calling
+`pvesh create /nodes/localhost/stopall`, which goes through the guest agent,
+falls back to ACPI, and forces off after a per-guest timeout.
+
+Three things make that the better answer rather than merely the easier one.
+`scripts/init-host.sh` already installs `qemu-guest-agent` on both Ubuntu VMs
+and HAOS ships it, so the clean path works for all three — the same investment
+that makes `vzdump`'s Snapshot mode consistent in
+[Part 8](#part-8--schedule-whole-vm-backups). The home-assistant VM is an
+**appliance** this repo has no shell inside, so a design needing a client in
+every guest would have had a hole in it from the start. And one shutdown path is
+easier to reason about than four racing opinions about when to begin.
+
+Two things are left to defaults today and should not be, and the first one is
+**that the guests shut down one after another at all.**
+
+Left alone, guests with no configured order fall back to VMID and stop
+sequentially — `ha`, then `apps`, then `infra`, each waiting on the last. That
+is the default, and on a machine running on battery it is the wrong shape:
+**sequential turns a 90-second worst case into a 270-second one**, spending
+three minutes of the only resource that is actually scarce here.
+
+Staging buys something when guests depend on each other — a database that must
+outlive its clients, storage one guest serves to another. **None of that exists
+in this lab.** The three VMs share the hypervisor and nothing else: Home
+Assistant is *proxied* by Traefik on the infra VM, but inbound routing is not a
+shutdown dependency, and neither the apps VM nor the HA VM mounts anything from
+infra or needs it to halt cleanly. Independent guests, so they can go together.
+
+So give all three the **same** `order`, which is how Proxmox is told to stop
+them in parallel:
+
+```bash
+qm set 101 --startup order=1,down=90
+```
+
+```bash
+qm set 102 --startup order=1,down=90
+```
+
+```bash
+qm set 103 --startup order=1,down=90
+```
+
+**This also makes them start in parallel**, because one `order` field governs
+both directions — start ascending, stop descending. That is a fair trade rather
+than a cost tolerated: at boot there is no battery draining, nothing here
+depends on anything else being up first, and `cpuunits` already arbitrates the
+CPU contention of three guests booting at once (home-assistant 200, infra 100,
+apps 50 — see [Why these sizes](#why-these-sizes)).
+
+> **An earlier version of this guide staged the shutdown so that Uptime Kuma, on
+> the infra VM, would stay alive longest and keep reporting.** That reasoning
+> does not survive contact with the rest of the design. The power-event push in
+> step 6 fires the moment the UPS reports `ONBATT`, so you already know — and
+> everything Kuma has to say during the shutdown *after* that is a cascade of
+> expected red for machines you deliberately turned off. It was paying three
+> minutes of battery for notification noise.
+
+**`down=90` is the second thing, and it is arithmetic rather than taste.**
+Proxmox defaults to a 180-second timeout per guest, which is the ceiling on how
+long one hung guest can hold up the halt. Both Ubuntu VMs stop in well under 90
+seconds, so the trim costs nothing real — and in parallel it is now the whole
+worst case rather than one third of it.
+
+```bash
+for id in 101 102 103; do printf '%s: ' "$id"; qm config $id | grep startup; done
+```
+
+All three lines should read `order=1` and `down=90`. Different `order` values
+are the thing to look for: that is the default behaviour coming back.
+
+### 4. Decide when to shut down
+
+The trigger is the UPS's own low-battery flag, with an `upssched` timer started
+on `ONBATT` and cancelled on `ONLINE` as a backstop. That much is the standard
+arrangement. What is worth knowing before you read the file is **which of the
+two actually fires**.
+
+**`LB` arrives too late to be the primary trigger, and the unit tells you so
+itself.** `battery.runtime.low` reads `300` — the UPS raises low battery with
+five minutes left, and it is an estimate produced by the battery gauge whose
+accuracy is the thing you are trying not to depend on. Waiting for it means
+starting a shutdown on the last of the reserve, on the word of the component
+most likely to be wrong about how much reserve is left.
+
+**So the backstop is not insurance for a tired battery; it is what fires in
+practice, and its value is the actual policy.** The `LB` path stays as the floor
+beneath it, for the case where the battery empties faster than the timer expects.
+
+Raising `battery.runtime.low` with `upsrw` is the other way to buy margin, and
+this lab does not take it: it moves the decision *into* the UPS's own runtime
+estimate, which is exactly the number that drifts as the battery ages. A wall
+clock started at `ONBATT` does not care how good that estimate is.
+
+Size it by the relationship, not by the number:
+
+> **backstop + worst-case guest shutdown < measured runtime**
+
+With the parallel shutdown from step 3 that is 300 s + 90 s — **6.5 minutes**,
+against a runtime step 8 measures rather than assumes. Sequential shutdown would
+have made it 9.5, which is the three minutes step 3 declined to spend.
+
+**300 s is the settled value, not a placeholder to grow later**, and the reason
+is what a power interruption in this lab actually looks like. Real grid outages
+here are rare and brief; the realistic event is someone catching the cable, or a
+breaker going. For all of those, **five minutes is a grace period rather than a
+countdown** — `ONLINE` cancels the timer, so power restored inside the window
+costs nothing at all and the lab never notices.
+
+Past that window the lab shuts down with most of the battery untouched, and
+**that unused reserve is the point rather than waste.** It is the margin that
+absorbs everything this arithmetic cannot predict: a battery that has aged since
+the last drill, a load that grew when more equipment joined the UPS, a guest
+that hangs and eats its whole 90 seconds, the UPS's own `ups.delay.shutdown`
+pause. A longer backstop spends that margin to ride out medium-length outages
+that mostly do not happen — trading a reserve that protects every shutdown for a
+convenience that applies to few.
+
+The formula above is still how to re-derive this if the hardware changes. It is
+not an invitation to tune the number for its own sake.
+
+> **`battery.runtime` is only worth reading under the real load.** It is an
+> estimate for whatever is drawing power *right now*, so a figure taken before
+> the server is plugged in describes a lab that does not exist — comfortably
+> over an hour at router-and-switch load, and a fraction of that once the host
+> is on the same battery. Check `ups.load` alongside it: a single-digit
+> percentage on a box with this CPU and eight SSDs means the host is not on the
+> UPS yet, and the runtime number is measuring the wrong thing.
+
+```bash
+cat > /etc/nut/upssched.conf <<'EOF'
+CMDSCRIPT /usr/local/bin/upssched-cmd
+PIPEFN /run/nut/upssched.pipe
+LOCKFN /run/nut/upssched.lock
+
+# The backstop. See Part 10 step 4 for the arithmetic: this value plus the
+# worst-case guest shutdown must stay under the measured runtime.
+AT ONBATT  * START-TIMER  onbatt-shutdown 300
+AT ONLINE  * CANCEL-TIMER onbatt-shutdown
+
+# Report immediately. Kuma runs on a guest of this host and dies with it, so the
+# window between ONBATT and the infra VM halting is the ONLY one in which an
+# outage can be reported at all. A five-minute poll would routinely miss it.
+AT ONBATT  * EXECUTE      power-event
+AT ONLINE  * EXECUTE      power-event
+AT LOWBATT * EXECUTE      power-event
+EOF
+```
+
+```bash
+cat > /usr/local/bin/upssched-cmd <<'EOF'
+#!/usr/bin/env bash
+# Called by upssched (running as the `nut` user) for each AT rule above.
+set -uo pipefail
+
+case "$1" in
+  onbatt-shutdown)
+    # Goes through upsmon rather than calling shutdown directly. That is what
+    # writes POWERDOWNFLAG, which is what tells the UPS to cut power afterwards
+    # so the box comes back when mains returns. Calling `shutdown` here would
+    # halt the host perfectly correctly and silently skip the half that revives
+    # it -- a failure you would discover during an outage, not before one.
+    logger -t upssched-cmd "backstop timer expired - forcing shutdown"
+    /usr/sbin/upsmon -c fsd
+    ;;
+  power-event)
+    /usr/local/bin/ups-health-push.sh
+    ;;
+  *)
+    logger -t upssched-cmd "unrecognised argument: $1"
+    ;;
+esac
+EOF
+```
+
+```bash
+chmod +x /usr/local/bin/upssched-cmd
+```
+
+`power-event` calls a script **step 6** creates. Until then that branch logs a
+failure and does nothing else, which is harmless and exactly what you should see
+if you wired the UPS up before Uptime Kuma existed.
+
+**Everything `upssched` runs, runs as the `nut` user** — `upsmon` drops
+privileges for its notify path, keeping a root parent only to run
+`SHUTDOWNCMD`. So both branches above are unprivileged, and **both can fail in
+ways nothing on the happy path would ever reveal.** Test them now rather than
+discovering it 300 seconds into an outage.
+
+The backstop's branch signals `upsmon`, which an unprivileged process can only
+do if the PID it is signalling belongs to `nut`:
+
+```bash
+cat /run/nut/upsmon.pid
+```
+
+```bash
+ps -o pid,user,args -C upsmon
+```
+
+That PID must be the **`nut`** one, not the root parent — NUT writes the child's
+PID here precisely so `upsmon -c` works from this context. Then exercise the
+signal itself. `-c reload` travels the identical path as `-c fsd` and merely
+re-reads the configuration, so it is safe to run at any time:
+
+```bash
+runuser -u nut -- upsmon -c reload
+```
+
+A version banner and no permission error means the backstop can fire.
+`journalctl -u nut-monitor -n 5` should show the reload. **Running this as
+`root` proves nothing** — root can signal anything, so it passes whether or not
+the real path works. The push branch has an equivalent check in step 6, for the
+same reason and with the same trap.
+
+### 5. Make the lab come back on its own
+
+Two halves, and **either one alone leaves the box dark.**
+
+The first is the BIOS setting from [Part 1](#part-1--prerequisites) — *Restore
+on AC Power Loss* set to *Power On*. The second is killpower: `upsmon` writes
+`/etc/killpower` before halting, and a systemd shutdown hook then runs
+`upsdrvctl shutdown`, telling the UPS to cut its own output after a delay and
+restore it when mains returns. **That interruption is what the BIOS setting
+reacts to.**
+
+Without it there is a specific, quiet failure. If mains comes back while the
+host is still halting, the UPS never interrupts its output, so nothing ever
+power-cycles — and the server sits off after an outage it appeared to handle
+perfectly, waiting for someone to walk over and press the button.
+
+**A long-standing Debian defect sits exactly here.** Look at the hook the
+package ships:
+
+```bash
+cat /usr/lib/systemd/system-shutdown/nutshutdown
+```
+
+If it gates the killpower call on `upsmon -K`, that command has been reported to
+always return false, so `upsdrvctl shutdown` never runs
+([Debian #835555](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=835555)).
+**Do not edit that file** — it lives under `/usr/lib` and is not a conffile, so
+the next `nut-client` upgrade silently reverts you. Add your own beside it:
+
+```bash
+cat > /usr/lib/systemd/system-shutdown/zz-nut-killpower <<'EOF'
+#!/bin/sh
+# Cut UPS output after a power-fail shutdown, so the UPS cycles the load when
+# mains returns and the BIOS "restore on AC power loss" setting boots the box.
+#
+# A SEPARATE file on purpose. Debian's own nutshutdown gates on `upsmon -K`,
+# which has been reported to always return false (Debian #835555) -- but it
+# lives under /usr/lib and is not a conffile, so editing it in place is
+# silently reverted by the next nut-client upgrade. This runs alongside it from
+# a plain file test. If nutshutdown is ever fixed, both run and the second one
+# is a harmless no-op.
+#
+# Only on poweroff/halt. A REBOOT must not cut the UPS.
+case "$1" in
+  poweroff|halt)
+    [ -f /etc/killpower ] && /sbin/upsdrvctl shutdown
+    ;;
+esac
+EOF
+```
+
+```bash
+chmod +x /usr/lib/systemd/system-shutdown/zz-nut-killpower
+```
+
+```bash
+sh -n /usr/lib/systemd/system-shutdown/zz-nut-killpower && echo "syntax ok"
+```
+
+```bash
+upsdrvctl -t shutdown
+```
+
+`-t` is a dry run: it confirms the driver would accept the command without
+actually cutting power. That is all it proves. The real proof is the drill in
+**step 8**, because this is the half most likely to be silently broken and the
+only one whose failure waits for a real outage to show itself.
+
+> **Four parts of this Part can only fail during an outage, and each has a way
+> to be tested before one.** The signal the backstop sends
+> ([step 4](#4-decide-when-to-shut-down), `upsmon -c reload` as `nut`); the push
+> the event path makes ([step 6](#6-report-ups-state-to-kuma-and-prometheus),
+> the script run as `nut`); that the push actually **notifies** (step 6's
+> by-hand `status=down`); and killpower — `upsdrvctl -t shutdown` above. Run all
+> four before the drill.
+>
+> Each one is written the way it is because the obvious version passes while the
+> real path is broken: `root` can read files and signal processes that `nut`
+> cannot, and a push that Kuma *records* is not the same as a push that Kuma
+> *sends*. Every one of these was found the hard way.
+
+### 6. Report UPS state to Kuma and Prometheus
+
+This mirrors `zfs-health-push.sh` from
+[Part 9](#part-9--notice-when-a-mirror-degrades) deliberately, because it is the
+same problem: a condition on a machine with no checkout of the repo, wanted in
+two places at once. One `upsc` read does both jobs.
+
+Create the Kuma monitor first — its row is in
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#power--proxmox-host) — and
+copy its push URL.
+
+```bash
+cat > /usr/local/bin/ups-health-push.sh <<'EOF'
+#!/usr/bin/env bash
+# Report UPS state to Uptime Kuma, and write battery/load metrics for Prometheus.
+# One upsc read, two consumers -- same shape as zfs-health-push.sh.
+set -uo pipefail
+
+# PUSH_URL lives in /etc/default/ups-health-push, and this script has to read it
+# ITSELF rather than trust a caller to have done so. EnvironmentFile= is a
+# systemd mechanism, so it only covers the timer path. upssched runs this script
+# directly, inheriting upsmon's environment, where nothing has ever read that
+# file -- so on the event path the variable would simply be unset, and the one
+# push that matters most would be the only one that fails.
+if [ -z "${PUSH_URL:-}" ] && [ -r /etc/default/ups-health-push ]; then
+  . /etc/default/ups-health-push
+fi
+
+PUSH_URL="${PUSH_URL:?not set, and /etc/default/ups-health-push was not readable}"
+UPS="${UPS:-ups@localhost}"
+TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/prometheus/node-exporter}"
+
+# Fail closed. If upsc cannot read the UPS then the USB link is itself the
+# fault, so say so rather than leaving a stale-looking healthy metric beside a
+# silent failure.
+if ! vars="$(upsc "$UPS" 2>/dev/null)"; then
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=down" \
+    --data-urlencode "msg=upsc cannot read $UPS" >/dev/null
+  exit 1
+fi
+
+get() { printf '%s\n' "$vars" | awk -F': ' -v k="$1" '$1 == k { print $2; exit }'; }
+
+status="$(get ups.status)"
+charge="$(get battery.charge)"
+runtime="$(get battery.runtime)"
+load="$(get ups.load)"
+
+# ups.status is a space-separated SET, not one word: "OL", "OL CHRG",
+# "OB DISCHRG", "OB LB". Match on padded substrings rather than equality.
+on_line=0;  case " $status " in *" OL "*) on_line=1 ;; esac
+on_batt=0;  case " $status " in *" OB "*) on_batt=1 ;; esac
+low_batt=0; case " $status " in *" LB "*) low_batt=1 ;; esac
+
+# ---- metrics: temp file then mv, so node_exporter never reads a half-written
+# ---- file. The -w test is load-bearing: this script also runs as `nut` from
+# ---- upssched, which cannot write here. That path pushes and skips metrics,
+# ---- which is fine -- the timer below owns the metrics.
+if [ -d "$TEXTFILE_DIR" ] && [ -w "$TEXTFILE_DIR" ]; then
+  tmp="$(mktemp "$TEXTFILE_DIR/ups.prom.XXXXXX")"
+  {
+    echo '# HELP ups_status_on_line Whether the UPS reports running on mains.'
+    echo '# TYPE ups_status_on_line gauge'
+    echo "ups_status_on_line $on_line"
+    echo '# HELP ups_status_on_battery Whether the UPS reports running on battery.'
+    echo '# TYPE ups_status_on_battery gauge'
+    echo "ups_status_on_battery $on_batt"
+    echo '# HELP ups_status_low_battery Whether the UPS has raised low battery.'
+    echo '# TYPE ups_status_low_battery gauge'
+    echo "ups_status_low_battery $low_batt"
+    if [ -n "$charge" ]; then
+      echo '# HELP ups_battery_charge_percent Battery charge.'
+      echo '# TYPE ups_battery_charge_percent gauge'
+      echo "ups_battery_charge_percent $charge"
+    fi
+    if [ -n "$runtime" ]; then
+      echo '# HELP ups_battery_runtime_seconds Estimated runtime remaining.'
+      echo '# TYPE ups_battery_runtime_seconds gauge'
+      echo "ups_battery_runtime_seconds $runtime"
+    fi
+    if [ -n "$load" ]; then
+      echo '# HELP ups_load_percent Load as a percentage of capacity.'
+      echo '# TYPE ups_load_percent gauge'
+      echo "ups_load_percent $load"
+    fi
+  } > "$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$TEXTFILE_DIR/ups.prom"
+fi
+
+# ---- health: pushed to Kuma. No voltage anywhere: it reads correctly on this
+# ---- unit, but it is not what any decision here turns on.
+if [ "$on_line" = 1 ] && [ "$low_batt" = 0 ]; then
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=up" \
+    --data-urlencode "msg=on mains, battery ${charge:-?}%" >/dev/null
+else
+  curl -fsS --max-time 10 --get "$PUSH_URL" \
+    --data-urlencode "status=down" \
+    --data-urlencode "msg=$status, battery ${charge:-?}%, ${runtime:-?}s left" >/dev/null
+fi
+EOF
+```
+
+```bash
+chmod +x /usr/local/bin/ups-health-push.sh
+```
+
+The push URL is a bearer token in a query string, so it goes in a
+mode-restricted file rather than in the unit — and **the mode here differs from
+Part 9's on purpose**:
+
+```bash
+install -m 640 -o root -g nut /dev/null /etc/default/ups-health-push
+```
+
+```bash
+echo 'PUSH_URL=https://uptime.thefipster.de/api/push/<token>' > /etc/default/ups-health-push
+```
+
+Part 9's equivalent is mode 600 and root-only. This one cannot be: `upssched`
+runs as the `nut` user, so a root-only environment file would make every instant
+power-event push fail on an unreadable file — the one push that matters most,
+failing while the five-minute timer carried on looking healthy.
+
+**The mode is necessary and not sufficient**, which is worth being explicit
+about because the two failures look identical from the outside. The permission
+lets `nut` read the file; the `.` in the script above is what actually reads it.
+Getting the mode right while leaving the sourcing to `EnvironmentFile=` produces
+exactly the same symptom — `PUSH_URL is not set` from the event path only —
+and sends you to inspect a file that was correct all along.
+
+**Test the event path now, without waiting for a power cut.** This is the one
+verification that exercises what `upssched` will do: the `nut` user, no systemd,
+no environment handed in.
+
+```bash
+runuser -u nut -- /usr/local/bin/ups-health-push.sh
+```
+
+It should exit silently and push `up` to Kuma. If it prints `PUSH_URL ... not
+set`, the `nut` user cannot read `/etc/default/ups-health-push` — check the mode
+and group above. Running it as `root` instead proves nothing about this path,
+which is exactly the trap.
+
+**Then prove the other half: that a push becomes a notification.** Reaching Kuma
+and alarming Kuma are different things, and the gap between them is silent.
+Send a down by hand:
+
+```bash
+set -a; . /etc/default/ups-health-push; set +a; curl -fsS --get "$PUSH_URL" --data-urlencode "status=down" --data-urlencode "msg=notification test"
+```
+
+A push should arrive on your phone **within seconds**. Then put it back:
+
+```bash
+set -a; . /etc/default/ups-health-push; set +a; curl -fsS --get "$PUSH_URL" --data-urlencode "status=up" --data-urlencode "msg=notification test cleared"
+```
+
+**If Kuma shows the message but no notification arrives, the monitor has retries
+above zero.** An explicit `status=down` then lands the monitor in *pending*,
+which notifies nobody, and it takes one more down beat per retry to transition —
+beats that only arrive every five minutes, from a host that halts after five.
+`Site Power` is specified with **0 retries** in
+[uptime-kuma-monitors.md](uptime-kuma-monitors.md#power--proxmox-host) precisely
+for this, and it is the one setting on that monitor that cannot be copied from
+its neighbours.
+
+Check the notification is attached to this monitor at all while you are there —
+Kuma does not add one retroactively unless *Default enabled* and *Apply on all
+existing monitors* were ticked when it was created.
+
+### 7. Put it on a timer
+
+```bash
+cat > /etc/systemd/system/ups-health-push.service <<'EOF'
+[Unit]
+Description=Report UPS state to Uptime Kuma
+After=nut-monitor.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/ups-health-push
+ExecStart=/usr/local/bin/ups-health-push.sh
+EOF
+```
+
+```bash
+cat > /etc/systemd/system/ups-health-push.timer <<'EOF'
+[Unit]
+Description=Report UPS state every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# systemd defaults AccuracySec to ONE MINUTE, deferring timers to batch wakeups.
+# The ZFS timer in Part 9 can live with that because its Kuma monitor has
+# retries to absorb a late beat. Site Power has none -- retries would make its
+# alert undeliverable (see step 6) -- so a minute of systemd's discretion turns
+# straight into false "site power lost" notifications.
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+```
+
+```bash
+systemctl enable --now ups-health-push.timer
+```
+
+Confirm systemd actually took the accuracy setting, rather than that the file
+contains it — a timer still running on the default minute of slack looks
+identical on disk, and shows up later as `Site Power` going red on a lab that is
+perfectly fine:
+
+```bash
+systemctl show ups-health-push.timer -p AccuracyUSec
+```
+
+It should read `1s`. If it says `1min`, the unit was edited without a
+`systemctl daemon-reload`.
+
+Verify it pushed, rather than trusting that it will:
+
+```bash
+systemctl start ups-health-push.service && systemctl status ups-health-push.service
+```
+
+The monitor in Kuma should go green within a minute, with a message naming the
+battery percentage. Then check the other half:
+
+```bash
+cat /var/lib/prometheus/node-exporter/ups.prom
+```
+
+```bash
+curl -s localhost:9100/metrics | grep '^ups_'
+```
+
+Alloy already scrapes this endpoint, so nothing changes on the infra VM — the
+metrics arrive on the next scrape, and `UpsBatteryAging` in Grafana
+([grafana-setup.md](grafana-setup.md#dashboards-and-alerts)) starts evaluating
+against them.
+
+If the unit fails with `status=22` and `curl: (22) ... 404`, it is the same
+diagnosis as Part 9's push — [that troubleshooting
+block](#part-9--notice-when-a-mirror-degrades) applies unchanged, including the
+IPv6 check.
+
+### 8. Pull the plug, once, on purpose
+
+The runtime figure cannot come from the datasheet — it depends on this lab's
+actual load — and it is the input to step 4's arithmetic. Killpower is worse: it
+is the half most likely to be silently broken, and its failure mode is a box
+that stays dark after an outage it appeared to survive. Neither can be settled
+by reading.
+
+So pull the mains plug on the UPS and watch the whole chain:
+
+1. The on-battery push arrives on your phone within seconds.
+2. The backstop fires at 300 s.
+3. All three guests shut down **together** — they share one `order`, so this is
+   one 90-second window rather than three.
+4. The host halts.
+5. The UPS cuts its output, about 20 seconds later — that is
+   `ups.delay.shutdown`, not a stall.
+6. Plug mains back in. The UPS restores output, the board powers on, and Proxmox
+   starts all three guests together.
+
+Watch the first three from a shell before you lose it:
+
+```bash
+journalctl -fu nut-monitor
+```
+
+And note what the UPS thought it had left, which is the number this drill exists
+to produce:
+
+```bash
+upsc ups battery.runtime
+```
+
+**Two outputs.** The **measured runtime**, which goes back into step 4 if
+`300 + 270 < measured` no longer holds — and proof that the lab comes back
+without you. Re-run it when the battery is replaced, for the same reason
+[backup-restore-drill.md](backup-restore-drill.md) is re-run yearly: a path
+nobody has exercised is a hypothesis, not a capability.
+
+### Troubleshooting Part 10
+
+**`upsc` says "Driver not connected".** `upsd` is running and has no driver
+behind it. Two quite different causes, and this tells them apart:
+
+```bash
+systemctl is-active 'nut-driver@ups'
+```
+
+**`inactive` or `failed` with no such unit** — the unit was never generated,
+because `nut-driver-enumerator` has not run since `ups.conf` was written. This
+is the common one, and it recurs after *every* edit to that file:
+
+```bash
+systemctl restart nut-driver-enumerator && systemctl restart nut-server
+```
+
+**`failed` with the unit present** — the driver was generated and could not talk
+to the UPS. Usually USB permissions on a fresh install, or the cable:
+
+```bash
+journalctl -u 'nut-driver@ups' -n 30 --no-pager
+```
+
+`no matching HID UPS found` with the device visible in `lsusb` means the `nut`
+user cannot open it — reload the udev rules the package ships and re-plug the
+data cable:
+
+```bash
+udevadm control --reload-rules && udevadm trigger --subsystem-match=usb
+```
+
+To watch the driver try, in the foreground, with everything it is doing:
+
+```bash
+upsdrvctl -D start ups
+```
+
+**The five-minute push works but the instant one never arrives**, with
+`PUSH_URL ... not set` and `exec_cmd(...) returned 1` in `journalctl -u
+nut-monitor`. The timer path gets the variable from systemd's
+`EnvironmentFile=`; the event path has no systemd in it at all, so the script
+must read the file itself. Confirm both halves — that the script sources it, and
+that `nut` may read it:
+
+```bash
+grep -n 'ups-health-push' /usr/local/bin/ups-health-push.sh
+```
+
+```bash
+ls -l /etc/default/ups-health-push
+```
+
+Then reproduce the exact failing path, which `root` cannot do for you:
+
+```bash
+runuser -u nut -- /usr/local/bin/ups-health-push.sh
+```
+
+**The box stayed dark after an outage it survived.** Either the BIOS setting or
+killpower. After a forced shutdown the flag file should exist — if it does not,
+`upsmon` never reached its shutdown path; if it does, re-read the hook in
+step 5:
+
+```bash
+ls -l /etc/killpower
+```
+
+**Everything is green but you do not trust it.** Ask the UPS to report on
+itself; `ups.status` is the field every decision in this Part turns on:
+
+```bash
+upsc ups ups.status
+```
+
+### Layout on the server (Part 10)
+
+| Path | Holds |
+|---|---|
+| `/etc/nut/nut.conf` | `MODE=standalone` |
+| `/etc/nut/ups.conf` | the `[ups]` stanza and the driver |
+| `/etc/nut/upsd.conf` | the loopback-only listener |
+| `/etc/nut/upsd.users`, `/etc/nut/upsmon.conf` | the generated password — both mode 640 `root:nut` |
+| `/etc/nut/upssched.conf` | the backstop timer and the power-event hooks |
+| `/usr/local/bin/upssched-cmd` | what those hooks run |
+| `/usr/local/bin/ups-health-push.sh` | the metrics + Kuma push |
+| `/etc/default/ups-health-push` | the push URL — mode 640 `root:nut`, **not** 600 |
+| `/etc/systemd/system/ups-health-push.{service,timer}` | the five-minute cadence |
+| `/usr/lib/systemd/system-shutdown/zz-nut-killpower` | the killpower hook, beside Debian's broken one |
+| `/etc/killpower` | written by `upsmon`, read by the hook above — exists only between a forced shutdown and the power cut |
 
 ---
 

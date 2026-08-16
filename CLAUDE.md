@@ -33,7 +33,14 @@ Router. **The repo root is the machine map** — one directory per VM — while
 service name and nesting them would add a `../` to every cross-guide link:
 
 - **Proxmox host** — hypervisor only, no Docker. A bad container can't
-  take the box down.
+  take the box down. Two things run on it that are **not** Docker and not
+  declared by any compose file here: it terminates its **own** TLS for
+  `pve.thefipster.de` on 443 — its own ACME client, its own exact certificate,
+  the lab's one UI outside Traefik, so the repair surface does not depend on a
+  guest — and it runs **NUT** for the UPS, shutting all three guests down
+  through Proxmox's own guest shutdown rather than through NUT clients. Neither
+  has an init script: this machine has no checkout of the repo, so both live as
+  guide text in `docs/proxmox-setup.md`.
 - **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
@@ -114,6 +121,19 @@ Three DNS facts are counter-intuitive and all are deliberate:
 Traefik is the only thing that terminates TLS and does routing on the infra VM.
 A stack becomes reachable by **two things**, not by any central config:
 
+> **Read that first line literally — it says *on the infra VM*.** The Proxmox
+> host terminates its own TLS on its own machine, with its own ACME client and
+> its own **exact** certificate for `pve.thefipster.de` served on 443
+> (`docs/proxmox-setup.md` Part 3). That is the one place a second certificate
+> in the lab is correct rather than a mistake, and it is deliberate on both
+> counts: routing `pve.` through Traefik would make it a *service* name pointing
+> at the infra VM — renaming the machine out from under Alloy's scrape target,
+> the restic repository and the installer's FQDN — and would put the
+> hypervisor's repair surface behind one of its own guests. An **exact** name
+> rather than a wildcard is what keeps its `_acme-challenge` record from racing
+> Traefik's on netcup's non-atomic zone updates. Full reasoning:
+> `docs/superpowers/specs/2026-08-15-pve-https-and-ups-design.md`.
+
 1. Joining the external `proxy` Docker network (declared `external: true`; created
    once by the init scripts).
 2. Adding `traefik.*` labels: `traefik.enable`, a `Host(...)` router rule,
@@ -154,12 +174,14 @@ Services join it by **one of two patterns**, never both:
   authentik@docker` label on the protected router. Authentik must be running or
   Traefik reports the middleware undefined; comment the label to break-glass.
 
-**Three services join neither, deliberately.** Treat all three as stated
-exceptions, not gaps to close. The reasoning lives in `sso-applications.md`, and
+**Four services join neither, deliberately.** Treat every one as a stated
+exception, not a gap to close. The reasoning lives in `sso-applications.md`, and
 each absence is commented in place so someone about to "fix" it reads why first.
-Two of them have no OIDC, so the convention would point at forward-auth; the
-first one **does** have OIDC and declines it anyway, which makes it the single
-exception to "anything with native OIDC uses it".
+Kuma and Home Assistant have no OIDC, so the convention would point them at
+forward-auth; **Vaultwarden and the Proxmox web UI both have OIDC and decline
+it**, which makes them the exceptions to "anything with native OIDC uses it" —
+one holds the credentials for repairing Authentik, the other is the console for
+repairing the machine Authentik runs on.
 
 - **Vaultwarden.** It holds the credentials for repairing Authentik, so a vault
   that dies with the identity provider is the one outage with no way out —
@@ -180,6 +202,15 @@ exception to "anything with native OIDC uses it".
   notifications, presence and inbound automations. Break-glass would mean editing
   Traefik config over SSH while the lights do not respond.
   `infra/traefik/dynamic/ha.yaml` carries no `middlewares` key.
+- **The Proxmox web UI.** The one exception on a machine this repo cannot write
+  to, and the one where **both** patterns are foreclosed. It has a native OIDC
+  realm and declines it: this is the console for repairing the machine Authentik
+  runs on, and an additive realm would leave `root@pam` as the real break-glass
+  anyway, so it buys a moving part and removes nothing. Forward-auth is not
+  available either — the hypervisor terminates its **own** TLS on 443 with its
+  own exact certificate, so there is no Traefik router to label. Its absence is
+  therefore not the same shape as the three above, and it is **not** among the
+  hosts named in the `infra/authentik/compose.yaml` comment below.
 
 `infra/authentik/compose.yaml` carries **no** `/outpost.goauthentik.io/` router
 for any of the three hosts, with a comment naming all three and why.

@@ -26,6 +26,9 @@ UniFi Dream Router · DHCP + split-horizon DNS
                             LAN · one flat /24
                                     │
 Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hypervisor only, no Docker
+    │  its own Let's Encrypt cert on :443 — the one lab UI Traefik does not front
+    │  CyberPower CP900 on USB · NUT · orderly shutdown of the host and all three guests
+    │
     │  rpool      2×1 TB   NVMe mirror  → Proxmox + VM root disks
     │  data       2×512 GB NVMe mirror  → the apps VM's second disk
     │  vmbackup   2×1 TB   SATA mirror  → vzdump whole-VM archives
@@ -127,6 +130,14 @@ registry [docs/dns-records.md](docs/dns-records.md); the router how-to is
 Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
 [docs/traefik-setup.md](docs/traefik-setup.md) for TLS.
+
+The hypervisor is the one exception, deliberately. It issues its own **exact**
+certificate for `pve.thefipster.de` from Proxmox's built-in ACME client and
+serves the UI on 443 itself, outside Traefik
+([docs/proxmox-setup.md, Part 3](docs/proxmox-setup.md#serve-it-on-443)) — so the
+console you repair the lab from never depends on one of the lab's own guests.
+Being an exact name rather than a wildcard is also what keeps its challenge
+record from racing Traefik's.
 
 ## Build order
 

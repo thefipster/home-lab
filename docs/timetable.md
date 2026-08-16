@@ -45,6 +45,7 @@ one document.
 | Every | Machine | Operation | Declared in |
 |---|---|---|---|
 | **5 min** | Proxmox host | ZFS pool health pushed to Kuma, and `zfs_pool_*` written for Prometheus (`OnBootSec=2min`, then `OnUnitActiveSec=5min`) | [proxmox-setup.md Part 9](proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
+| **5 min** | Proxmox host | UPS state pushed to Kuma, and `ups_*` written for Prometheus. Same `OnBootSec`/`OnUnitActiveSec` shape as the ZFS timer, plus `AccuracySec=1s` — systemd otherwise defers by up to a minute to batch wakeups, which the retry-less `Site Power` monitor cannot absorb. Also fired **immediately** by NUT's `upssched` on every power event, which is the push that matters | [proxmox-setup.md Part 10](proxmox-setup.md#part-10--survive-a-power-cut) |
 | **60 s** | infra VM | Uptime Kuma checks — Kuma's default, used by every monitor except the two push rows below | [uptime-kuma-monitors.md](uptime-kuma-monitors.md) |
 | **15 s** | infra VM | Prometheus scrape **and** rule evaluation | [`prometheus.yml`](../infra/monitoring/prometheus/prometheus.yml) |
 | **15 s** | infra VM | Alloy scrapes (every target but one) and its Docker discovery refresh | [`config.alloy`](../infra/monitoring/alloy/config.alloy) |
@@ -52,18 +53,30 @@ one document.
 | **1 min** | infra VM | Grafana alert rule group evaluation. A rule fires only after its `for:` holds — 5 m, 15 m or 1 h depending on the rule | [`rules.yaml`](../infra/monitoring/grafana/provisioning/alerting/rules.yaml) |
 | **~10 min** | infra VM | Forgejo pull-mirror sync from GitHub — **per repository**, set in Forgejo's own UI, so this is a convention rather than a declaration | [forgejo-setup.md step 6](forgejo-setup.md#6-mirror-a-repo-from-github) |
 | **daily** | infra VM | Traefik's ACME renewal check; it renews the wildcard when under 30 days remain. Traefik's built-in behaviour — nothing in the compose overrides it | [`traefik/compose.yaml`](../infra/traefik/compose.yaml) |
+| **daily** | Proxmox host | Proxmox's ACME renewal check; it renews the exact `pve.thefipster.de` certificate when under 30 days remain. `pve-daily-update.timer`, which also does the APT update check — nothing here overrides either | [proxmox-setup.md Part 3](proxmox-setup.md#give-the-host-a-real-certificate) |
 
-**Kuma's two push monitors invert the rule.** They are not polls — Kuma waits to
-be called, so the interval is a deadline and silence past it is the alarm. Each
-one has to outlast the job that feeds it:
+**Kuma's push monitors invert the rule.** They are not polls — Kuma waits to be
+called, so the interval is a deadline and silence past it is the alarm. Each one
+has to outlast the job that feeds it:
 
 | Heartbeat | Monitor | Fed by |
 |---|---|---|
 | **300 s**, 2 retries | Hypervisor Storage | the 5-minute ZFS timer above |
+| **360 s**, **0 retries** | Site Power | the 5-minute UPS timer above, plus every `upssched` power event. Retries would put an explicit down push in PENDING, which does not notify — and this host halts before enough beats could arrive. With no retry to absorb a late beat, the heartbeat has to carry the whole margin itself ([registry](uptime-kuma-monitors.md#power--proxmox-host)) |
 | **90000 s** (25 h), 0 retries | Backup Job | the 01:00 restic job — longer than a day, plus an hour of slack for the timer's jitter and for a first run that uploads everything |
 
 That arithmetic is the pattern to copy: **heartbeat > period + jitter + worst
 plausible run time**, or a healthy lab goes red on its own schedule.
+
+**How much it has to exceed depends on the retries, and that is easy to miss.**
+A monitor with retries can be sloppy about this rule, because a retry silently
+absorbs one late beat — which is why `Hypervisor Storage` runs a 300 s heartbeat
+against a 300 s period and has never complained. Take the retries away and the
+same numbers start reporting outages that did not happen: there is nothing left
+to absorb systemd's default one-minute timer slack, or a `curl` sitting on its
+timeout. `Site Power` is the monitor with no retries, and it is the one that had
+to be sized honestly — 360 against 300, with `AccuracySec=1s` on the timer so
+the jitter term is small rather than merely covered.
 
 ## Package updates
 
