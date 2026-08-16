@@ -16,7 +16,7 @@
 # Edit it from HA's File Editor or Studio Code Server add-on, then
 # Developer Tools -> YAML -> Restart.
 #
-# See docs/home-assistant-setup.md.
+# See docs/guides/home-assistant-setup.md.
 
 # --- reachable through Traefik: NOT HERE ANY MORE ----------------------------
 # This fragment used to carry an `http:` block with use_x_forwarded_for and
@@ -26,7 +26,7 @@
 # UI, at Settings > System > Network. An `http:` block left in this file raises a
 # REPAIR ISSUE telling you to delete it, so shipping one here would hand you a
 # broken instruction. Set the proxy trust in the UI instead —
-# docs/home-assistant-setup.md, step 7, has the click-path and the value.
+# docs/guides/home-assistant-setup.md, step 7, has the click-path and the value.
 #
 # The consequence worth knowing: HA still refuses proxied requests until it
 # trusts the hop, answering 400 with a log line about an untrusted proxy, which
@@ -35,7 +35,7 @@
 # It also means this repo no longer records a literal IP address ANYWHERE. That
 # value — the infra VM's LAN address, which HA accepts only as an address or
 # CIDR, never a hostname — now lives in HA's own UI, like every other piece of
-# clickwork the repo cannot hold. See docs/dns-records.md.
+# clickwork the repo cannot hold. See docs/reference/dns-records.md.
 
 # --- metrics ----------------------------------------------------------------
 # Exposes /api/prometheus, scraped by Alloy on the infra VM as

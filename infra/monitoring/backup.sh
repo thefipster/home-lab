@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../backup/lib.sh"
 
 # The ONLY directory here worth capturing, out of six under /opt/monitoring.
-# The other five are Tier 3 in docs/roadmap/backup.md and their absence is a
+# The other five are Tier 3 in dev/roadmap/backup.md and their absence is a
 # decision, not an oversight:
 #
 #   prometheus/ loki/ tempo/  observability data with SHORT retention by design

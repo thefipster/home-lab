@@ -1,6 +1,6 @@
 [Unit]
 Description=Verify the restic repository is readable
-Documentation=file://@REPO_ROOT@/docs/backup-setup.md
+Documentation=file://@REPO_ROOT@/docs/guides/backup-setup.md
 Wants=network-online.target
 After=network-online.target
 
