@@ -98,7 +98,7 @@ groups:
       # 90s window, since the guests share an `order` and stop in parallel.
       # So this fires while the battery can still fund more than twice what a
       # shutdown needs, which is the point: it is an ageing signal, not a
-      # last-moment one. Both numbers are set in docs/proxmox-setup.md Part 10.
+      # last-moment one. Both numbers are set in docs/guides/proxmox-setup.md Part 10.
       - uid: ups-battery-aging
         title: UpsBatteryAging
         condition: C

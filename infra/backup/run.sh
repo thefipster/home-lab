@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run.sh — the nightly file-level backup. Layer 2 of docs/roadmap/backup.md.
+# run.sh — the nightly file-level backup. Layer 2 of dev/roadmap/backup.md.
 #
 # For every infra/<stack>/backup.sh: stage that stack's dumps, then take one
 # restic snapshot tagged with the stack name. Per-stack tags are what make

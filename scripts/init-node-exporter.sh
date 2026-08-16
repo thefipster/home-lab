@@ -13,7 +13,7 @@
 #   Proxmox   — NO, not because it shouldn't have one (it does, scraped as
 #               instance="pve"), but because the hypervisor has no checkout of
 #               this repo. It stays a documented `apt install` in
-#               docs/grafana-setup.md.
+#               docs/guides/grafana-setup.md.
 #
 # The unit binds :9100 on all interfaces, which is what lets Alloy reach it from
 # the infra VM. No firewall rule is opened because this lab configures no host
@@ -59,7 +59,7 @@ if ! curl -fsS --max-time 2 http://127.0.0.1:9100/metrics >/dev/null 2>&1; then
 fi
 
 echo
-echo "Done. Next (see docs/grafana-setup.md):"
+echo "Done. Next (see docs/guides/grafana-setup.md):"
 echo "  1. Nothing to do on this machine — Alloy on the infra VM already has"
 echo "     this host in its scrape config (job=\"node\", instance=\"apps\")."
 echo "  2. Confirm in Grafana: the Node Exporter Full dashboard's instance"

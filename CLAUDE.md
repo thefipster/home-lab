@@ -27,10 +27,11 @@ guides, applied to the whole repo.
 
 ## Topology (why things are split the way they are)
 
-One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
-Router. **The repo root is the machine map** — one directory per VM — while
-`docs/` and `scripts/` stay flat, because their filenames already carry the
-service name and nesting them would add a `../` to every cross-guide link:
+One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi
+router. **The repo root's lab directories are the machine map** — one per VM.
+The rest of the root is not machines: `scripts/` stays flat because it holds one
+kind of file whose names already carry the service name, `docs/` holds what you
+read to build the lab, and `dev/` holds why it looks the way it does:
 
 - **Proxmox host** — hypervisor only, no Docker. A bad container can't
   take the box down. Two things run on it that are **not** Docker and not
@@ -40,7 +41,7 @@ service name and nesting them would add a `../` to every cross-guide link:
   guest — and it runs **NUT** for the UPS, shutting all three guests down
   through Proxmox's own guest shutdown rather than through NUT clients. Neither
   has an init script: this machine has no checkout of the repo, so both live as
-  guide text in `docs/proxmox-setup.md`.
+  guide text in `docs/guides/proxmox-setup.md`.
 - **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
@@ -48,7 +49,7 @@ service name and nesting them would add a `../` to every cross-guide link:
   and manages apps through its UI, so `apps/` declares exactly **one** running
   service and it is not an application — `alloy/`, a logs-only collector pushing
   this machine's container stdout to the infra VM's Loki
-  (`docs/apps-logs-setup.md`). The no-compose rule is about *applications*,
+  (`docs/guides/apps-logs-setup.md`). The no-compose rule is about *applications*,
   which Coolify owns; nothing in Coolify's store describes a collector, so there
   is nothing for it to drift from. Beside it:
   a README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
@@ -131,7 +132,7 @@ A stack becomes reachable by **two things**, not by any central config:
 > **Read that first line literally — it says *on the infra VM*.** The Proxmox
 > host terminates its own TLS on its own machine, with its own ACME client and
 > its own **exact** certificate for `pve.thefipster.de` served on 443
-> (`docs/proxmox-setup.md` Part 3). That is the one place a second certificate
+> (`docs/guides/proxmox-setup.md` Part 3). That is the one place a second certificate
 > in the lab is correct rather than a mistake, and it is deliberate on both
 > counts: routing `pve.` through Traefik would make it a *service* name pointing
 > at the infra VM — renaming the machine out from under Alloy's scrape target,
@@ -139,7 +140,7 @@ A stack becomes reachable by **two things**, not by any central config:
 > hypervisor's repair surface behind one of its own guests. An **exact** name
 > rather than a wildcard is what keeps its `_acme-challenge` record from racing
 > Traefik's on netcup's non-atomic zone updates. Full reasoning:
-> `docs/superpowers/specs/2026-08-15-pve-https-and-ups-design.md`.
+> `dev/specs/2026-08-15-pve-https-and-ups-design.md`.
 
 1. Joining the external `proxy` Docker network (declared `external: true`; created
    once by the init scripts).
@@ -241,9 +242,9 @@ records which side each value lives on; keep that column honest.
 
 Two layers, and they answer different questions. **Layer 1** is whole-VM
 `vzdump` on the hypervisor — "the disk died" — and needs no repo code
-([docs/proxmox-setup.md Part 8](docs/proxmox-setup.md)). **Layer 2** is
+([docs/guides/proxmox-setup.md Part 8](docs/guides/proxmox-setup.md)). **Layer 2** is
 file-level restic — "Authentik ate its database" — and is `infra/backup/` plus
-[docs/backup-setup.md](docs/backup-setup.md). Only layer 2 is a convention.
+[docs/guides/backup-setup.md](docs/guides/backup-setup.md). Only layer 2 is a convention.
 
 Backups are **per stack, defined beside the stack**. A stack is backed up by
 adding one file, `infra/<stack>/backup.sh`, which sources `infra/backup/lib.sh`
@@ -254,7 +255,7 @@ central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
 it. **Every stack that holds state is wired** — Authentik, Dockge, Forgejo,
 monitoring, Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2
-row in `docs/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
+row in `dev/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
 compose file. **Homepage is the one stack with neither, deliberately**: it has
 no `/opt` directory and no `.env`, so every byte it owns is already in this
 repo and a snapshot of it would be a snapshot of a checkout.
@@ -384,7 +385,7 @@ The first three are **host** scripts, not stack scripts, and the split between
 them is deliberate: only the middle one is about Docker, so only it is
 infra-VM-only. The apps VM runs the other two (it gets its Docker from
 Coolify's installer). Those two runs have a guide each —
-`docs/infra-vm-setup.md` and `docs/apps-vm-setup.md` — rather than one shared
+`docs/guides/infra-vm-setup.md` and `docs/guides/apps-vm-setup.md` — rather than one shared
 section, for the reasons under [Docs layout](#docs-layout).
 
 1. `scripts/init-host.sh` — machine-level basics with no Docker in them: the
@@ -511,7 +512,7 @@ build order in the README is grouped by machine for exactly this reason:
    no `.env`, because the push endpoint takes no credential.
 16. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
-    per `docs/home-assistant-setup.md`.
+    per `docs/guides/home-assistant-setup.md`.
 
 `scripts/init-host.sh` and `scripts/init-unattended-upgrades.sh` run on **both**
 Ubuntu VMs, not just infra — neither one touches Docker, which is the whole
@@ -679,7 +680,7 @@ the single source of truth; Dockge only drives start/stop/logs.
   needs recording here, record the *consequence* for the lab (a token, a runner
   label, a storage path), not the YAML. What this repo owns is
   `infra/forgejo/config.yml` (the runner), the registry, and the procedure in
-  `docs/forgejo-setup.md`.
+  `docs/guides/forgejo-setup.md`.
 - **CI is manual-only, and the lab runs no CI schedule at all.** GitHub is
   primary and Forgejo pull-mirrors it, so `on: push` does not fire; the lab is
   LAN-only, so GitHub cannot call in either. Nothing event-driven is possible in
@@ -687,11 +688,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   scheduled jobs were designed and **both rejected**: a *reconciler* (cron +
   registry-as-ledger + a rolling-tag guard), because all of it reconciles drift
   and dispatching by hand right after tagging means drift never accumulates
-  (`docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md`); and
+  (`dev/specs/2026-08-05-forgejo-release-workflow-design.md`); and
   a *nightly rebuild*, whose last surviving purpose was re-scanning published
   images for CVEs disclosed after the build — that gap is now stated without an
-  automated answer in `docs/roadmap/ci-supply-chain.md`. Don't re-propose
-  either; `docs/timetable.md` records the absence as a decision.
+  automated answer in `dev/roadmap/ci-supply-chain.md`. Don't re-propose
+  either; `docs/reference/timetable.md` records the absence as a decision.
 - **The runner is `capacity: 1`.** Jobs run one after another, so anything that
   makes a run wider makes it longer. That is a real constraint on what to
   suggest — it is why the dev builder gates each job behind a tick-box, and why
@@ -713,13 +714,33 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 ## Docs layout
 
-`docs/` holds the reproduction guides, one per build-order step:
-`proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
-`traefik-setup.md` → `vaultwarden-setup.md` → `authentik-setup.md` →
-`dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
-`uptime-kuma-setup.md` → `homepage-setup.md` → `backup-setup.md` →
-**`apps-vm-setup.md`** →
-`coolify-setup.md` → `apps-logs-setup.md` → `home-assistant-setup.md`.
+`docs/` holds what you read to **build** the lab, and nothing else. It is split
+by what the reader is holding when they open the file:
+
+- **`docs/guides/`** — an instruction to carry out, on the machine its
+  `**Runs on:**` line names. Numbered steps, each with verification. One per
+  build-order step: `proxmox-setup.md` → `wildcard-dns-unifi.md` →
+  **`infra-vm-setup.md`** → `traefik-setup.md` → `vaultwarden-setup.md` →
+  `authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
+  `grafana-setup.md` → `uptime-kuma-setup.md` → `homepage-setup.md` →
+  `backup-setup.md` → **`apps-vm-setup.md`** → `coolify-setup.md` →
+  `apps-logs-setup.md` → `home-assistant-setup.md`.
+- **`docs/reference/`** — a value to look up while carrying out a guide, never
+  an instruction. The registries live here.
+- **`docs/drills/`** — a procedure to re-run on a schedule against a lab that is
+  already built, proving a property still holds. A guide runs once per rebuild;
+  a drill runs forever.
+
+**Filenames keep the service name and the `-setup` suffix.** The directory adds
+the category; the filename does not repeat it. Renaming would also make prose
+ambiguous — `backup.md` would name both the guide and the roadmap file, and
+several passages cite the two in one sentence.
+
+`docs/` nests where `scripts/` stays flat, and the reasons are now separate.
+`scripts/` is flat because it holds one kind of file. `docs/` had the same
+argument until it grew several kinds of document, and nesting costs a `../` only
+on links that cross categories — guide→guide links, the majority, stay in one
+directory and did not change.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is
 load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which
@@ -743,14 +764,16 @@ where a guide belongs. `grafana-setup.md` owns
 into a second `monitoring-setup.md` was merged away because, on a fresh
 checkout, the second guide was pure verification.
 
-Three **registries** centralize the manual operations that live outside the repo:
-`dns-records.md` (every UDR DNS record), `sso-applications.md` (every Authentik
-application and its exact config values) and `uptime-kuma-monitors.md` (every
-Kuma monitor, grouped by stack). Guides link the registries instead of duplicating
+The **registries** in `docs/reference/` centralize the manual operations that
+live outside the repo: `dns-records.md` (every DNS record on the router),
+`sso-applications.md` (every Authentik
+application and its exact config values), `uptime-kuma-monitors.md` (every
+Kuma monitor, grouped by stack) and `timetable.md` (everything that runs on a
+clock). Guides link the registries instead of duplicating
 the lists — a new hostname, SSO app or monitor gets its registry row first, and
 per-service values should never be repeated inline in a guide.
 
-All three carry `**Runs on:** … — registry, not a build step`, and all three list
+Every one carries `**Runs on:** … — registry, not a build step`, and every one lists
 their **deliberate absences** alongside their entries, because a registry that
 only records what exists cannot tell you whether a gap was a decision. The
 absences are load-bearing: `coolify.`/`apps.` have no DNS row, Vaultwarden, Kuma
@@ -770,12 +793,30 @@ jump-off repeated. Doing-path first and short, all rationale below the fold.
 **Guides describe a from-scratch bring-up of the current checkout — always.**
 No migration paths, no upgrade branches, no phase history (the roadmap and the
 dated specs keep that). A `git pull` anywhere but the initial clone is a red
-flag. `docs/roadmap/` holds forward-looking plans (CI hardening) — decisions
-for work not built yet; a piece graduates from roadmap to guide when it lands.
-`docs/superpowers/{specs,plans}/` holds dated design specs and implementation
-plans (`YYYY-MM-DD-*.md`), and `docs/review/` holds dated findings from
-replaying the guides end to end. Those three are **historical records** — do
-not retro-edit them when the guides change.
+flag.
+
+**`dev/` is the other half of the split: what you read to understand why the lab
+looks like that.** Nothing in it is needed in order to build the lab, and that
+is the test for what belongs there.
+
+- `dev/roadmap/` — forward-looking decisions for work not built yet; a piece
+  graduates from roadmap to guide when it lands. Live, and edited routinely.
+- `dev/specs/` — dated design specs (`YYYY-MM-DD-<topic>-design.md`).
+- `dev/plans/` — dated implementation plans (`YYYY-MM-DD-<topic>.md`).
+- `dev/reviews/` — dated findings from replaying the guides end to end.
+
+**Write new specs to `dev/specs/` and new plans to `dev/plans/`.** The
+superpowers skills default to `docs/superpowers/{specs,plans}/`; this repo
+overrides that, and a spec landing in the old path rebuilds a tree that was
+deliberately removed.
+
+**`dev/specs/`, `dev/plans/` and `dev/reviews/` are historical records** — do
+not retro-edit them when the guides change. `dev/roadmap/` is **not** one of
+them. When a path inside a historical record has to change: if the edit changes
+which document a reader lands on it is a retro-edit and is forbidden; if it
+lands them on the same document at its new address it is a move-repair and is
+required. Markdown links are addresses and get repaired; bare paths in their
+prose are statements about what was true that day and stay frozen.
 
 When the config and a guide disagree, the compose/script files are the source
 of truth — update the guide to match.

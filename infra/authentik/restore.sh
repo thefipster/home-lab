@@ -14,7 +14,7 @@
 # postgres/ EMPTY: the container initialises a fresh cluster from the restored
 # .env, and the dump then loads into it. The raw PGDATA in the snapshot is never
 # restored automatically — it is the last resort for when no dump exists, and
-# docs/backup-setup.md says how to use it by hand.
+# docs/guides/backup-setup.md says how to use it by hand.
 
 set -euo pipefail
 
@@ -105,7 +105,7 @@ restic restore "$id" --target "$STAGE"
 # THE DUMP IS IN THIS LIST, and it is the reason the list is checked rather than
 # discovered. A dump-less snapshot is not a corrupt snapshot — infra/backup/
 # run.sh produces one deliberately when pg_dump fails (a DEGRADED snapshot),
-# and docs/backup-setup.md's raw-PGDATA procedure is the documented next move.
+# and docs/guides/backup-setup.md's raw-PGDATA procedure is the documented next move.
 # That procedure operates on /opt/<stack>, so this script must not have moved
 # it. Checked after the rename instead, the operator would be told the restore
 # failed and handed a command to undo the very tree the guide's next step needs.
@@ -141,7 +141,7 @@ if [ "$missing" -ne 0 ]; then
     echo "with /opt/${STACK} untouched, because the next move needs it that way." >&2
     echo >&2
     echo "That next move is 'Last resort: the raw PGDATA' in" >&2
-    echo "docs/backup-setup.md. Its steps operate on /opt/${STACK} exactly as it" >&2
+    echo "docs/guides/backup-setup.md. Its steps operate on /opt/${STACK} exactly as it" >&2
     echo "stands right now. Do not undo anything first." >&2
   fi
 
@@ -256,7 +256,7 @@ cat <<EOF
 Done. Verify, in this order:
 
   1. https://auth.thefipster.de loads and you can log in.
-  2. Applications and Providers are all present (docs/sso-applications.md).
+  2. Applications and Providers are all present (docs/reference/sso-applications.md).
   3. https://dockge.thefipster.de redirects through Authentik and back —
      that is the forward-auth middleware working, which proves the outpost
      and its token survived.

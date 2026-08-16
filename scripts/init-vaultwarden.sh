@@ -11,7 +11,7 @@
 #
 # It does NOT generate VAULTWARDEN_ADMIN_TOKEN. That value is an Argon2id PHC
 # string produced by `vaultwarden hash`, which prompts for the password twice
-# and wants a terminal — so it is minted by hand in docs/vaultwarden-setup.md,
+# and wants a terminal — so it is minted by hand in docs/guides/vaultwarden-setup.md,
 # step 3. The compose file fails fast while it is empty.
 #
 # No chown: the vaultwarden image runs as root (like Uptime Kuma and Alloy),
@@ -77,9 +77,9 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/vaultwarden"
 
 echo
-echo "Done. Next (see docs/vaultwarden-setup.md):"
+echo "Done. Next (see docs/guides/vaultwarden-setup.md):"
 echo "  1. Verify the vault.thefipster.de host record resolves to the infra VM"
-echo "     — the registry is docs/dns-records.md. The *.thefipster.de wildcard"
+echo "     — the registry is docs/reference/dns-records.md. The *.thefipster.de wildcard"
 echo "     points at the APPS VM, so without an exact record the name hits the"
 echo "     wrong box and returns a 404 behind a valid cert."
 echo "  2. Mint the admin token and put it in ${ENV_FILE}, SINGLE-QUOTED:"
@@ -89,4 +89,4 @@ echo "  4. Open https://vault.thefipster.de/admin, invite yourself, then"
 echo "     register at https://vault.thefipster.de/#/signup — signups are"
 echo "     closed, so the invite is the only way in."
 echo "     There is NO Authentik login in front of this — that is deliberate;"
-echo "     see docs/sso-applications.md."
+echo "     see docs/reference/sso-applications.md."

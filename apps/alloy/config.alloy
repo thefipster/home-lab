@@ -53,7 +53,7 @@ discovery.relabel "containers" {
   // exists on one machine and not the other does NOT split {job="docker"}.
   //
   // VERIFY THE SOURCE NAME ON THE MACHINE. Coolify's label set is not pinned by
-  // this repo and has changed across versions. docs/apps-logs-setup.md has the
+  // this repo and has changed across versions. docs/guides/apps-logs-setup.md has the
   // `docker inspect` step; if the label is not `coolify.name`, THIS is the line
   // to change. Getting it wrong is silent — the label is simply absent.
   rule {
@@ -87,7 +87,7 @@ loki.source.docker "containers" {
 // The name MUST have an exact DNS record pointing at the infra VM. The
 // *.thefipster.de wildcard answers with THIS machine, so a missing record sends
 // these logs to Coolify's own proxy, which answers on 443 with a valid
-// certificate and 404s them. See docs/dns-records.md.
+// certificate and 404s them. See docs/reference/dns-records.md.
 loki.write "default" {
   endpoint {
     url = "https://loki.thefipster.de/loki/api/v1/push"

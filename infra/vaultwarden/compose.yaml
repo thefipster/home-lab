@@ -13,14 +13,14 @@
 # identity provider is the one outage you cannot recover from. Break-glass
 # would mean SSH while locked out of the thing holding the SSH key's
 # passphrase. There is no `middlewares` label below and no OIDC block, both
-# deliberate. Recorded in docs/sso-applications.md.
+# deliberate. Recorded in docs/reference/sso-applications.md.
 #
 # It sits BEFORE Authentik in the build order for the same reason: from the
 # next stack onward every guide generates a secret worth keeping, and this is
 # where they go.
 #
 # Deploy (on the infra VM): scripts/init-vaultwarden.sh, mint the ADMIN_TOKEN,
-# then compose up — see docs/vaultwarden-setup.md.
+# then compose up — see docs/guides/vaultwarden-setup.md.
 
 name: vaultwarden
 
@@ -77,15 +77,15 @@ services:
       SIGNUPS_ALLOWED: "false"
       # Org admins may not invite either. The /admin invite still works
       # regardless of both flags — that is upstream's documented behaviour and
-      # it is the whole bring-up path in docs/vaultwarden-setup.md.
+      # it is the whole bring-up path in docs/guides/vaultwarden-setup.md.
       INVITATIONS_ALLOWED: "false"
-      # Argon2id PHC string, minted by hand (docs/vaultwarden-setup.md step 3)
+      # Argon2id PHC string, minted by hand (docs/guides/vaultwarden-setup.md step 3)
       # because `vaultwarden hash` prompts for the password twice on a TTY and
       # cannot be driven from the init script. In .env the value MUST be
       # SINGLE-QUOTED: Compose interpolates unquoted and double-quoted .env
       # values, so the `$argon2id$v=19$...` string would be silently eaten and
       # the admin page would reject the password it just printed.
-      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:?set VAULTWARDEN_ADMIN_TOKEN in .env — see docs/vaultwarden-setup.md step 3}
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:?set VAULTWARDEN_ADMIN_TOKEN in .env — see docs/guides/vaultwarden-setup.md step 3}
       # Three defaults are deliberately left alone and worth knowing:
       #   IP_HEADER=X-Real-IP / IP_HEADER_TRUSTED_PROXIES=local — Traefik sets
       #     X-Real-Ip and dials from the container network, which `local`

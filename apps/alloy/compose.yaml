@@ -15,7 +15,7 @@
 # and it does NOT receive OTLP (the apps emit straight to otlp.thefipster.de).
 # Logs are the only gap on this machine; this closes it and nothing else.
 #
-# Deploy: scripts/init-apps-alloy.sh — see docs/apps-logs-setup.md.
+# Deploy: scripts/init-apps-alloy.sh — see docs/guides/apps-logs-setup.md.
 
 name: alloy
 
@@ -37,7 +37,7 @@ services:
       #   ssh -L 12345:127.0.0.1:12345 <apps-vm>
       # This is also why Uptime Kuma has no monitor for this collector: there is
       # nothing to probe and Kuma's docker.sock is the infra VM's. Recorded in
-      # docs/uptime-kuma-monitors.md.
+      # docs/reference/uptime-kuma-monitors.md.
       - "127.0.0.1:12345:12345"
     volumes:
       - ./config.alloy:/etc/alloy/config.alloy:ro

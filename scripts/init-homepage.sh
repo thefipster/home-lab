@@ -60,5 +60,5 @@ Done. Next:
   cd ${STACK_DIR} && docker compose up -d
 
 Then https://home.thefipster.de — Authentik will ask you to log in first.
-Guide: docs/homepage-setup.md
+Guide: docs/guides/homepage-setup.md
 EOF

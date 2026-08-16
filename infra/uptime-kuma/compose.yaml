@@ -23,12 +23,12 @@
 # cannot see, and the break-glass path (comment the middleware, recreate) needs
 # SSH at exactly the moment you are already firefighting. Kuma ships real local
 # auth (bcrypt, optional 2FA) and the lab is LAN-only, so the exposure is
-# bounded. Recorded in docs/sso-applications.md as an intentional
+# bounded. Recorded in docs/reference/sso-applications.md as an intentional
 # non-integration. infra/authentik/compose.yaml is untouched by this stack.
 #
 # Deploy (on the infra VM): scripts/init-uptime-kuma.sh, then bring it up —
-# see docs/uptime-kuma-setup.md. The monitor inventory is the registry
-# docs/uptime-kuma-monitors.md (monitors live in Kuma's SQLite, so that
+# see docs/guides/uptime-kuma-setup.md. The monitor inventory is the registry
+# docs/reference/uptime-kuma-monitors.md (monitors live in Kuma's SQLite, so that
 # registry is what makes them reproducible).
 
 name: uptime-kuma
@@ -42,7 +42,7 @@ services:
     volumes:
       # SQLite, uploads, and every monitor/notification definition. Kuma is
       # self-contained — no separate database service, and nothing here is
-      # provisioned from the repo (see docs/uptime-kuma-monitors.md).
+      # provisioned from the repo (see docs/reference/uptime-kuma-monitors.md).
       # The default image runs as ROOT, so this dir needs no chown — same as
       # Alloy, unlike the rest of the monitoring tree.
       - /opt/uptime-kuma:/app/data

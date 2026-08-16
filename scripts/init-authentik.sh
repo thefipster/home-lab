@@ -80,7 +80,7 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/authentik"
 
 echo
-echo "Done. Next (see docs/authentik-setup.md):"
+echo "Done. Next (see docs/guides/authentik-setup.md):"
 echo "  1. Read AUTHENTIK_BOOTSTRAP_PASSWORD from ${ENV_FILE} — it is the"
 echo "     initial akadmin password (applied only when akadmin is first created)."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"

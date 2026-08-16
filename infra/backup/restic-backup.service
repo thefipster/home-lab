@@ -1,6 +1,6 @@
 [Unit]
 Description=File-level backup of the infra VM (restic)
-Documentation=file://@REPO_ROOT@/docs/backup-setup.md
+Documentation=file://@REPO_ROOT@/docs/guides/backup-setup.md
 # Wants, not Requires: if Docker is down the run fails loudly and Kuma goes red,
 # which is the behaviour we want. Requires would cancel the unit silently.
 Wants=network-online.target

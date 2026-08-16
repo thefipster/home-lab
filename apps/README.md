@@ -3,7 +3,7 @@
 The apps VM runs [Coolify](https://coolify.io), a self-hosted
 PaaS that builds, deploys and runs your own applications with domains and HTTPS.
 
-**Guide: [docs/coolify-setup.md](../docs/coolify-setup.md).**
+**Guide: [docs/guides/coolify-setup.md](../docs/guides/coolify-setup.md).**
 
 ## Why there is no compose file here
 
@@ -38,7 +38,7 @@ What that leaves in this directory:
 |------|---------|
 | `services.md` | the catalog of **third-party** applications this VM runs as Coolify resources — what runs and why that one. Each one's compose lives in its own Forgejo repo, so this stays a pointer, not a second source of truth. |
 | `.env.example` | the three `NETCUP_*` names Coolify's bundled proxy needs for its own DNS-01 wildcard. Copied to `.env` by the init script. The **values** are entered in Coolify's UI — the file exists so the requirement is visible in the repo instead of only inside Coolify. |
-| `alloy/` | a **logs-only** Alloy that tails this machine's containers and pushes them to the infra VM's Loki. The one running service this repo declares here — see the exception above and [docs/apps-logs-setup.md](../docs/apps-logs-setup.md). |
+| `alloy/` | a **logs-only** Alloy that tails this machine's containers and pushes them to the infra VM's Loki. The one running service this repo declares here — see the exception above and [docs/apps-logs-setup.md](../docs/guides/apps-logs-setup.md). |
 | `stacks/` | **staging only**, and temporary. Stacks are drafted here, then pushed to their own Forgejo repo and **deleted from this directory** — see [stacks/README.md](stacks/README.md). A stack still sitting here is one that has not been split out yet, not an exception to the rule above. It holds no stack today; everything in the catalog has been split out. |
 
 ## Scripts that run on this machine
@@ -67,6 +67,6 @@ either way.
 `*.thefipster.de` already resolves to this VM, so **a new app needs no new DNS
 record** and `coolify.thefipster.de` needs no exact record of its own. The
 registry, including why that absence is deliberate:
-[docs/dns-records.md](../docs/dns-records.md).
+[docs/reference/dns-records.md](../docs/reference/dns-records.md).
 
 See also the main [README](../README.md).

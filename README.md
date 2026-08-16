@@ -9,7 +9,7 @@ step-by-step guides to reproduce it.
 ## Start here
 
 Building it from scratch? Go straight to
-**[docs/proxmox-setup.md](docs/proxmox-setup.md)** — each guide ends by linking
+**[docs/guides/proxmox-setup.md](docs/guides/proxmox-setup.md)** — each guide ends by linking
 the next, in the order below. The [build order](#build-order) is the map; the
 rest of this page is context you can read later.
 
@@ -20,7 +20,7 @@ are no migration paths and no upgrade branches — if a guide tells you to
 ## Architecture
 
 ```
-UniFi Dream Router · DHCP + split-horizon DNS
+UniFi Cloud Gateway Ultra · DHCP + split-horizon DNS
     exact infra records → infra VM      ha. → infra VM      *.thefipster.de → apps VM
                                     │
                             LAN · one flat /24
@@ -88,7 +88,7 @@ The storage *types* are not interchangeable: a pool registered as `zfspool`
 accepts disk images only and cannot hold `vzdump` output, which is why the backup
 mirror is a *Directory* on the pool's mountpoint instead. `filebackup` gets no
 Proxmox entry at all — restic reaches it over the hypervisor's `sshd`. Both are
-built in [docs/proxmox-setup.md, Part 3](docs/proxmox-setup.md#part-3--post-install-housekeeping).
+built in [docs/guides/proxmox-setup.md, Part 3](docs/guides/proxmox-setup.md#part-3--post-install-housekeeping).
 
 Every mirror answers a different question, which is why they are not one big pool,
 and the bus follows the access pattern: `rpool` and `data` are NVMe because they
@@ -100,23 +100,23 @@ possible instead of a single copy.
 
 `filebackup` holds the file-level `restic` repository, reached over SFTP so both
 VMs can write to it. The infra VM's half is built in
-[docs/backup-setup.md](docs/backup-setup.md); the apps VM has **not** joined the
+[docs/guides/backup-setup.md](docs/guides/backup-setup.md); the apps VM has **not** joined the
 repository yet, which is why its 300 GB data disk is still covered by nothing
-([docs/roadmap/backup.md](docs/roadmap/backup.md)).
+([dev/roadmap/backup.md](dev/roadmap/backup.md)).
 
 **Nothing here is offsite.** Both backup layers live in the same box as the thing
 they protect, so a fire or a theft takes all three copies. Offsite is phase 3 of
-[docs/roadmap/backup.md](docs/roadmap/backup.md) and is not built.
+[dev/roadmap/backup.md](dev/roadmap/backup.md) and is not built.
 
 Mirrors only help if a failure is noticed, and a degraded mirror is precisely the
 failure that takes *nothing* down. A timer on the hypervisor reports pool health
 to an Uptime Kuma push monitor, so it lands in the same ntfy notifications as
-everything else ([docs/proxmox-setup.md, Part
-9](docs/proxmox-setup.md#part-9--notice-when-a-mirror-degrades)).
+everything else ([docs/guides/proxmox-setup.md, Part
+9](docs/guides/proxmox-setup.md#part-9--notice-when-a-mirror-degrades)).
 
 ## Networking & DNS
 
-Everything sits on the LAN behind a UniFi Dream Router. Names are real
+Everything sits on the LAN behind the router. Names are real
 subdomains of `thefipster.de`, resolved **locally** by the router (split
 horizon — the public zone holds no address records, A **or** AAAA): exact host
 records send the
@@ -124,17 +124,17 @@ infra services (`git.`, `auth.`, `grafana.`, …) to the infra VM, and the
 `*.thefipster.de` wildcard sends everything else to the apps VM, where
 Coolify's proxy routes each hostname to the right app by the HTTP `Host`
 header — new apps need **no** new DNS records. The full record set is the
-registry [docs/dns-records.md](docs/dns-records.md); the router how-to is
-[docs/wildcard-dns-udr.md](docs/wildcard-dns-udr.md).
+registry [docs/reference/dns-records.md](docs/reference/dns-records.md); the router how-to is
+[docs/guides/wildcard-dns-unifi.md](docs/guides/wildcard-dns-unifi.md).
 
 Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
-[docs/traefik-setup.md](docs/traefik-setup.md) for TLS.
+[docs/guides/traefik-setup.md](docs/guides/traefik-setup.md) for TLS.
 
 The hypervisor is the one exception, deliberately. It issues its own **exact**
 certificate for `pve.thefipster.de` from Proxmox's built-in ACME client and
 serves the UI on 443 itself, outside Traefik
-([docs/proxmox-setup.md, Part 3](docs/proxmox-setup.md#serve-it-on-443)) — so the
+([docs/guides/proxmox-setup.md, Part 3](docs/guides/proxmox-setup.md#serve-it-on-443)) — so the
 console you repair the lab from never depends on one of the lab's own guests.
 Being an exact name rather than a wildcard is also what keeps its challenge
 record from racing Traefik's.
@@ -146,7 +146,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### Lab foundation — the hypervisor and the network
 
-1. **[Proxmox host + VMs](docs/proxmox-setup.md)** — wipe the server, install
+1. **[Proxmox host + VMs](docs/guides/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
    `home-assistant` VM's specs are in the same table but it is built in step 15,
@@ -154,9 +154,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    the pool-health monitor — is done at the end, since it needs a Kuma that
    does not exist until step 10; everything before it, the whole-VM backup job
    included, is done now.
-2. **[DNS](docs/wildcard-dns-udr.md)** — reservations, the `*.thefipster.de`
+2. **[DNS](docs/guides/wildcard-dns-unifi.md)** — reservations, the `*.thefipster.de`
    wildcard, and **every** infra host record. Add the complete set now from the
-   registry, **[docs/dns-records.md](docs/dns-records.md)** — every later step
+   registry, **[docs/reference/dns-records.md](docs/reference/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
    a valid certificate. The one exception is
    `homeassistant.thefipster.de`, whose target VM does not exist until step 15
@@ -164,66 +164,66 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### infra VM — everything the other two lean on
 
-3. **[infra VM setup](docs/infra-vm-setup.md)** — the first time you open a
+3. **[infra VM setup](docs/guides/infra-vm-setup.md)** — the first time you open a
    shell on a guest. Clone the repo to `~/home-lab`, then three scripts in
    order: clock policy + guest agent, Docker Engine, automatic security
    updates. Nothing is served yet; this is the ground everything else stands on.
-4. **[Traefik](docs/traefik-setup.md)** — reverse proxy + wildcard TLS on the
+4. **[Traefik](docs/guides/traefik-setup.md)** — reverse proxy + wildcard TLS on the
    infra VM (netcup DNS-01). The certificate is requested at startup; expect
    the ~10–15 min netcup propagation wait on first issuance.
-5. **[Vaultwarden](docs/vaultwarden-setup.md)** — the password manager, and the
+5. **[Vaultwarden](docs/guides/vaultwarden-setup.md)** — the password manager, and the
    first stack Traefik serves. Before SSO on purpose, and the only service in
    the lab that declines an SSO pattern it qualifies for: it holds the
    credentials for repairing Authentik, so it must not depend on it. Everything
    from here on generates a secret worth keeping.
-6. **[Authentik](docs/authentik-setup.md)** — SSO. It comes before everything it
+6. **[Authentik](docs/guides/authentik-setup.md)** — SSO. It comes before everything it
    gates: the Traefik dashboard, Dockge and Homepage reference its forward-auth
    middleware, so their routers do not load until it runs. Each service that
    joins SSO gets its row in the registry,
-   **[docs/sso-applications.md](docs/sso-applications.md)**, first.
-7. **[Dockge](docs/dockge-setup.md)** — the compose management UI. Deliberately
+   **[docs/reference/sso-applications.md](docs/reference/sso-applications.md)**, first.
+7. **[Dockge](docs/guides/dockge-setup.md)** — the compose management UI. Deliberately
    after Authentik (it has no ports published and its route is gated), and
    before the remaining stacks so they can be driven from a browser.
-8. **[Forgejo](docs/forgejo-setup.md)** — CI and the container registry, joined
+8. **[Forgejo](docs/guides/forgejo-setup.md)** — CI and the container registry, joined
    to Authentik by OIDC.
-9. **[Monitoring](docs/grafana-setup.md)** — Grafana + Prometheus + Loki +
+9. **[Monitoring](docs/guides/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
    (container logs, service + host metrics, OTLP with traces, dashboards and
    alerts).
-10. **[Uptime Kuma](docs/uptime-kuma-setup.md)** — independent black-box
+10. **[Uptime Kuma](docs/guides/uptime-kuma-setup.md)** — independent black-box
     monitoring and the lab's notification layer. Last on purpose: it watches
     everything above it, and it is a separate stack precisely so it does not
     share a lifecycle with the monitoring pipeline it also checks. The monitors
     themselves are the registry,
-    **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** — every new
+    **[docs/reference/uptime-kuma-monitors.md](docs/reference/uptime-kuma-monitors.md)** — every new
     service gets its rows there.
-11. **[Homepage](docs/homepage-setup.md)** — the lab's start page: every service
+11. **[Homepage](docs/guides/homepage-setup.md)** — the lab's start page: every service
     on one page, with live container state for this VM's stacks read from the
     Docker API. Last stack on the infra VM, because it links every one of them
     and nothing links it. It gets a DNS record and an SSO row like any gated UI,
     and — uniquely — **no backup**, because everything it owns is in this repo.
-12. **[Backup](docs/backup-setup.md)** — layer 2: file-level `restic` backups,
+12. **[Backup](docs/guides/backup-setup.md)** — layer 2: file-level `restic` backups,
     one snapshot per stack, onto the hypervisor's `filebackup` pool over SFTP.
     Last on the infra VM because it backs up everything above it and reports
     through a Kuma push monitor. Part 1 runs on the **Proxmox host** — the
     machine that owns the drives. Then prove it:
-    **[docs/backup-restore-drill.md](docs/backup-restore-drill.md)** restores
+    **[docs/drills/backup-restore-drill.md](docs/drills/backup-restore-drill.md)** restores
     each stack against a marker only the snapshot could bring back, because a
     backup nobody has restored from is a hypothesis. Re-run yearly.
 
 ### apps VM — your own applications
 
-13. **[apps VM setup](docs/apps-vm-setup.md)** — the second machine's checkout
+13. **[apps VM setup](docs/guides/apps-vm-setup.md)** — the second machine's checkout
     and host scripts: `init-host.sh` and `init-unattended-upgrades.sh`, but
     **not** `init-docker.sh` — Coolify's own installer brings the Engine. Also
     mounts the 300 GB second disk at `/data`, which has to happen *before*
     Coolify exists rather than after.
-14. **[Coolify](docs/coolify-setup.md)** — the self-hosted PaaS. Create its
+14. **[Coolify](docs/guides/coolify-setup.md)** — the self-hosted PaaS. Create its
     admin account *immediately*: a fresh instance is unauthenticated on a LAN
     port with nothing in front of it. Its bundled proxy needs switching from
     HTTP-01 to netcup DNS-01 by hand before it can issue a wildcard. Ends by
     installing the node exporter that Alloy on the infra VM already expects.
-15. **[Container logs](docs/apps-logs-setup.md)** — a logs-only Alloy on this
+15. **[Container logs](docs/guides/apps-logs-setup.md)** — a logs-only Alloy on this
     machine, pushing to the infra VM's Loki so the single pane covers both
     Docker hosts. The infra half has been live since the monitoring stack came
     up; this is the collector. Check `loki.thefipster.de` resolves to the
@@ -231,7 +231,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 ### home-assistant VM — home automation
 
-16. **[Home Assistant OS](docs/home-assistant-setup.md)** — the only VM not built
+16. **[Home Assistant OS](docs/guides/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. Last because it depends on the most:
     Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
@@ -246,22 +246,31 @@ is written down twice.
 
 | Document | Holds |
 |---|---|
-| **[docs/dns-records.md](docs/dns-records.md)** | every record on the UniFi Dream Router, plus the no-AAAA invariant the split horizon depends on |
-| **[docs/sso-applications.md](docs/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
-| **[docs/uptime-kuma-monitors.md](docs/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
-| **[docs/timetable.md](docs/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |
-| **[docs/backup-restore-drill.md](docs/backup-restore-drill.md)** | the per-stack restore procedure, and what each stack's result actually proves. A recurring drill — yearly, and whenever a `backup.sh` changes shape |
+| **[docs/reference/dns-records.md](docs/reference/dns-records.md)** | every record on the router, plus the no-AAAA invariant the split horizon depends on |
+| **[docs/reference/sso-applications.md](docs/reference/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
+| **[docs/reference/uptime-kuma-monitors.md](docs/reference/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
+| **[docs/reference/timetable.md](docs/reference/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |
 | **[apps/services.md](apps/services.md)** | the third-party software on the apps VM — what runs and why, never how, since those compose files live in a Forgejo repo |
 
-**The four registries list their deliberate absences beside their entries**, and
+**The registries list their deliberate absences beside their entries**, and
 that is the point: a registry recording only what exists cannot tell you whether
 a gap was a decision. Vaultwarden, Kuma and Home Assistant have no SSO row;
 `coolify.` and `apps.` have no DNS row; Kuma does not monitor itself or the
 hypervisor; the lab runs no CI schedule at all. When adding a service, decide
 about each of them and say so in each.
 
+## Drills
+
+A guide runs once per rebuild. A drill runs forever — a procedure re-run on a
+schedule against a lab that is already built, to prove a property still holds.
+
+| Drill | Proves | Cadence |
+|---|---|---|
+| **[docs/drills/backup-restore-drill.md](docs/drills/backup-restore-drill.md)** | that each stack's snapshot actually restores it — per stack, with a marker that cannot lie | yearly, and whenever a `backup.sh` changes shape |
+| **[docs/drills/ups-power-cut-drill.md](docs/drills/ups-power-cut-drill.md)** | that the lab shuts down in order on battery and comes back by itself — and measures the runtime the shutdown arithmetic depends on | when the battery is replaced, and whenever equipment joins the UPS |
+
 ## Status
 
 What actually runs today versus what is only written down is its own document:
-**[docs/status.md](docs/status.md)** — one row per piece of the lab, with the
+**[STATUS.md](STATUS.md)** — one row per piece of the lab, with the
 guide or roadmap entry each one points at.

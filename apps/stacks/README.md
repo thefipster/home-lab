@@ -26,12 +26,12 @@ Every stack follows the same rules, so they behave identically once deployed.
 them needs a DNS record**: `*.thefipster.de` already resolves to the apps VM, and Coolify's proxy
 routes by `Host` header. Coolify terminates TLS with its own Let's Encrypt wildcard — Traefik on
 the infra VM never sees this traffic. See
-[docs/dns-records.md](../../docs/dns-records.md#names-the-wildcard-covers-on-purpose) for why
+[docs/reference/dns-records.md](../../docs/reference/dns-records.md#names-the-wildcard-covers-on-purpose) for why
 riding the wildcard is deliberate rather than an omission.
 
 **Bind mounts under `/data/<stack>`, never named volumes.** `/data` on the apps VM is the 300 GB
 second disk, the same one Coolify keeps its own store on (`/data/coolify`) —
-[docs/apps-vm-setup.md, step 4](../../docs/apps-vm-setup.md). Named volumes were dropped on
+[docs/guides/apps-vm-setup.md, step 4](../../docs/guides/apps-vm-setup.md). Named volumes were dropped on
 purpose: a backup job needs a path it can walk, and `docker volume inspect` is not that. This is
 the apps-VM analogue of the infra VM's `/opt/<stack>` convention, on the disk that machine
 actually has for it.
@@ -43,7 +43,7 @@ the same step.
 
 **`/data` is not backed up yet.** It is excluded from whole-VM `vzdump`
 (`backup=0`), and the file-level layer runs on the infra VM only — this machine has not joined the
-restic repository yet ([roadmap/backup.md](../../docs/roadmap/backup.md)). Anything deployed here
+restic repository yet ([roadmap/backup.md](../../dev/roadmap/backup.md)). Anything deployed here
 is unbacked until it does; Paperless is tier 1 and is exported by hand in the meantime.
 
 **No published host ports.** Services use `expose:` and Coolify's proxy handles ingress. Nothing
@@ -99,7 +99,7 @@ flipping that variable back rather than a second login box.
 
 A stack's README carries the exact Authentik provider and application values in an
 **SSO (OIDC via Authentik)** section. That is deliberate placement, not a missing registry row:
-[docs/sso-applications.md](../../docs/sso-applications.md) scopes itself to the **infra VM**,
+[docs/reference/sso-applications.md](../../docs/reference/sso-applications.md) scopes itself to the **infra VM**,
 where the clickwork has no other home. These have a repo of their own, which is where a reader
 already goes to change them — and each of their application slugs is baked into a discovery URL in
 the compose file, so the two belong side by side.
@@ -108,7 +108,7 @@ the compose file, so the two belong side by side.
 `<Function> Web` after the lab's function-not-product convention. The apps VM gets **no Docker
 monitors at all** — Kuma reads the infra VM's `docker.sock` and cannot see this machine's daemon —
 and no per-stack Ping monitor, because `Apps Host` in
-[docs/uptime-kuma-monitors.md](../../docs/uptime-kuma-monitors.md) already covers the machine. Each
+[docs/reference/uptime-kuma-monitors.md](../../docs/reference/uptime-kuma-monitors.md) already covers the machine. Each
 README states those two absences so a thin monitor list reads as a decision rather than an
 oversight.
 

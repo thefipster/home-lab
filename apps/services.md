@@ -26,7 +26,7 @@ time an image is bumped.
 
 **Data is a bind mount under `/data/<stack>`**, never a named volume — `/data` is
 this VM's 300 GB second disk, the same one Coolify keeps its own store on
-([apps-vm-setup.md, step 4](../docs/apps-vm-setup.md#4-mount-the-data-disk)). It is
+([apps-vm-setup.md, step 4](../docs/guides/apps-vm-setup.md#4-mount-the-data-disk)). It is
 the apps-VM analogue of the infra VM's `/opt/<stack>` convention, and it exists
 for the same reason: a backup job needs a path it can walk. The subdirectories
 under each of those paths are the app's business, recorded in its own repo.
@@ -44,7 +44,7 @@ Paperless already ships Postgres; BookStack has no choice to make.
 
 It was catalogued here, and it now runs on the **infra VM** as a first-class
 stack: [infra/vaultwarden/](../infra/vaultwarden/), guide
-[docs/vaultwarden-setup.md](../docs/vaultwarden-setup.md). The row is gone
+[docs/guides/vaultwarden-setup.md](../docs/guides/vaultwarden-setup.md). The row is gone
 rather than marked moved, because a catalog of what this machine runs should
 not list something it doesn't.
 
@@ -96,7 +96,7 @@ whose local login does not survive joining SSO.** `AUTH_METHOD` takes exactly on
 value, so `oidc` *replaces* the email/password form rather than sitting beside it
 — there is no configuration in which both work. Every other OIDC service here and
 on the infra VM keeps local login as the break-glass path
-([sso-applications.md](../docs/sso-applications.md) states that rule). BookStack's
+([sso-applications.md](../docs/reference/sso-applications.md) states that rule). BookStack's
 break-glass is instead setting `AUTH_METHOD` back to `standard` in Coolify and
 redeploying, which restores the original admin account untouched. That is a real
 downgrade — a redeploy instead of a login form — and it is the price of the row
@@ -109,7 +109,7 @@ to it today. The lab's stated exceptions to the
 "anything with native OIDC uses it" rule — Vaultwarden, Uptime Kuma, Home
 Assistant — are all **infra VM** services, and each is an exception because
 something about recovering the lab depends on it staying reachable when
-Authentik is not ([sso-applications.md](../docs/sso-applications.md)).
+Authentik is not ([sso-applications.md](../docs/reference/sso-applications.md)).
 
 Nothing on this machine has that property. A recipe manager behind a dead
 identity provider is an inconvenience, not a trap, so there is no reason for an
@@ -120,7 +120,7 @@ where the reasoning goes — not this table.
 
 - **No DNS record — for any of them.** `*.thefipster.de` already resolves to
   this VM, so a new application needs no entry in
-  [docs/dns-records.md](../docs/dns-records.md), the same way `coolify.` and
+  [docs/reference/dns-records.md](../docs/reference/dns-records.md), the same way `coolify.` and
   `apps.` need none. Do not "fix" this by pinning exact records at this machine:
   riding the wildcard is what makes an address change correct itself everywhere
   at once.
@@ -136,7 +136,7 @@ where the reasoning goes — not this table.
 - **No container logs.** Alloy tails the *infra* VM's Docker socket, so nothing
   running here reaches Loki — these four, and Coolify's own containers alike.
   This is a gap for the whole machine, not for these applications:
-  [docs/roadmap/apps-vm-logs.md](../docs/roadmap/apps-vm-logs.md).
+  [dev/roadmap/apps-vm-logs.md](../dev/roadmap/apps-vm-logs.md).
 - **No container-state monitoring.** Uptime Kuma's container monitors read the
   infra VM's Docker socket and cannot see this machine's daemon at all. HTTP
   checks through Coolify's proxy are the only signal available for anything
@@ -144,7 +144,7 @@ where the reasoning goes — not this table.
 
 ## Backup
 
-Tiers use the language of [docs/roadmap/backup.md](../docs/roadmap/backup.md),
+Tiers use the language of [dev/roadmap/backup.md](../dev/roadmap/backup.md),
 where **tier 1 is irreplaceable**.
 
 | Service | Tier | What is at stake |
@@ -156,11 +156,11 @@ where **tier 1 is irreplaceable**.
 
 Every one of those lives under `/data/<stack>` on the second disk — which is
 **excluded from whole-VM `vzdump`** (`backup=0`,
-[proxmox-setup.md Part 5](../docs/proxmox-setup.md#part-5--create-the-vms)) and
+[proxmox-setup.md Part 5](../docs/guides/proxmox-setup.md#part-5--create-the-vms)) and
 covered by nothing else. The file-level `restic` layer now exists
-([docs/backup-setup.md](../docs/backup-setup.md)), but it runs on the **infra
+([docs/guides/backup-setup.md](../docs/guides/backup-setup.md)), but it runs on the **infra
 VM** and this machine has not joined the repository
-([roadmap/backup.md](../docs/roadmap/backup.md) names that gap and scopes it out).
+([roadmap/backup.md](../dev/roadmap/backup.md) names that gap and scopes it out).
 So the honest state today is: the apps VM's *root* disk is backed up and its
 **application data is not**. Paperless is tier 1 and ships its own
 `document_exporter`; run it by hand and copy `/data/paperless/export` off the box
@@ -191,7 +191,7 @@ instead, which is where a reader already goes to change them. A second copy here
 drift, and a drifted registry is worse than none because it reads as
 authoritative.
 
-`docs/sso-applications.md` scopes itself to the infra VM for exactly this
+`docs/reference/sso-applications.md` scopes itself to the infra VM for exactly this
 reason and names this catalog as where the apps-VM applications live — the two
 files point at each other on purpose.
 

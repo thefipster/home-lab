@@ -9,10 +9,10 @@
 # Coolify, whose container names are generated and which cannot see this
 # machine at all. Homepage also ships NO authentication of its own, and the
 # forward-auth middleware that fixes that exists only on this VM's Traefik.
-# Full reasoning: docs/superpowers/specs/2026-08-08-homepage-design.md.
+# Full reasoning: dev/specs/2026-08-08-homepage-design.md.
 #
 # Deploy (on the infra VM): scripts/init-homepage.sh, then bring it up —
-# see docs/homepage-setup.md.
+# see docs/guides/homepage-setup.md.
 #   UI: https://home.thefipster.de   (via the Traefik stack — see infra/traefik)
 #   Build order: Traefik and Authentik must be up FIRST — the router below is
 #   gated by authentik@docker, so without them it won't load at all.
@@ -26,7 +26,7 @@
 # NO /opt/homepage either, and this is the FIRST stack in the repo with no
 # persistent data directory at all: everything Homepage owns is the git-tracked
 # YAML in ./config. That is also why it has no backup.sh — see
-# docs/roadmap/backup.md.
+# dev/roadmap/backup.md.
 
 name: homepage
 

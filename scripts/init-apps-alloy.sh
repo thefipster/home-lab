@@ -75,5 +75,5 @@ this VM, so a missing loki.thefipster.de record 404s the push against
 Coolify's own proxy:
   getent hosts loki.thefipster.de
 
-Guide: docs/apps-logs-setup.md
+Guide: docs/guides/apps-logs-setup.md
 EOF

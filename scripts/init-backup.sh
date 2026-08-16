@@ -8,7 +8,7 @@
 #
 # Build order: LAST on the infra VM. Needs Uptime Kuma for the push monitor URL,
 # and needs the HOST-side prerequisites (the `resticbackup` user and its
-# chroot) to already exist — that is Part 1 of docs/backup-setup.md and runs on
+# chroot) to already exist — that is Part 1 of docs/guides/backup-setup.md and runs on
 # the Proxmox host, not here.
 #
 # Usage (from the repo root):
@@ -22,7 +22,7 @@ STACK_DIR="${REPO_ROOT}/infra/backup"
 BACKUP_ROOT="/opt/backup"
 
 # The host serving the repository over SFTP. By NAME, never an address — the
-# router is the source of truth for addresses (docs/dns-records.md).
+# router is the source of truth for addresses (docs/reference/dns-records.md).
 PVE_HOST="${PVE_HOST:-pve.thefipster.de}"
 
 UNITS="restic-backup.service restic-backup.timer restic-check.service restic-check.timer"
