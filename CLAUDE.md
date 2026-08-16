@@ -45,7 +45,12 @@ service name and nesting them would add a `../` to every cross-guide link:
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
 - **apps VM** — Coolify (self-hosted PaaS). Coolify owns its own Docker
-  and manages apps through its UI, so `apps/` declares **no running service** —
+  and manages apps through its UI, so `apps/` declares exactly **one** running
+  service and it is not an application — `alloy/`, a logs-only collector pushing
+  this machine's container stdout to the infra VM's Loki
+  (`docs/apps-logs-setup.md`). The no-compose rule is about *applications*,
+  which Coolify owns; nothing in Coolify's store describes a collector, so there
+  is nothing for it to drift from. Beside it:
   a README, a `.env.example` naming the `NETCUP_*` variables Coolify's own proxy
   needs, `services.md`, a **catalog** of the third-party software this VM
   runs, and `stacks/`, where a third-party compose is drafted until it is
@@ -57,9 +62,11 @@ service name and nesting them would add a `../` to every cross-guide link:
   merely a record of what is required. App definitions live in Coolify's
   database, not this repo; the
   third-party compose files live in a Forgejo repo, so the catalog records what
-  runs and why, never how. It deliberately adds no rows to the three `docs/`
-  registries — those cover infra VM services, whose implementation is clickwork
-  with no other home.
+  runs and why, never how. The **catalog** deliberately adds no rows to the three
+  `docs/` registries — those cover infra VM services, whose implementation is
+  clickwork with no other home. The **collector** is the one thing on this
+  machine that does: an exact `loki.` DNS row, plus a stated non-row in each of
+  the other two.
 - **home-assistant VM** — Home Assistant OS, Supervisor included, so
   add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
@@ -138,6 +145,13 @@ A stack becomes reachable by **two things**, not by any central config:
    once by the init scripts).
 2. Adding `traefik.*` labels: `traefik.enable`, a `Host(...)` router rule,
    `entrypoints: websecure`, and the service `loadbalancer.server.port`.
+
+**One router in the lab is path-scoped rather than host-scoped**, and it is not
+an inconsistency. `loki.thefipster.de` matches
+`PathPrefix('/loki/api/v1/push')` only, so the apps VM can push logs in while
+Loki's query API — and its delete API, live because retention is enabled —
+stay on `monitoring-net`. Every other router matches a whole host because every
+other backend is a UI or an API meant to be reached in full.
 
 There are **no per-router TLS labels** — every `websecure` router is covered by
 the single wildcard cert configured in `infra/traefik/compose.yaml`. When adding a
@@ -422,9 +436,9 @@ section, for the reasons under [Docs layout](#docs-layout).
    (Dockge, Traefik dashboard) can load.
 7. `scripts/init-dockge.sh` — copies the compose to `/opt/stacks/dockge`,
    records `REPO_DIR` in `.env` (the compose bind-mounts the repo checkout at
-   an identical path so stack symlinks resolve inside the container), and — the
-   **only** init script that does — **starts the stack itself**, so its guide
-   has no `docker compose` step. Sits right after Authentik on purpose:
+   an identical path so stack symlinks resolve inside the container), and — one
+   of **two** init scripts that do, `init-apps-alloy.sh` being the other —
+   **starts the stack itself**, so its guide has no `docker compose` step. Sits right after Authentik on purpose:
    publishing a port for an earlier bootstrap view was considered and rejected
    (it would leave an un-gated LAN path), so Dockge is unreachable until both
    Traefik and Authentik run. From here on the remaining stacks can be driven
@@ -489,7 +503,13 @@ build order in the README is grouped by machine for exactly this reason:
    collects host metrics, so a second exporter there would be a duplicate target.
    The Proxmox host wants one as well but has no checkout, so it stays a
    documented `apt install`.
-15. The **home-assistant VM has no init script at all** — HAOS is an appliance.
+15. `scripts/init-apps-alloy.sh` — the apps VM's log collector, and the second
+   init script that **starts its own stack**. Same reason as Dockge's in a
+   stronger form: that machine has no Dockge at all, so there is no UI a
+   prepared-but-stopped stack could be started from, and no `/opt/stacks`
+   symlink either. Creates `/opt/alloy` for read positions and nothing else —
+   no `.env`, because the push endpoint takes no credential.
+16. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
     per `docs/home-assistant-setup.md`.
 
@@ -699,7 +719,7 @@ the single source of truth; Dockge only drives start/stop/logs.
 `dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
 `uptime-kuma-setup.md` → `homepage-setup.md` → `backup-setup.md` →
 **`apps-vm-setup.md`** →
-`coolify-setup.md` → `home-assistant-setup.md`.
+`coolify-setup.md` → `apps-logs-setup.md` → `home-assistant-setup.md`.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is
 load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which

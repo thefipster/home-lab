@@ -29,16 +29,17 @@ got.
 | CI: container scanning + SBOM | ✅ deployed — SBOM attestation beside each image plus a CycloneDX run artifact, Trivy failing the run on `CRITICAL`, and dependency updates raised against the GitHub originals. Registry cleanup rules and image signing did not land ([roadmap](roadmap/ci-supply-chain.md)) |
 | Coolify install (apps VM) | ✅ deployed — [guide](coolify-setup.md) |
 | Third-party apps on the apps VM | ✅ deployed — Paperless-ngx, Mealie, BookStack and LubeLogger all running as Coolify resources, each from its own Forgejo repo and each joined to Authentik by OIDC — [catalog](../apps/services.md). Their data under `/data` is backed up by nothing yet, and Paperless is tier 1 |
-| Container logs from the apps VM | ⬜ planned — [roadmap](roadmap/apps-vm-logs.md). No longer a gap in the abstract: the applications in the row above log where Loki cannot see them |
-| home-assistant VM (HAOS + Supervisor) | ✅ deployed — onboarded, routed through Traefik at `ha.thefipster.de`, add-ons in from HA's store. Bare beyond that: no devices and no automations yet, and its metrics are not wired ([step 8](home-assistant-setup.md#8-wire-up-metrics)) — [guide](home-assistant-setup.md) |
-| Monitoring the apps + HA VMs | ◐ apps VM scraped (`instance="apps"`, node exporter installed); the HA target stays red until `HA_PROMETHEUS_TOKEN` is minted in HA and put in the monitoring `.env` |
+| Container logs from the apps VM | ✅ deployed — a logs-only Alloy in `apps/alloy` pushing to the infra VM's Loki through a push-path-only router, [guide](apps-logs-setup.md). One query covers both Docker machines; `instance` tells them apart. Its own liveness is the one thing nothing watches — Kuma's socket is the infra VM's ([why](uptime-kuma-monitors.md#deliberately-not-monitored)) |
+| home-assistant VM (HAOS + Supervisor) | ✅ deployed — onboarded, routed through Traefik at `ha.thefipster.de`, add-ons in from HA's store, and metrics wired: the long-lived token in the monitoring `.env` plus the System Monitor integration for host counters ([step 8](home-assistant-setup.md#8-wire-up-metrics), [step 9](home-assistant-setup.md#9-add-the-hosts-own-metrics)). Bare beyond that: no devices and no automations yet — [guide](home-assistant-setup.md) |
+| Monitoring the apps + HA VMs | ✅ deployed — apps VM scraped (`instance="apps"`) and now shipping logs too; HA scraped as `job="homeassistant"`, entities and host counters both. HA's are entity metrics by nature, so they do not appear on Node Exporter Full and no dashboard for them exists yet |
 | Sizing for the hardware (12 threads / 96 GB / 4 pools) | ✅ deployed — the box is built and running these allocations, [Why these sizes](proxmox-setup.md#why-these-sizes) |
 
 `✅` runs today · `◐` one half runs, the other is still waiting · `📄` written
-and reviewed, waiting on hardware or a build step · `⬜` not started. **No `📄`
-rows are left**, and none are verified by reading alone: every guide in the
-build order has been run on the machine it describes, the hypervisor's two
-newest Parts included.
+and reviewed, waiting on hardware or a build step · `⬜` not started. **Every row
+above is `✅`** — the other three markers are kept because the next piece of work
+will need them, not because anything is wearing one. And none are verified by
+reading alone: every guide in the build order has been run on the machine it
+describes, the hypervisor's two newest Parts included.
 
 **Every machine in the build order is built.** All infra stacks run, both backup
 layers included; the apps VM runs Coolify with the whole third-party catalog on
@@ -51,12 +52,11 @@ existence:
   and the WAN termination are what let the on-battery alert actually leave the
   house — until they are on it, a real outage shuts the lab down correctly and
   silently.
-- **Home Assistant's metrics token**, so `job="homeassistant"` stops being red
-  ([step 8](home-assistant-setup.md#8-wire-up-metrics)).
-- **Container logs from the apps VM** ([roadmap](roadmap/apps-vm-logs.md)) —
-  and, on the same machine, **backup**: `/data` holds Paperless' scanned
-  documents and is covered by neither layer ([roadmap](roadmap/backup.md)).
-  Paperless' own `document_exporter`, run by hand, is the whole answer today.
+- **Backup for the apps VM.** `/data` holds Paperless' scanned documents and is
+  covered by neither layer ([roadmap](roadmap/backup.md)) — layer 1 excludes the
+  disk and the machine has not joined the restic repository. Paperless' own
+  `document_exporter`, run by hand, is the whole answer today. Its container
+  logs, by contrast, are now collected ([guide](apps-logs-setup.md)).
 - **The CI supply-chain phases that did not land** — registry cleanup rules and
   image signing ([roadmap](roadmap/ci-supply-chain.md)).
 

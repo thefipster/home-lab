@@ -214,10 +214,11 @@ services:
   # ---------------------------------------------------------------------------
   alloy:
     # FULL PATCH pin, deviating from the repo's major-only policy because Alloy
-    # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18. Written down
-    # FOUR times: docs/grafana-setup.md's troubleshooting `fmt` command,
-    # CLAUDE.md's pin-exceptions list and init-monitoring.sh's UID table name
-    # the same tag — bump all together.
+    # publishes ONLY vX.Y.Z tags — there is no v1 and no v1.18.
+    # The same tag appears in apps/alloy/compose.yaml (the apps VM's collector,
+    # which MUST match — the two produce the labels of one pane),
+    # docs/grafana-setup.md's troubleshooting `fmt` command, CLAUDE.md's
+    # pin-exceptions list and init-monitoring.sh's UID table. Bump them together.
     image: grafana/alloy:v1.18.1
     restart: unless-stopped
     # The unix exporter's uname collector reads the CONTAINER's UTS hostname
