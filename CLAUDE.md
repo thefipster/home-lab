@@ -28,9 +28,10 @@ guides, applied to the whole repo.
 ## Topology (why things are split the way they are)
 
 One hypervisor and three VMs on a single flat `/24` LAN behind a UniFi Dream
-Router. **The repo root is the machine map** — one directory per VM — while
-`docs/` and `scripts/` stay flat, because their filenames already carry the
-service name and nesting them would add a `../` to every cross-guide link:
+Router. **The repo root's lab directories are the machine map** — one per VM.
+The rest of the root is not machines: `scripts/` stays flat because it holds one
+kind of file whose names already carry the service name, `docs/` holds what you
+read to build the lab, and `dev/` holds why it looks the way it does:
 
 - **Proxmox host** — hypervisor only, no Docker. A bad container can't
   take the box down. Two things run on it that are **not** Docker and not
@@ -693,13 +694,33 @@ the single source of truth; Dockge only drives start/stop/logs.
 
 ## Docs layout
 
-`docs/` holds the reproduction guides, one per build-order step:
-`proxmox-setup.md` → `wildcard-dns-udr.md` → **`infra-vm-setup.md`** →
-`traefik-setup.md` → `vaultwarden-setup.md` → `authentik-setup.md` →
-`dockge-setup.md` → `forgejo-setup.md` → `grafana-setup.md` →
-`uptime-kuma-setup.md` → `homepage-setup.md` → `backup-setup.md` →
-**`apps-vm-setup.md`** →
-`coolify-setup.md` → `home-assistant-setup.md`.
+`docs/` holds what you read to **build** the lab, and nothing else. It is split
+by what the reader is holding when they open the file:
+
+- **`docs/guides/`** — an instruction to carry out, on the machine its
+  `**Runs on:**` line names. Numbered steps, each with verification. One per
+  build-order step: `proxmox-setup.md` → `wildcard-dns-udr.md` →
+  **`infra-vm-setup.md`** → `traefik-setup.md` → `vaultwarden-setup.md` →
+  `authentik-setup.md` → `dockge-setup.md` → `forgejo-setup.md` →
+  `grafana-setup.md` → `uptime-kuma-setup.md` → `homepage-setup.md` →
+  `backup-setup.md` → **`apps-vm-setup.md`** → `coolify-setup.md` →
+  `home-assistant-setup.md`.
+- **`docs/reference/`** — a value to look up while carrying out a guide, never
+  an instruction. The registries live here.
+- **`docs/drills/`** — a procedure to re-run on a schedule against a lab that is
+  already built, proving a property still holds. A guide runs once per rebuild;
+  a drill runs forever.
+
+**Filenames keep the service name and the `-setup` suffix.** The directory adds
+the category; the filename does not repeat it. Renaming would also make prose
+ambiguous — `backup.md` would name both the guide and the roadmap file, and
+several passages cite the two in one sentence.
+
+`docs/` nests where `scripts/` stays flat, and the reasons are now separate.
+`scripts/` is flat because it holds one kind of file. `docs/` had the same
+argument until it grew several kinds of document, and nesting costs a `../` only
+on links that cross categories — guide→guide links, the majority, stay in one
+directory and did not change.
 
 **The two `*-vm-setup.md` guides are one section split in two, and the split is
 load-bearing.** Both were a single `Part 7` inside `proxmox-setup.md`, which
@@ -723,14 +744,16 @@ where a guide belongs. `grafana-setup.md` owns
 into a second `monitoring-setup.md` was merged away because, on a fresh
 checkout, the second guide was pure verification.
 
-Three **registries** centralize the manual operations that live outside the repo:
-`dns-records.md` (every UDR DNS record), `sso-applications.md` (every Authentik
-application and its exact config values) and `uptime-kuma-monitors.md` (every
-Kuma monitor, grouped by stack). Guides link the registries instead of duplicating
+The **registries** in `docs/reference/` centralize the manual operations that
+live outside the repo: `dns-records.md` (every UDR DNS record),
+`sso-applications.md` (every Authentik
+application and its exact config values), `uptime-kuma-monitors.md` (every
+Kuma monitor, grouped by stack) and `timetable.md` (everything that runs on a
+clock). Guides link the registries instead of duplicating
 the lists — a new hostname, SSO app or monitor gets its registry row first, and
 per-service values should never be repeated inline in a guide.
 
-All three carry `**Runs on:** … — registry, not a build step`, and all three list
+Every one carries `**Runs on:** … — registry, not a build step`, and every one lists
 their **deliberate absences** alongside their entries, because a registry that
 only records what exists cannot tell you whether a gap was a decision. The
 absences are load-bearing: `coolify.`/`apps.` have no DNS row, Vaultwarden, Kuma
@@ -750,12 +773,30 @@ jump-off repeated. Doing-path first and short, all rationale below the fold.
 **Guides describe a from-scratch bring-up of the current checkout — always.**
 No migration paths, no upgrade branches, no phase history (the roadmap and the
 dated specs keep that). A `git pull` anywhere but the initial clone is a red
-flag. `dev/roadmap/` holds forward-looking plans (CI hardening) — decisions
-for work not built yet; a piece graduates from roadmap to guide when it lands.
-`docs/superpowers/{specs,plans}/` holds dated design specs and implementation
-plans (`YYYY-MM-DD-*.md`), and `dev/reviews/` holds dated findings from
-replaying the guides end to end. Those three are **historical records** — do
-not retro-edit them when the guides change.
+flag.
+
+**`dev/` is the other half of the split: what you read to understand why the lab
+looks like that.** Nothing in it is needed in order to build the lab, and that
+is the test for what belongs there.
+
+- `dev/roadmap/` — forward-looking decisions for work not built yet; a piece
+  graduates from roadmap to guide when it lands. Live, and edited routinely.
+- `dev/specs/` — dated design specs (`YYYY-MM-DD-<topic>-design.md`).
+- `dev/plans/` — dated implementation plans (`YYYY-MM-DD-<topic>.md`).
+- `dev/reviews/` — dated findings from replaying the guides end to end.
+
+**Write new specs to `dev/specs/` and new plans to `dev/plans/`.** The
+superpowers skills default to `docs/superpowers/{specs,plans}/`; this repo
+overrides that, and a spec landing in the old path rebuilds a tree that was
+deliberately removed.
+
+**`dev/specs/`, `dev/plans/` and `dev/reviews/` are historical records** — do
+not retro-edit them when the guides change. `dev/roadmap/` is **not** one of
+them. When a path inside a historical record has to change: if the edit changes
+which document a reader lands on it is a retro-edit and is forbidden; if it
+lands them on the same document at its new address it is a move-repair and is
+required. Markdown links are addresses and get repaired; bare paths in their
+prose are statements about what was true that day and stay frozen.
 
 When the config and a guide disagree, the compose/script files are the source
 of truth — update the guide to match.
