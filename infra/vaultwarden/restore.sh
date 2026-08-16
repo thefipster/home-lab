@@ -148,7 +148,7 @@ if [ "$missing" -ne 0 ]; then
     echo "when pg_dump failed and the runner snapshotted the files anyway. It" >&2
     echo "stops here BY DESIGN, with /opt/${STACK} untouched, because the next" >&2
     echo "move needs it that way — 'Last resort: the raw PGDATA' in" >&2
-    echo "docs/backup-setup.md. Do not undo anything first." >&2
+    echo "docs/guides/backup-setup.md. Do not undo anything first." >&2
   fi
 
   if [ ! -e "${STAGE}${REPO_ROOT}/infra/${STACK}/.env" ]; then

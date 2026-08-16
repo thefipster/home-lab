@@ -4,7 +4,7 @@ The home-assistant VM runs **Home Assistant OS** — the full
 appliance including the Supervisor, so add-ons like ESPHome and Mosquitto install
 from HA's own store.
 
-**Guide: [docs/home-assistant-setup.md](../docs/home-assistant-setup.md).**
+**Guide: [docs/guides/home-assistant-setup.md](../docs/guides/home-assistant-setup.md).**
 
 ## Why there is no compose file and no init script
 
@@ -47,7 +47,7 @@ itself, so appending cannot collide.
 - **No SSO, deliberately.** HA has no OIDC, and forward-auth would break the
   companion app, webhooks and every local API caller. It keeps its own local
   login — a stated exception, alongside Vaultwarden and Uptime Kuma. Reasoning in
-  [docs/sso-applications.md](../docs/sso-applications.md).
+  [docs/reference/sso-applications.md](../docs/reference/sso-applications.md).
 - **Monitored** via `/api/prometheus`, scraped by Alloy as `job="homeassistant"`.
   Those are entity metrics, not machine counters, so they do not appear on the
   Node Exporter Full dashboard.

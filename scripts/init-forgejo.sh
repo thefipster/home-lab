@@ -11,7 +11,7 @@
 #
 # The registry needs NO daemon configuration: Traefik serves it at
 # https://git.thefipster.de with a publicly trusted cert (see
-# docs/traefik-setup.md — bring Traefik up before Forgejo's first run).
+# docs/guides/traefik-setup.md — bring Traefik up before Forgejo's first run).
 #
 # Run from anywhere; .env is written to infra/forgejo/ next to the compose file.
 # Usage (from the repo root):
@@ -96,9 +96,9 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${REPO_ROOT}/infra/forgejo" "${STACKS_DIR}/forgejo"
 
 echo
-echo "Done. Next steps (see docs/forgejo-setup.md):"
+echo "Done. Next steps (see docs/guides/forgejo-setup.md):"
 echo "  - Make sure the Traefik stack is up first (scripts/init-traefik.sh +"
-echo "    docs/traefik-setup.md) — Forgejo is served at https://git.thefipster.de"
+echo "    docs/guides/traefik-setup.md) — Forgejo is served at https://git.thefipster.de"
 echo "  - Step 2: start the stack — via Dockge (stack 'forgejo'), or from"
 echo "            ${REPO_ROOT}/infra/forgejo run: docker compose up -d db forgejo"
 echo "  - Step 4: register the runner (one-time, needs a token from the UI)"

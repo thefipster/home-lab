@@ -118,7 +118,7 @@ apt-config dump 2>/dev/null \
   || true
 
 echo
-echo "Done. Verify (see docs/infra-vm-setup.md or docs/apps-vm-setup.md):"
+echo "Done. Verify (see docs/guides/infra-vm-setup.md or docs/guides/apps-vm-setup.md):"
 echo "  1. sudo unattended-upgrade --dry-run --debug"
 echo "     — prints which packages the next run would take. Nothing from"
 echo "       Docker's repo should ever appear."

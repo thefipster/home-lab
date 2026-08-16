@@ -131,7 +131,7 @@ if [ "$missing" -ne 0 ]; then
     echo "stops here BY DESIGN, with /opt/${STACK} untouched, because the next" >&2
     echo "move needs it that way — the staged tree still holds the torn kuma.db" >&2
     echo "triplet, and putting that back by hand is the last resort described in" >&2
-    echo "docs/backup-setup.md. Do not undo anything first." >&2
+    echo "docs/guides/backup-setup.md. Do not undo anything first." >&2
   fi
 
   exit 1
@@ -187,7 +187,7 @@ Done. Verify, in this order:
   1. https://uptime.thefipster.de loads and your admin login works — the
      password hash lives in the database you just rebuilt, so this is the
      first thing that proves the dump loaded.
-  2. Every monitor from docs/uptime-kuma-monitors.md is present, and the
+  2. Every monitor from docs/reference/uptime-kuma-monitors.md is present, and the
      groups are intact.
   3. The ntfy notification is still attached — open any monitor and check it
      is ticked, since notification bindings are per-monitor rows.

@@ -3,7 +3,7 @@
 The apps VM runs [Coolify](https://coolify.io), a self-hosted
 PaaS that builds, deploys and runs your own applications with domains and HTTPS.
 
-**Guide: [docs/coolify-setup.md](../docs/coolify-setup.md).**
+**Guide: [docs/guides/coolify-setup.md](../docs/guides/coolify-setup.md).**
 
 ## Why there is no compose file here
 
@@ -58,6 +58,6 @@ either way.
 `*.thefipster.de` already resolves to this VM, so **a new app needs no new DNS
 record** and `coolify.thefipster.de` needs no exact record of its own. The
 registry, including why that absence is deliberate:
-[docs/dns-records.md](../docs/dns-records.md).
+[docs/reference/dns-records.md](../docs/reference/dns-records.md).
 
 See also the main [README](../README.md).

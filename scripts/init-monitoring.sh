@@ -12,7 +12,7 @@
 #   4. Symlink the stack into /opt/stacks so Dockge can manage it.
 #
 # The two Authentik OIDC values stay BLANK on purpose — they are copied by hand
-# from Authentik (docs/grafana-setup.md, step 5), which is also when
+# from Authentik (docs/guides/grafana-setup.md, step 5), which is also when
 # GRAFANA_OIDC_ENABLED flips to true. The stack comes up fine without them.
 #
 # Re-runnable: it never rotates a secret that is already set. Run from anywhere.
@@ -92,10 +92,10 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/monitoring"
 
 echo
-echo "Done. Next (see docs/grafana-setup.md):"
+echo "Done. Next (see docs/guides/grafana-setup.md):"
 echo "  1. Verify the grafana.thefipster.de (and otlp.thefipster.de) host"
 echo "     records resolve to the infra VM — the registry is"
-echo "     docs/dns-records.md. The *.thefipster.de wildcard points at the"
+echo "     docs/reference/dns-records.md. The *.thefipster.de wildcard points at the"
 echo "     APPS VM, so without an exact record the name hits the wrong box."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Log in at https://grafana.thefipster.de as 'admin' using"

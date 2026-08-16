@@ -9,7 +9,7 @@
 #
 # Build order: run AFTER init-traefik.sh and init-authentik.sh (with both
 # stacks up) — Dockge's router is gated by the authentik@docker middleware and
-# won't load until Authentik is running. See docs/authentik-setup.md.
+# won't load until Authentik is running. See docs/guides/authentik-setup.md.
 #
 # Assumes Docker is installed (run scripts/init-docker.sh first).
 # Usage (from the repo root):

@@ -47,7 +47,7 @@ run_root mkdir -p "${STACKS_DIR}"
 run_root ln -sfn "${STACK_DIR}" "${STACKS_DIR}/traefik"
 
 echo
-echo "Done. Next (see docs/traefik-setup.md):"
+echo "Done. Next (see docs/guides/traefik-setup.md):"
 echo "  1. Edit ${STACK_DIR}/.env with your netcup credentials."
 echo "  2. cd ${STACK_DIR} && docker compose up -d"
 echo "  3. Watch: docker compose logs -f traefik — the wildcard request fires"

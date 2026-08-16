@@ -9,7 +9,7 @@
 //             otlp.thefipster.de) and fans it into the SAME Prometheus/Loki,
 //             plus traces into Tempo.
 //
-// Built incrementally as phases 1-4 of docs/roadmap/monitoring.md (see the
+// Built incrementally as phases 1-4 of dev/roadmap/monitoring.md (see the
 // dated specs for the narrative); this file is the finished form.
 //
 // Component health: http://127.0.0.1:12345 on the infra VM (loopback-bound,
@@ -123,7 +123,7 @@ prometheus.scrape "host" {
 // per scrape and a host IP change corrects itself. The failure mode is not the
 // obvious one: if the exact `pve.thefipster.de` record is missing the name does
 // NOT fail to resolve — the *.thefipster.de wildcard answers with the APPS VM
-// and this quietly scrapes the wrong machine. See docs/dns-records.md.
+// and this quietly scrapes the wrong machine. See docs/reference/dns-records.md.
 //
 // `instance` is set INLINE deliberately: Prometheus derives it from __address__
 // only when the label is absent, and the bare `pve` is what keeps the FQDN out
@@ -132,7 +132,7 @@ prometheus.scrape "host" {
 // Full picks this host up with no edit to its JSON.
 //
 // The exporter is Debian's prometheus-node-exporter running as a systemd unit
-// on the hypervisor (docs/grafana-setup.md step 6) — NOT a container, and not
+// on the hypervisor (docs/guides/grafana-setup.md step 6) — NOT a container, and not
 // an LXC guest, which would report lxcfs's virtualized /proc instead of the
 // host's.
 prometheus.scrape "proxmox_host" {
@@ -154,7 +154,7 @@ prometheus.scrape "proxmox_host" {
 // is the box we want. Note the contrast with pve above — there the wildcard
 // answers with the WRONG machine, which is why that one needs an exact record.
 // Here the general rule gives the right answer, so there is nothing to add.
-// See docs/dns-records.md, which records this as a deliberate non-row.
+// See docs/reference/dns-records.md, which records this as a deliberate non-row.
 //
 // Same job="node" as infra and pve, distinct instance — that shared label plus
 // a distinct instance is the whole reason all three land on the vendored Node

@@ -3,7 +3,7 @@
 # init-coolify.sh — install Coolify (self-hosted PaaS) on the APPS VM.
 #
 # Assumes scripts/init-host.sh and scripts/init-unattended-upgrades.sh have run
-# on this machine (docs/apps-vm-setup.md). It does NOT assume Docker:
+# on this machine (docs/guides/apps-vm-setup.md). It does NOT assume Docker:
 # the apps VM skips init-docker.sh on purpose, because the Coolify installer
 # below brings its own Engine. Steps:
 #   1. Preflight: OS family, Docker Engine version IF one is present, disk, RAM.
@@ -79,7 +79,7 @@ esac
 
 # Docker is OPTIONAL here — the one preflight in this repo that does not demand
 # it. The apps VM deliberately skips scripts/init-docker.sh
-# (docs/apps-vm-setup.md): Coolify's installer brings its own Engine, so a
+# (docs/guides/apps-vm-setup.md): Coolify's installer brings its own Engine, so a
 # missing docker binary
 # is the NORMAL state on a first run and must not abort. When one IS already
 # present — a re-run, or an Engine that arrived some other way — Coolify needs
@@ -143,7 +143,7 @@ fi
 # build cache are the part of this machine that actually grows, and this repo
 # assigns that growth to the 300 GB `data` mirror, so the data-root is pointed
 # there BEFORE any Engine exists. Afterwards means moving a live data
-# directory, the same trap docs/apps-vm-setup.md names for /data/coolify.
+# directory, the same trap docs/guides/apps-vm-setup.md names for /data/coolify.
 #
 # /data/docker is the one directory on that disk which is DELIBERATELY
 # disposable: every byte in it is pullable or rebuildable. That is also why the
@@ -157,7 +157,7 @@ echo "==> Pointing Docker's data-root at ${DOCKER_DATA_ROOT}"
 # fix — and it would look like it worked.
 if ! mountpoint -q "$DATA_MOUNT"; then
   echo "${DATA_MOUNT} is not a mountpoint — mount the 300 GB data disk first" >&2
-  echo "(docs/apps-vm-setup.md, step 4)." >&2
+  echo "(docs/guides/apps-vm-setup.md, step 4)." >&2
   exit 1
 fi
 
@@ -262,7 +262,7 @@ fi
 IP="$(hostname -I | awk '{print $1}')"
 
 echo
-echo "Done. Next (see docs/coolify-setup.md):"
+echo "Done. Next (see docs/guides/coolify-setup.md):"
 echo "  1. Open http://${IP}:8000 and create the admin account NOW — the"
 echo "     instance is unauthenticated until you do."
 echo "  2. Fill in ${APPS_DIR}/.env with your netcup credentials, then type"
@@ -273,4 +273,4 @@ echo "     compose from its own store; the .env file is the recovery copy."
 echo "  3. Install the host metrics exporter so the infra VM can watch this"
 echo "     machine:  scripts/init-node-exporter.sh"
 echo "  4. coolify.thefipster.de needs NO DNS record — the *.thefipster.de"
-echo "     wildcard already points here. See docs/dns-records.md."
+echo "     wildcard already points here. See docs/reference/dns-records.md."

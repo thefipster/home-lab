@@ -3,7 +3,7 @@
 # changes.
 #
 # The UniFi Dream Router is NOT here. It has no DNS name in
-# docs/dns-records.md, and the only other way to link it would be a literal
+# docs/reference/dns-records.md, and the only other way to link it would be a literal
 # address — which this repo does not write down anywhere.
 
 - Source:

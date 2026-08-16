@@ -4,7 +4,7 @@
 #
 # `container:` values are DERIVED, not configured: no compose file in this repo
 # sets container_name, so every container is <project>-<service>-1. The same
-# names appear in docs/uptime-kuma-monitors.md; keep the two in step.
+# names appear in docs/reference/uptime-kuma-monitors.md; keep the two in step.
 #
 # Only services with a container ON THIS VM carry `server:`/`container:`.
 # Everything on the Proxmox host, the apps VM and the HA VM is a link — that
@@ -61,7 +61,7 @@
         container: uptime-kuma-uptime-kuma-1
         # Kuma has no full API, so this widget reads a public STATUS PAGE. The
         # `homelab` slug must exist in Kuma or the widget stays blank — it is
-        # recorded in docs/uptime-kuma-monitors.md for that reason.
+        # recorded in docs/reference/uptime-kuma-monitors.md for that reason.
         widget:
           type: uptimekuma
           url: http://uptime-kuma:3001

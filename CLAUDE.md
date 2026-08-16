@@ -40,7 +40,7 @@ service name and nesting them would add a `../` to every cross-guide link:
   guest — and it runs **NUT** for the UPS, shutting all three guests down
   through Proxmox's own guest shutdown rather than through NUT clients. Neither
   has an init script: this machine has no checkout of the repo, so both live as
-  guide text in `docs/proxmox-setup.md`.
+  guide text in `docs/guides/proxmox-setup.md`.
 - **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
@@ -124,7 +124,7 @@ A stack becomes reachable by **two things**, not by any central config:
 > **Read that first line literally — it says *on the infra VM*.** The Proxmox
 > host terminates its own TLS on its own machine, with its own ACME client and
 > its own **exact** certificate for `pve.thefipster.de` served on 443
-> (`docs/proxmox-setup.md` Part 3). That is the one place a second certificate
+> (`docs/guides/proxmox-setup.md` Part 3). That is the one place a second certificate
 > in the lab is correct rather than a mistake, and it is deliberate on both
 > counts: routing `pve.` through Traefik would make it a *service* name pointing
 > at the infra VM — renaming the machine out from under Alloy's scrape target,
@@ -132,7 +132,7 @@ A stack becomes reachable by **two things**, not by any central config:
 > hypervisor's repair surface behind one of its own guests. An **exact** name
 > rather than a wildcard is what keeps its `_acme-challenge` record from racing
 > Traefik's on netcup's non-atomic zone updates. Full reasoning:
-> `docs/superpowers/specs/2026-08-15-pve-https-and-ups-design.md`.
+> `dev/specs/2026-08-15-pve-https-and-ups-design.md`.
 
 1. Joining the external `proxy` Docker network (declared `external: true`; created
    once by the init scripts).
@@ -227,9 +227,9 @@ records which side each value lives on; keep that column honest.
 
 Two layers, and they answer different questions. **Layer 1** is whole-VM
 `vzdump` on the hypervisor — "the disk died" — and needs no repo code
-([docs/proxmox-setup.md Part 8](docs/proxmox-setup.md)). **Layer 2** is
+([docs/guides/proxmox-setup.md Part 8](docs/guides/proxmox-setup.md)). **Layer 2** is
 file-level restic — "Authentik ate its database" — and is `infra/backup/` plus
-[docs/backup-setup.md](docs/backup-setup.md). Only layer 2 is a convention.
+[docs/guides/backup-setup.md](docs/guides/backup-setup.md). Only layer 2 is a convention.
 
 Backups are **per stack, defined beside the stack**. A stack is backed up by
 adding one file, `infra/<stack>/backup.sh`, which sources `infra/backup/lib.sh`
@@ -240,7 +240,7 @@ central list** — `infra/backup/run.sh` finds stacks by globbing
 `infra/*/backup.sh`, so adding a stack is one file and removing one is deleting
 it. **Every stack that holds state is wired** — Authentik, Dockge, Forgejo,
 monitoring, Traefik, Uptime Kuma and Vaultwarden — so every tier-1 and tier-2
-row in `docs/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
+row in `dev/roadmap/backup.md` has a `backup.sh` and a `restore.sh` beside its
 compose file. **Homepage is the one stack with neither, deliberately**: it has
 no `/opt` directory and no `.env`, so every byte it owns is already in this
 repo and a snapshot of it would be a snapshot of a checkout.
@@ -370,7 +370,7 @@ The first three are **host** scripts, not stack scripts, and the split between
 them is deliberate: only the middle one is about Docker, so only it is
 infra-VM-only. The apps VM runs the other two (it gets its Docker from
 Coolify's installer). Those two runs have a guide each —
-`docs/infra-vm-setup.md` and `docs/apps-vm-setup.md` — rather than one shared
+`docs/guides/infra-vm-setup.md` and `docs/guides/apps-vm-setup.md` — rather than one shared
 section, for the reasons under [Docs layout](#docs-layout).
 
 1. `scripts/init-host.sh` — machine-level basics with no Docker in them: the
@@ -491,7 +491,7 @@ build order in the README is grouped by machine for exactly this reason:
    documented `apt install`.
 15. The **home-assistant VM has no init script at all** — HAOS is an appliance.
     Its VM is created by hand (`qm importdisk`, OVMF, resize before first boot)
-    per `docs/home-assistant-setup.md`.
+    per `docs/guides/home-assistant-setup.md`.
 
 `scripts/init-host.sh` and `scripts/init-unattended-upgrades.sh` run on **both**
 Ubuntu VMs, not just infra — neither one touches Docker, which is the whole
@@ -659,7 +659,7 @@ the single source of truth; Dockge only drives start/stop/logs.
   needs recording here, record the *consequence* for the lab (a token, a runner
   label, a storage path), not the YAML. What this repo owns is
   `infra/forgejo/config.yml` (the runner), the registry, and the procedure in
-  `docs/forgejo-setup.md`.
+  `docs/guides/forgejo-setup.md`.
 - **CI is manual-only, and the lab runs no CI schedule at all.** GitHub is
   primary and Forgejo pull-mirrors it, so `on: push` does not fire; the lab is
   LAN-only, so GitHub cannot call in either. Nothing event-driven is possible in
@@ -667,11 +667,11 @@ the single source of truth; Dockge only drives start/stop/logs.
   scheduled jobs were designed and **both rejected**: a *reconciler* (cron +
   registry-as-ledger + a rolling-tag guard), because all of it reconciles drift
   and dispatching by hand right after tagging means drift never accumulates
-  (`docs/superpowers/specs/2026-08-05-forgejo-release-workflow-design.md`); and
+  (`dev/specs/2026-08-05-forgejo-release-workflow-design.md`); and
   a *nightly rebuild*, whose last surviving purpose was re-scanning published
   images for CVEs disclosed after the build — that gap is now stated without an
-  automated answer in `docs/roadmap/ci-supply-chain.md`. Don't re-propose
-  either; `docs/timetable.md` records the absence as a decision.
+  automated answer in `dev/roadmap/ci-supply-chain.md`. Don't re-propose
+  either; `docs/reference/timetable.md` records the absence as a decision.
 - **The runner is `capacity: 1`.** Jobs run one after another, so anything that
   makes a run wider makes it longer. That is a real constraint on what to
   suggest — it is why the dev builder gates each job behind a tick-box, and why
@@ -750,10 +750,10 @@ jump-off repeated. Doing-path first and short, all rationale below the fold.
 **Guides describe a from-scratch bring-up of the current checkout — always.**
 No migration paths, no upgrade branches, no phase history (the roadmap and the
 dated specs keep that). A `git pull` anywhere but the initial clone is a red
-flag. `docs/roadmap/` holds forward-looking plans (CI hardening) — decisions
+flag. `dev/roadmap/` holds forward-looking plans (CI hardening) — decisions
 for work not built yet; a piece graduates from roadmap to guide when it lands.
 `docs/superpowers/{specs,plans}/` holds dated design specs and implementation
-plans (`YYYY-MM-DD-*.md`), and `docs/review/` holds dated findings from
+plans (`YYYY-MM-DD-*.md`), and `dev/reviews/` holds dated findings from
 replaying the guides end to end. Those three are **historical records** — do
 not retro-edit them when the guides change.
 
