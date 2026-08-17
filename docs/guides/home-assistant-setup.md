@@ -557,16 +557,34 @@ and the form can submit one of them alone. Nothing on that page saved, the port
 and the certificate paths included, so this looks like a TLS problem and is not
 one.
 
-On a fresh build there is nothing to set there, so the fix is to leave the whole
-section untouched. If one half is already filled in, put the other half back,
-save, and then clear both together in a **second** save — one field at a time is
-what the schema will not accept.
+On a fresh build there is nothing to set there and this never fires, which is why
+the step above says to leave the section alone.
 
-> **A leftover trusted proxy is inert, so do not let this block you.**
-> `use_x_forwarded_for` means "trust `X-Forwarded-For` from this address", and no
-> request arrives from a proxy that is not in the path. It is worth clearing
-> because it is the one address-shaped value the lab would otherwise carry, not
-> because it does anything.
+**Once populated, it cannot be emptied from this form.** The toggle always
+submits a value and an emptied list submits none, so "clear both" produces
+precisely the state the schema rejects — there is no sequence of edits that
+reaches *neither*. Complete the pair with a value that can never match instead:
+
+| Field | Value |
+|---|---|
+| Trust X-Forwarded-For | on |
+| Trusted proxies | `192.0.2.1/32` |
+
+That is **RFC 5737 TEST-NET-1**, reserved for documentation and routed nowhere,
+so it is guaranteed never to be the peer HA sees. The group is syntactically
+complete and semantically empty, and the field stops holding an address that
+means anything.
+
+> **Do not leave a real machine's address there instead.** It is inert only for
+> as long as nothing else answers to it — `use_x_forwarded_for` says "trust
+> `X-Forwarded-For` from this address", so whatever ends up on that address later
+> is authorised to forge client IPs. A stale address that still looks
+> authoritative is the exact failure this lab addresses everything by name to
+> avoid
+> ([dns-records.md](../reference/dns-records.md#why-this-registry-holds-no-addresses)).
+> The only route to a genuinely empty pair is editing HA's own storage, which is
+> appliance internals and not worth it for a field that a reserved address
+> already neutralises.
 
 **`https://ha.thefipster.de` does not answer at all.** HA is not listening on
 443. Either the Network settings did not stick — the five-minute confirmation

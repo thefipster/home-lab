@@ -95,10 +95,23 @@ form will happily submit one of them alone, and HA answers `some but not all
 values in the same group of inclusion 'proxy'` — rejecting the **whole page**,
 port and certificate paths included, which makes a schema complaint about a
 section you were trying to *empty* look like a TLS failure. A fresh build never
-touches that section and never sees it. It matters for the guide because
-"leave the reverse-proxy section alone" is a real instruction rather than an
-omission, and because the same trap catches anyone tidying up afterwards: the
-pair has to be cleared in one save, not one field at a time.
+touches that section and never sees it, which is why "leave the reverse-proxy
+section alone" is a real instruction in the guide rather than an omission.
+
+**The sharper half: once populated, that pair cannot be emptied from the form
+at all.** The toggle always submits a value and an emptied list submits none, so
+there is no sequence of edits that reaches *neither* — the form can set this
+setting and cannot unset it. The guide's answer is to complete the pair with
+**`192.0.2.1/32`** (RFC 5737 TEST-NET-1, reserved and routed nowhere) rather
+than leave a real machine's address behind: syntactically complete, semantically
+empty, and never the peer HA sees. Leaving the old proxy address would have been
+inert only until something else took that address, at which point it would be
+authorised to forge client IPs — a stale address still reading as authoritative,
+which is the failure the whole name-everything rule exists to prevent.
+
+This is the one place the built lab differs from what a fresh bring-up produces,
+and it is a property of the form rather than of the design: build it from
+scratch and the pair is simply never set.
 
 **The app will not start until its port 80 mapping is cleared**, with
 `Cannot start app core_letsencrypt because port 80 is already in use`. The two
