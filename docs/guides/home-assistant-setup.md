@@ -304,9 +304,22 @@ the port:
 
 | Field | Value |
 |---|---|
-| Port | `443` |
-| SSL certificate | `/ssl/fullchain.pem` |
-| SSL key | `/ssl/privkey.pem` |
+| Server port | `443` |
+| SSL certificate path | `/ssl/fullchain.pem` |
+| SSL key path | `/ssl/privkey.pem` |
+
+Leave *SSL peer certificate path* empty and *SSL profile* on **Modern** — that
+is a client-certificate requirement and a Mozilla cipher profile, neither of
+which this lab changes.
+
+> **Do not touch the *Reverse proxy* section, now or later.** Nothing proxies
+> this machine, so **Trust X-Forwarded-For** stays off and **Trusted proxies**
+> stays empty — that absence is the whole reason the lab records no literal IP
+> address anywhere
+> ([dns-records.md](../reference/dns-records.md#why-this-registry-holds-no-addresses)).
+> The two fields are an **inclusive pair** in HA's schema: set one without the
+> other and the form refuses to save the *whole* page, port and certificate
+> included. See [Troubleshooting](#troubleshooting).
 
 > **This is UI configuration, not YAML — and the app's own documentation will
 > tell you otherwise.** It still describes referencing the two files from an
@@ -536,6 +549,24 @@ Then re-check `netcup_customer_id`, `netcup_api_key` and `netcup_api_password` o
 the *Configuration* tab. Regenerate the API password in netcup's CCP if unsure —
 it is shown only once. Do not hammer the production CA while debugging: it allows
 roughly five failed validations per hostname per hour.
+
+**`some but not all values in the same group of inclusion 'proxy'`, saving the
+Network form.** The two *Reverse proxy* fields — **Trust X-Forwarded-For** and
+**Trusted proxies** — are an inclusive pair: HA's schema takes both or neither,
+and the form can submit one of them alone. Nothing on that page saved, the port
+and the certificate paths included, so this looks like a TLS problem and is not
+one.
+
+On a fresh build there is nothing to set there, so the fix is to leave the whole
+section untouched. If one half is already filled in, put the other half back,
+save, and then clear both together in a **second** save — one field at a time is
+what the schema will not accept.
+
+> **A leftover trusted proxy is inert, so do not let this block you.**
+> `use_x_forwarded_for` means "trust `X-Forwarded-For` from this address", and no
+> request arrives from a proxy that is not in the path. It is worth clearing
+> because it is the one address-shaped value the lab would otherwise carry, not
+> because it does anything.
 
 **`https://ha.thefipster.de` does not answer at all.** HA is not listening on
 443. Either the Network settings did not stick — the five-minute confirmation

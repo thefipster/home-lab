@@ -36,7 +36,7 @@ file provider is gone with its only user, `ha.` now names the machine, and
   proxy config; accepted. `propagation_seconds: 900`, the value Traefik
   already proved against netcup. Its **port 80 mapping is cleared** — the app
   will not start otherwise, and the port belongs to a challenge this lab does
-  not use ([below](#three-things-the-plan-did-not-have)).
+  not use ([below](#four-things-the-plan-did-not-have)).
 - **Cert paths and port into HA's Network settings.** The app writes
   `/ssl/fullchain.pem` + `/ssl/privkey.pem`; its DOCS still say to reference
   them from an `http:` block, which 2026.8 retired — the fields live in
@@ -49,7 +49,7 @@ file provider is gone with its only user, `ha.` now names the machine, and
   (30 days before expiry) that is a no-op: no ACME traffic, no netcup calls.
   It ended up **weekly rather than nightly**, and with an unconditional
   `homeassistant.restart` twenty minutes after each run — see
-  [Three things the plan did not have](#three-things-the-plan-did-not-have)
+  [Four things the plan did not have](#four-things-the-plan-did-not-have)
   below.
   A [timetable.md](../../../docs/reference/timetable.md) row for the automation;
   the alarm for silent expiry is the certificate-expiry notification Kuma
@@ -82,11 +82,23 @@ file provider is gone with its only user, `ha.` now names the machine, and
   reaches HA directly — but its rationale was rewritten: what the scrape now
   proves is HA's own TLS.
 
-## Three things the plan did not have
+## Four things the plan did not have
 
-All three surfaced while carrying the procedure out rather than while designing
+All four surfaced while carrying the procedure out rather than while designing
 it, and each is recorded here because the reasoning is not obvious from the
-result.
+result. The first two are collisions the plan could not have predicted from
+reading; the last two are choices it left open.
+
+**The Network form's two reverse-proxy fields are an inclusive pair**, so
+`use_x_forwarded_for` and `trusted_proxies` are set together or not at all. The
+form will happily submit one of them alone, and HA answers `some but not all
+values in the same group of inclusion 'proxy'` — rejecting the **whole page**,
+port and certificate paths included, which makes a schema complaint about a
+section you were trying to *empty* look like a TLS failure. A fresh build never
+touches that section and never sees it. It matters for the guide because
+"leave the reverse-proxy section alone" is a real instruction rather than an
+omission, and because the same trap catches anyone tidying up afterwards: the
+pair has to be cleared in one save, not one field at a time.
 
 **The app will not start until its port 80 mapping is cleared**, with
 `Cannot start app core_letsencrypt because port 80 is already in use`. The two
