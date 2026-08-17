@@ -108,7 +108,7 @@ nothing references them. Anything published more than a day ago — which is
 everything a rule can reach — therefore frees its space the same night.
 
 The schedule itself is Forgejo's, not this repo's:
-[timetable.md](timetable.md#continuous-and-short-interval).
+[timetable.md](timetable.md#the-night-window).
 
 ## Verifying a rule before it runs
 
@@ -143,7 +143,7 @@ kinds are listed — the same rule the other registries follow.
   A cleanup rule cannot see them and the Packages tab does not list them.
 - **No schedule of ours.** The rules are applied by Forgejo's own
   `cron.cleanup_packages`, whose row is in
-  [timetable.md](timetable.md#continuous-and-short-interval). There is no timer
+  [timetable.md](timetable.md#the-night-window). There is no timer
   in this repo to add and none to break.
 - **No Uptime Kuma monitor.** A cleanup that silently stops running shows up as
   a registry that grows, and the disk it grows on is already watched by the

@@ -12,24 +12,33 @@ its source is a bug in this file, not a second opinion.
 
 ## The night window
 
-Five operations on three machines. The first four are the part that matters when
-adding a job: a backup chain, deliberately staggered, across two machines that
-share one set of disks.
+Everything here runs between midnight and 05:00, on three machines. The backup
+chain in the middle is the part that matters when adding a job: deliberately
+staggered, across two machines that share one set of disks.
 
 | Time | Machine | Operation | Declared in |
 |---|---|---|---|
+| **00:00** | infra VM | Forgejo's package-registry cleanup — applies the [cleanup rules](package-cleanup-rules.md), then deletes unreferenced blobs older than 24 h. Forgejo's own `cron.cleanup_packages` default (`@midnight`); nothing in the compose overrides it | [`forgejo/compose.yaml`](../../infra/forgejo/compose.yaml) |
 | **01:00** (+0–5 min) | infra VM | `restic` file-level backup of all seven stacks, then `forget --prune` (`--keep-daily 7 --keep-weekly 4 --keep-monthly 6`) | [`restic-backup.timer`](../../infra/backup/restic-backup.timer) |
 | **02:00** | Proxmox host | `vzdump` whole-VM snapshot backup, selection **All**, retention from the storage (`keep-daily=7,keep-weekly=4,keep-monthly=3`) | [proxmox-setup.md Part 8](../guides/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | **Sun 03:00** (+0–10 min) | infra VM | `restic check --read-data-subset=10%` | [`restic-check.timer`](../../infra/backup/restic-check.timer) |
 | **04:30** | infra + apps VMs | reboot — **only if** an installed update requires one | [`init-unattended-upgrades.sh`](../../scripts/init-unattended-upgrades.sh) |
 | **Sun 04:45** | home-assistant VM | start the one-shot Let's Encrypt app, then restart HA 20 minutes later. A no-op on all but the few Sundays inside the 30-day renewal window | [home-assistant-setup.md step 8](../guides/home-assistant-setup.md#8-keep-the-certificate-renewed) |
 
-**The order is load-bearing, not tidy.** restic runs first so that when vzdump
-starts an hour later, layer 1's whole-VM archive already contains that night's
-database dumps — the two layers stack rather than merely coexist. The weekly
-check runs after both, so the two jobs that touch `filebackup` never overlap on
-it and neither competes with vzdump for host I/O. The reboot window sits last,
-clear of all three.
+**The order is load-bearing, not tidy.** restic runs before vzdump so that when
+the latter starts an hour later, layer 1's whole-VM archive already contains
+that night's database dumps — the two layers stack rather than merely coexist.
+The weekly check runs after both, so the two jobs that touch `filebackup` never
+overlap on it and neither competes with vzdump for host I/O. The reboot window
+sits last, clear of all three.
+
+**The registry cleanup is deliberately ahead of the backup, not merely early.**
+It deletes at 00:00 and restic reads at 01:00, so an expired image version is
+already gone from `/opt/forgejo` when the snapshot is taken — the space comes
+back in that night's backup rather than one night later. It is also the one row
+whose time this repo does not set: Forgejo's cron says `@midnight`, and the
+compose mounts the host's `/etc/localtime` and `/etc/timezone`, which is what
+makes that midnight the same Europe/Berlin midnight as every other row here.
 
 **The last row is in this table for its clock, not for its load.** It is an ACME
 renewal on a third machine and moves no meaningful I/O; 04:45 puts it after the
@@ -59,7 +68,7 @@ one document.
 | **15 s** | infra VM | Alloy scrapes (every target but one) and its Docker discovery refresh | [`config.alloy`](../../infra/monitoring/alloy/config.alloy) |
 | **60 s** | infra VM | Alloy's Home Assistant scrape — slower deliberately: entity states are not 15-second data and HA's API is heavier than a node exporter | [`config.alloy`](../../infra/monitoring/alloy/config.alloy) |
 | **1 min** | infra VM | Grafana alert rule group evaluation. A rule fires only after its `for:` holds — 5 m, 15 m or 1 h depending on the rule | [`rules.yaml`](../../infra/monitoring/grafana/provisioning/alerting/rules.yaml) |
-| **~10 min** | infra VM | Forgejo pull-mirror sync from GitHub — **per repository**, set in Forgejo's own UI, so this is a convention rather than a declaration | [forgejo-setup.md step 6](../guides/forgejo-setup.md#6-mirror-a-repo-from-github) |
+| **8 h** | infra VM | Forgejo pull-mirror sync from GitHub — **per repository**, set in Forgejo's own UI, so this is a convention rather than a declaration. Long on purpose: a release run POSTs its own sync and waits for the tags, so nothing waits on this interval | [forgejo-setup.md step 6](../guides/forgejo-setup.md#6-mirror-a-repo-from-github) |
 | **daily** | infra VM | Traefik's ACME renewal check; it renews the wildcard when under 30 days remain. Traefik's built-in behaviour — nothing in the compose overrides it | [`traefik/compose.yaml`](../../infra/traefik/compose.yaml) |
 | **daily** | Proxmox host | Proxmox's ACME renewal check; it renews the exact `pve.thefipster.de` certificate when under 30 days remain. `pve-daily-update.timer`, which also does the APT update check — nothing here overrides either | [proxmox-setup.md Part 3](../guides/proxmox-setup.md#give-the-host-a-real-certificate) |
 
@@ -144,9 +153,11 @@ is why neither machine appears in the night window above.
 A gap that was decided reads differently from one that was overlooked, so both
 kinds are listed — the same rule the other registries follow.
 
-- **No CI schedule at all.** The app repo's Forgejo workflows are
+- **No CI schedule at all.** The app repo's Forgejo workflow is
   `workflow_dispatch`-only, because GitHub is primary and the lab is LAN-only,
-  so nothing event-driven is possible in either direction. Two scheduled jobs
+  so nothing event-driven is possible in either direction. The 00:00 row above
+  is not a counter-example: that is Forgejo's own housekeeping cron, which ships
+  with the server and builds nothing. Two scheduled jobs
   were designed and both were **rejected**, not deferred: a reconciler that
   would compare git tags against the registry and build the difference —
   dispatching by hand right after tagging means drift never accumulates
