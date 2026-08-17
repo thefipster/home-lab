@@ -35,8 +35,13 @@ design.**
 ## Recommendation
 
 Rank it second, behind only the apps-VM join. Write the one-page spec (target +
-topology), run the bandwidth check against the real repository size, and treat
-[registry-hygiene.md](registry-hygiene.md) as the natural predecessor — the
-Forgejo registry blobs dominate the repository, so expiring them first shrinks
-the first full upload — but do not let hygiene gate this: an offsite copy of a
-slightly-too-big repository beats no offsite copy of a tidy one.
+topology) and run the bandwidth check against the real repository size.
+
+**Its predecessor has landed**, and it landed smaller than expected:
+[done/registry-hygiene.md](done/registry-hygiene.md) bounds the Forgejo
+registry to the newest ten versions per package, so the first full upload can
+no longer be dominated by a registry that never expires. What it did **not** do
+is shrink anything — the registry held almost nothing when the rules went in,
+and "registry blobs dominate the repository" was an assumption rather than a
+measurement. Measure the repository itself (`restic stats --mode raw-data`)
+before sizing the link; do not carry that assumption into this task.

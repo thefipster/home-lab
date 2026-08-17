@@ -2,10 +2,10 @@
 
 Goal: know what's inside every image the lab builds, and don't push images
 with known-critical holes. **That goal is met** — the build produces an SBOM
-and fails on a critical finding today. What was left here — keeping the
+and fails on a fixable critical finding today. What was left here — keeping the
 registry from filling up, and signing — moved to its own tasks:
-[registry-hygiene.md](../registry-hygiene.md) and
-[image-signing.md](../image-signing.md).
+[registry-hygiene.md](registry-hygiene.md), since landed, and
+[image-signing.md](../image-signing.md), still parked.
 
 **The landed phases live in the app repo**, in `.forgejo/workflows/`, because
 that is where they run. This side records the consequences only —
@@ -15,23 +15,30 @@ references to "phase 3" elsewhere still land.
 
 ## Phases
 
-1. **✅ Landed.** **SBOM at build time.** Two complementary outputs, both cheap:
-   - `--sbom=true` on the buildx step — BuildKit generates an SBOM
-     attestation and stores it **in the registry next to the image**.
-   - `syft <image> -o cyclonedx-json` uploaded as a run artifact for a
-     human-readable copy.
+1. **✅ Landed, in a different place than designed.** **SBOM at build time.**
+   The design put a BuildKit `--sbom=true` attestation *in the registry beside
+   the image*; what shipped writes a CycloneDX SBOM as a **run artifact**
+   (30-day retention) and pushes no attestation at all. Phase 2 is why: scanning
+   before pushing means the image is built with `load: true` into the local
+   daemon, and the docker exporter cannot carry attestations. Gating the push
+   was worth more than co-locating the SBOM, so the attestation went rather than
+   the gate.
 
 2. **✅ Landed, enforcing.** **Image scan after build, before push.** Trivy
-   against the freshly built image. It went in report-only, and now runs
-   `--exit-code 1 --severity CRITICAL` — a critical finding fails the run and
-   nothing is pushed. HIGH is still advisory; raise it if the noise level turns
-   out to be livable. One scanner, deliberately (Grype exists; two scanners is
-   a hobby, not a control).
+   against the freshly built image, from a `docker save` tarball rather than
+   through the socket. It went in report-only and now runs
+   `--severity CRITICAL,HIGH --ignore-unfixed --exit-code 1` — a fixable
+   critical *or* high finding fails the run and nothing is pushed, while
+   findings with no released patch are written to the report instead of
+   blocking a release nobody can unblock. One scanner, deliberately (Grype
+   exists; two scanners is a hobby, not a control).
 
-3. **⬜ Open — extracted to [registry-hygiene.md](../registry-hygiene.md).**
-   Forgejo's built-in cleanup rules for the package registry, so SHA tags stop
-   living forever. More pressing than when first written: phase 1 stores an
-   attestation beside every image, so each build leaves more behind.
+3. **✅ Landed — see [registry-hygiene.md](registry-hygiene.md).** Forgejo's
+   built-in cleanup rules for the package registry. The premise here was that
+   phase 1's attestation made each tag costlier and that SHA tags lived
+   forever; by the time it was picked up, neither was true — phase 1 stores
+   nothing in the registry, and the workflow that tagged by SHA had been
+   deleted. It landed as two count-based rules with no age term.
 
 4. **✅ Landed.** **Dependency updates — runs against GitHub, not Forgejo.** The
    Forgejo copies are read-only mirrors, so updates are raised on the GitHub

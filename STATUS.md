@@ -26,10 +26,10 @@ about the whole lab.
 | ZFS pool health → Uptime Kuma; pool capacity → Prometheus | ✅ deployed — timer pushing, Kuma monitor green, [Part 9](docs/guides/proxmox-setup.md#part-9--notice-when-a-mirror-degrades) |
 | Proxmox web UI on 443 with its own certificate | ✅ deployed — [Part 3](docs/guides/proxmox-setup.md#give-the-host-a-real-certificate). Its own Let's Encrypt certificate from Proxmox's ACME client, not Traefik's wildcard, so the one UI you repair the lab with does not depend on one of the lab's own guests. Renewal is Proxmox's `pve-daily-update.timer` and has not had to run yet. The home-assistant VM does the same, for the same reason |
 | UPS: orderly shutdown, and coming back | ✅ deployed — [Part 10](docs/guides/proxmox-setup.md#part-10--survive-a-power-cut). NUT on the hypervisor, no client in any guest. **Drilled end to end** ([drill](docs/drills/ups-power-cut-drill.md)): on-battery notification, backstop, guests down together, killpower, and the lab booting itself when mains returned. Only the server is on the UPS so far — adding the router, switch and WAN termination raises the load and is what lets the alert leave the house ([task](dev/roadmap/ups-reach.md)) |
-| CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 9](docs/guides/forgejo-setup.md#9-cut-a-release). The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
+| CI: release builds from git tags | ✅ deployed — dispatched by hand after tagging, [step 8](docs/guides/forgejo-setup.md#8-cut-a-release-and-verify-the-image). The only workflow left: the on-demand dev builder that tagged by commit SHA was deleted from the app repo, so every image here comes from a named release tag. The nightly rebuild was this item's last open piece and is **dropped**, not deferred |
 | CI: tests + coverage | ✅ deployed — a failing test fails the run, coverage in the run summary |
 | CI: code analysis | ✅ deployed — analyzers enforced in the build. One decision still open: whether a SonarQube stack earns its place ([task](dev/roadmap/sonarqube.md)) |
-| CI: container scanning + SBOM | ✅ deployed — SBOM attestation beside each image plus a CycloneDX run artifact, Trivy failing the run on `CRITICAL`, and dependency updates raised against the GitHub originals. Registry cleanup rules and image signing did not land ([cleanup](dev/roadmap/registry-hygiene.md), [signing](dev/roadmap/image-signing.md)) |
+| CI: container scanning + SBOM | ✅ deployed — Trivy failing the run on a `CRITICAL` or `HIGH` finding **that has a fix**, a CycloneDX SBOM as a 30-day run artifact, and dependency updates raised against the GitHub originals. The SBOM is deliberately **not** an attestation in the registry: the image is loaded locally so it can be scanned before the push, and that path cannot carry one. The registry is now bounded by two cleanup rules ([values](docs/reference/package-cleanup-rules.md), [design](dev/roadmap/done/registry-hygiene.md)); image signing is still parked ([task](dev/roadmap/image-signing.md)) |
 | Coolify install (apps VM) | ✅ deployed — [guide](docs/guides/coolify-setup.md) |
 | Third-party apps on the apps VM | ✅ deployed — Paperless-ngx, Mealie, BookStack and LubeLogger all running as Coolify resources, each from its own Forgejo repo and each joined to Authentik by OIDC — [catalog](apps/services.md). Their data under `/data` is backed up by nothing yet, and Paperless is tier 1 |
 | Container logs from the apps VM | ✅ deployed — a logs-only Alloy in `apps/alloy` pushing to the infra VM's Loki through a push-path-only router, [guide](docs/guides/apps-logs-setup.md). One query covers both Docker machines; `instance` tells them apart. Its own liveness is the one thing nothing watches — Kuma's socket is the infra VM's ([why](docs/reference/uptime-kuma-monitors.md#deliberately-not-monitored)) |
@@ -61,9 +61,11 @@ existence:
   Paperless' own `document_exporter`, run by hand, is the whole answer today.
   Its container logs, by contrast, are now collected
   ([guide](docs/guides/apps-logs-setup.md)).
-- **The CI supply-chain phases that did not land** — registry cleanup rules
-  ([task](dev/roadmap/registry-hygiene.md)) and image signing
-  ([task](dev/roadmap/image-signing.md)).
+- **Image signing, the one CI supply-chain phase that did not land**
+  ([task](dev/roadmap/image-signing.md)) — parked rather than ranked, because
+  nothing would verify a signature until a lab-built image is deployed on the
+  apps VM. The registry cleanup rules that used to sit beside it here are
+  [done](dev/roadmap/done/registry-hygiene.md).
 
 The full ranked list, including the cheaper proofs and heartbeats those three
 imply, is [ROADMAP.md](ROADMAP.md).

@@ -223,8 +223,9 @@ drive**:
 grow monotonically. That is the same space the drive it replaced had, so this
 change bought redundancy and **not** runway. restic's dedup absorbs repeated
 image layers well but cannot delete what the registry never expires — so the
-registry-hygiene task ([registry-hygiene.md](../registry-hygiene.md)) is
-still the only real lever on whether this pool stays big enough.
+registry-hygiene task ([registry-hygiene.md](registry-hygiene.md)) is
+still the only real lever on whether this pool stays big enough. It has since
+landed: the registry is bounded by count, so the lever is now pulled.
 
 **One obligation this creates.** Layer 1 excludes the apps VM's 300 GB data disk
 (`backup=0`, [proxmox-setup.md Part 5](../../../docs/guides/proxmox-setup.md#part-5--create-the-vms)),
@@ -476,8 +477,8 @@ reason.
   walk `/opt` — so the dumps in `/opt/backup/dumps` belong to the same run as
   the file trees around them.
 - **Sizing.** Forgejo's registry blobs dominate and grow monotonically; the
-  registry-hygiene task ([registry-hygiene.md](../registry-hygiene.md), keep
-  last N tags / max age) is also a backup-size lever. restic's dedup
+  registry-hygiene task ([registry-hygiene.md](registry-hygiene.md), which
+  landed as keep-last-N with no age term) is also a backup-size lever. restic's dedup
   handles repeated image layers well, but it cannot delete what the registry
   never expires.
 - **Restore is a documented procedure or it doesn't exist.** `docs/guides/backup-setup.md`
