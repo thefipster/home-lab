@@ -22,7 +22,8 @@ live there and the task documents link into them rather than repeating them.
 | 3 | [Forgejo registry cleanup rules](dev/roadmap/registry-hygiene.md) | An afternoon of clickwork that permanently shrinks the backup set — registry blobs dominate the restic repository and would dominate the offsite upload. The natural predecessor to rank 2, without gating it. |
 | 4 | [The unproven halves of the backup](dev/roadmap/backup-proofs.md) | Four proofs, three of them minutes each: the deadman going red, the weekly check firing, the nightly running unattended, and the full VM-rollback drill. Until the first one is seen, the backup's alarm is a hypothesis. |
 | 5 | [A heartbeat for the weekly restic check](dev/roadmap/restic-check-heartbeat.md) | The one stated monitoring gap on the infra VM: an unreadable repository stays quiet today. An evening's work that matches the existing push-monitor pattern exactly. |
-| 6 | [The rest of the load on the UPS](dev/roadmap/ups-reach.md) | Router, switch and WAN termination on the UPS are what let the drilled, working on-battery alert actually leave the house. A hardware errand; nothing blocks it, nothing depends on it. |
+| 6 | [Home Assistant terminates its own TLS](dev/roadmap/ha-native-tls.md) | The house's front door currently dies with the infra VM. The capability question is closed — the official Let's Encrypt add-on has shipped `certbot-dns-netcup` for years — so what remains is appliance clickwork, one DNS re-point, and the deletion that retires Traefik's file provider. |
+| 7 | [The rest of the load on the UPS](dev/roadmap/ups-reach.md) | Router, switch and WAN termination on the UPS are what let the drilled, working on-battery alert actually leave the house. A hardware errand; nothing blocks it, nothing depends on it. |
 
 The ranking is by stakes, not by effort — 3, 4 and 5 are each far cheaper than
 1 and 2 and can be interleaved freely; only one ordering genuinely matters,
