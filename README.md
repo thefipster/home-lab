@@ -21,12 +21,12 @@ are no migration paths and no upgrade branches — if a guide tells you to
 
 ```
 UniFi Cloud Gateway Ultra · DHCP + split-horizon DNS
-    exact infra records → infra VM      ha. → infra VM      *.thefipster.de → apps VM
+    exact infra records → infra VM      ha. → home-assistant VM      *.thefipster.de → apps VM
                                     │
                             LAN · one flat /24
                                     │
 Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hypervisor only, no Docker
-    │  its own Let's Encrypt cert on :443 — the one lab UI Traefik does not front
+    │  its own Let's Encrypt cert on :443 — one of two lab UIs Traefik does not front
     │  CyberPower CP900 on USB · NUT · orderly shutdown of the host and all three guests
     │
     │  rpool      2×1 TB   NVMe mirror  → Proxmox + VM root disks
@@ -49,9 +49,11 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     │      your apps     *.thefipster.de, routed by Host header — no new DNS record
     │      third-party   self-hosted software you use — catalog in apps/services.md
     │
-    └─ home-assistant VM · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
+    └─ home-assistant VM · ha.thefipster.de · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
+         its own Let's Encrypt cert on :443 — the other lab UI Traefik does not front
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
-         Supervisor     full HAOS — the add-on store the four below come from
+         Supervisor     full HAOS — the add-on store the five below come from
+           Let's Encrypt  the exact ha. certificate · one-shot, run weekly by an HA automation
            ESPHome      firmware for the lab's own ESP devices, built on this VM
            Mosquitto    the MQTT broker both Zigbee2MQTT and HA talk to
            Zigbee2MQTT  Zigbee radios → MQTT · Ethernet coordinators, no USB passthrough
@@ -63,7 +65,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
 | **proxmox-host**      | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
 | **infra-vm**          | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications, and a start page that puts all of it one click away. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
 | **apps-vm**           | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
-| **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de` through Traefik on the infra VM. Keeps its own local login, deliberately. |
+| **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de`, on a certificate it issues and renews itself, so the house's front door does not depend on another VM. Keeps its own local login, deliberately. |
 
 Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
 of the three also refuses to share for its own reason — Coolify expects to own a
@@ -131,13 +133,16 @@ Certificates are genuine Let's Encrypt wildcards, issued via the DNS-01
 challenge against the netcup DNS API — nothing is exposed to the internet. See
 [docs/guides/traefik-setup.md](docs/guides/traefik-setup.md) for TLS.
 
-The hypervisor is the one exception, deliberately. It issues its own **exact**
-certificate for `pve.thefipster.de` from Proxmox's built-in ACME client and
-serves the UI on 443 itself, outside Traefik
+**Two machines are deliberate exceptions, and for the same reason.** The
+hypervisor issues its own **exact** certificate for `pve.thefipster.de` from
+Proxmox's built-in ACME client and serves the UI on 443 itself, outside Traefik
 ([docs/guides/proxmox-setup.md, Part 3](docs/guides/proxmox-setup.md#serve-it-on-443)) — so the
-console you repair the lab from never depends on one of the lab's own guests.
-Being an exact name rather than a wildcard is also what keeps its challenge
-record from racing Traefik's.
+console you repair the lab from never depends on one of the lab's own guests. The
+home-assistant VM does the same for `ha.thefipster.de` through HA's Let's Encrypt
+add-on ([docs/guides/home-assistant-setup.md](docs/guides/home-assistant-setup.md#7-give-it-its-own-certificate)),
+so the lights keep answering through an infra-VM reboot. Being exact names rather
+than wildcards is also what keeps their challenge records from racing Traefik's,
+which netcup's non-atomic zone updates would otherwise make a coin toss.
 
 ## Build order
 
@@ -149,8 +154,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 1. **[Proxmox host + VMs](docs/guides/proxmox-setup.md)** — wipe the server, install
    the hypervisor onto the mirrored NVMe pair, build the other three ZFS pools,
    cap the ARC, then create the `infra` and `apps` VMs and snapshot them. The
-   `home-assistant` VM's specs are in the same table but it is built in step 15,
-   since it needs an imported disk image rather than an ISO. Its last part —
+   `home-assistant` VM's specs are in the same table but it is built last, in
+   [Home Assistant OS](docs/guides/home-assistant-setup.md), since it needs an
+   imported disk image rather than an ISO. Its last part —
    the pool-health monitor — is done at the end, since it needs a Kuma that
    does not exist until step 10; everything before it, the whole-VM backup job
    included, is done now.
@@ -158,9 +164,10 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    wildcard, and **every** infra host record. Add the complete set now from the
    registry, **[docs/reference/dns-records.md](docs/reference/dns-records.md)** — every later step
    assumes they exist, and a missing record surfaces much later as a 404 behind
-   a valid certificate. The one exception is
-   `homeassistant.thefipster.de`, whose target VM does not exist until step 15
-   and which that guide adds.
+   a valid certificate. The one exception is `ha.thefipster.de`, whose target VM
+   is the last thing built —
+   [Home Assistant OS](docs/guides/home-assistant-setup.md) adds that record
+   alongside the VM.
 
 ### infra VM — everything the other two lean on
 
@@ -233,9 +240,11 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 
 16. **[Home Assistant OS](docs/guides/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
-    it is created empty and its disk imported. Last because it depends on the most:
-    Traefik's file provider for TLS, and Alloy for metrics. It joins neither SSO
-    pattern, deliberately.
+    it is created empty and its disk imported. It terminates its own TLS with an
+    exact certificate from HA's Let's Encrypt add-on, so nothing on the infra VM
+    is in its path; it is last because the parts of it that reach the rest of
+    the lab — the Prometheus scrape and its two Kuma monitors — want that VM
+    finished. It joins neither SSO pattern, deliberately.
 
 ## Registries & catalogs
 

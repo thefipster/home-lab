@@ -164,6 +164,13 @@ groups:
       # Traefik renews the 90-day cert at 30 days remaining, so a healthy cert
       # never drops below ~30d. Under 21d = renewal has been failing over a
       # week, 3 weeks left to fix.
+      #
+      # SCOPE: this reads traefik_tls_certs_not_after, so it sees ONLY the certs
+      # Traefik holds. The lab's other two — pve.thefipster.de from Proxmox's
+      # ACME client and ha.thefipster.de from Home Assistant's Let's Encrypt
+      # add-on — are invisible here and are covered by Uptime Kuma's per-monitor
+      # certificate-expiry notification instead
+      # (docs/reference/uptime-kuma-monitors.md).
       - uid: cert-expiring
         title: CertExpiringSoon
         condition: C

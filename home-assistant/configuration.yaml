@@ -18,24 +18,22 @@
 #
 # See docs/guides/home-assistant-setup.md.
 
-# --- reachable through Traefik: NOT HERE ANY MORE ----------------------------
-# This fragment used to carry an `http:` block with use_x_forwarded_for and
-# trusted_proxies. It is gone, and putting it back is now an error.
+# --- NO `http:` BLOCK, AND ADDING ONE IS AN ERROR ----------------------------
+# This machine serves its own HTTPS: the Let's Encrypt add-on holds an exact
+# certificate for ha.thefipster.de and HA listens on :443 itself, with nothing
+# proxying it. That is port, certificate and key — three settings, and all three
+# are UI settings.
 #
-# Home Assistant 2026.8 moved HTTP server configuration OUT of YAML and into the
-# UI, at Settings > System > Network. An `http:` block left in this file raises a
+# Home Assistant 2026.8 moved HTTP server configuration OUT of YAML and into
+# Settings > System > Network. An `http:` block left in this file raises a
 # REPAIR ISSUE telling you to delete it, so shipping one here would hand you a
-# broken instruction. Set the proxy trust in the UI instead —
-# docs/guides/home-assistant-setup.md, step 7, has the click-path and the value.
+# broken instruction. docs/guides/home-assistant-setup.md, step 7, has the
+# click-path and the values.
 #
-# The consequence worth knowing: HA still refuses proxied requests until it
-# trusts the hop, answering 400 with a log line about an untrusted proxy, which
-# reads like a Traefik fault and is not one. Only the place you fix it changed.
-#
-# It also means this repo no longer records a literal IP address ANYWHERE. That
-# value — the infra VM's LAN address, which HA accepts only as an address or
-# CIDR, never a hostname — now lives in HA's own UI, like every other piece of
-# clickwork the repo cannot hold. See docs/reference/dns-records.md.
+# There is no `trusted_proxies` anywhere either, in YAML or in the UI: nothing
+# proxies this machine, so there is no hop to trust. That was the last value in
+# the lab that had to be written as a literal IP address rather than a name, and
+# it left with the proxy. See docs/reference/dns-records.md.
 
 # --- metrics ----------------------------------------------------------------
 # Exposes /api/prometheus, scraped by Alloy on the infra VM as

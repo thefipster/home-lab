@@ -77,8 +77,12 @@ field would take `200-399`, but that reports "up" for an Authentik redirect page
 which is a statement about Authentik, not about Traefik. The container check is the
 more truthful signal.
 
-Traefik is nonetheless covered end-to-end many times over: **every** HTTP monitor
-below traverses it, so a Traefik failure turns most of this registry red at once.
+Traefik is nonetheless covered end-to-end many times over: every HTTP monitor for
+a service **on this VM** traverses it, so a Traefik failure turns most of this
+registry red at once. The two that would stay green are the two machines serving
+their own TLS — [Apps Platform](#app-platform--apps-vm-coolify), behind Coolify's
+own bundled proxy, and [Home Automation](#home-automation--home-assistant-vm),
+behind nothing at all.
 
 ## Vault — vaultwarden
 
@@ -220,18 +224,26 @@ beside it the answer is immediate.
 | Name | Type | Target |
 |---|---|---|
 | Home Automation | HTTP(s) | `https://ha.thefipster.de` |
-| HA Host | Ping | `homeassistant.thefipster.de` |
+| HA Host | Ping | `ha.thefipster.de` |
 
-Same shape, one extra failure mode: `Home Automation` traverses Traefik **on the
-infra VM**, which proxies to the HA VM. So a red HTTP monitor with a green ping
-narrows it to Traefik's route or Home Assistant itself — see
-[home-assistant-setup.md](../guides/home-assistant-setup.md#troubleshooting) for telling a
-502 (backend unreachable) from a 404 (route missing).
+Same shape as the apps VM, and one name for both rows rather than two: this
+machine serves its own TLS on its own name
+([dns-records.md](dns-records.md#home-assistant-is-one-name-for-the-same-reason)),
+so there is no proxy in the path and no second name to ping. A red
+`Home Automation` beside a green `HA Host` means the machine is up and Home
+Assistant, or its certificate, is not.
 
-Note the two different names deliberately: the HTTP monitor uses `ha.` (the
-service, which resolves to the infra VM) and the ping uses `homeassistant.` (the
-machine). Pinging `ha.` would pointlessly ping the infra VM —
-[dns-records.md](dns-records.md#home-assistant-has-two-names-on-purpose).
+**`Home Automation` is the one HTTP monitor here that does not traverse
+Traefik**, which is exactly the property being watched: an infra-VM outage takes
+most of this registry red and must leave this row green. If it goes red with the
+gateway, suspect Kuma's own network rather than the route — there is no route.
+
+**Switch on *Certificate Expiry Notification* for this monitor.** Every HTTPS
+monitor tracks expiry, but here it is load-bearing rather than a freebie: this
+certificate is renewed by an automation running *inside* the machine being
+watched ([home-assistant-setup.md, step 8](../guides/home-assistant-setup.md#8-keep-the-certificate-renewed)),
+and a disabled or broken automation is silent for two months before it costs
+anything. Kuma is the watcher that does not share a failure domain with it.
 
 ## Hypervisor storage — Proxmox host
 
@@ -504,6 +516,12 @@ records the grouping as *optional* rather than as rows to create.
 ## What every HTTP monitor also gets, for free
 
 Kuma tracks **certificate expiry per HTTPS monitor**. That is a second,
-independent read on wildcard renewal — independent of Alloy, of Prometheus, and of
+independent read on renewal — independent of Alloy, of Prometheus, and of
 Grafana's `CertExpiringSoon` rule, all of which share a failure domain with each
 other and none of which share one with Kuma.
+
+The lab renews **three** certificates on three different clocks, and every one of
+them has a monitor above whose expiry tracking covers it: Traefik's wildcard
+(most rows here), Coolify's wildcard (`Apps Platform`) and Home Assistant's exact
+certificate (`Home Automation`). The third is the one where the notification is
+switched on deliberately rather than merely available — see that section for why.

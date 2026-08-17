@@ -34,13 +34,18 @@ relationship to Authentik, not only the ones that joined. Every one is a
 decision, not a gap: in each case the break-glass path for an Authentik outage
 would need `ssh` at precisely the moment you are least able to use it.
 
-**They divide by whether they could have joined at all.** Kuma and Home
-Assistant have no OIDC support, so the convention would have pointed them at
-forward-auth and the answer is about the proxy. Vaultwarden and the Proxmox web
-UI both **have** OIDC and decline it, which makes them the services in the lab
-that turn down a pattern they qualify for — and for reasons that rhyme. One
-holds the credentials for repairing Authentik; the other is the console for
-repairing the machine Authentik runs on.
+**They divide by whether they could have joined at all.** Kuma has no OIDC
+support, so the convention would have pointed it at forward-auth and the answer
+is about the proxy. Vaultwarden **has** OIDC and declines it, which makes it the
+one service in the lab that turns down a pattern it qualifies for — it holds the
+credentials for repairing Authentik.
+
+The other two are not choices about a label at all: **Home Assistant** and **the
+Proxmox web UI** each terminate their own TLS on their own machine, so Traefik
+serves neither and there is no router for a forward-auth middleware to hang on.
+Proxmox additionally has a native OIDC realm and declines it, for the reason
+that rhymes with Vaultwarden's: it is the console for repairing the machine
+Authentik runs on.
 
 | Service | Method | Where configured | Procedure |
 |---------|--------|------------------|-----------|
@@ -51,7 +56,7 @@ repairing the machine Authentik runs on.
 | Grafana | OIDC | Authentik + `infra/monitoring/.env` | [grafana-setup.md, step 5](../guides/grafana-setup.md#5-join-sso-oidc-via-authentik) |
 | Vaultwarden | **none** (deliberate) | Vaultwarden's own master-password login | [vaultwarden-setup.md, step 5](../guides/vaultwarden-setup.md#5-create-your-account) |
 | Uptime Kuma | **none** (deliberate) | Kuma's own local login | [uptime-kuma-setup.md, step 4](../guides/uptime-kuma-setup.md#4-create-the-admin-account) |
-| Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-make-it-reachable-through-traefik) |
+| Home Assistant | **none** (deliberate) | HA's own local login | [home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-give-it-its-own-certificate) |
 | Proxmox web UI | **none** (deliberate) | Proxmox's own `root@pam` login | [proxmox-setup.md, Part 3](../guides/proxmox-setup.md#give-the-host-a-real-certificate) |
 
 ## Forward-auth: Dockge, Traefik dashboard & Homepage
@@ -195,20 +200,25 @@ absences are deliberate and commented in place.
 
 ## Home Assistant (deliberately not joined)
 
-HA has no OIDC support either, so the convention again points at forward-auth,
-and again it is **not** applied — for a different reason than Kuma's.
+HA has no OIDC support either, so the convention again points at forward-auth —
+and here forward-auth is not even on the table. Forward-auth is a **Traefik
+middleware**, and Traefik does not serve this machine: the HA VM holds its own
+Let's Encrypt certificate and answers on 443 itself
+([home-assistant-setup.md](../guides/home-assistant-setup.md#7-give-it-its-own-certificate)).
+There is no router to attach a middleware to. That is the same structural
+absence [the Proxmox web UI](#the-proxmox-web-ui-deliberately-not-joined) has,
+and it means this entry is not a decision you could reverse by editing a label.
 
-Forward-auth gates *everything* behind a browser login flow, and most traffic to
-Home Assistant is not a browser. The **companion mobile app**, webhooks, and
-every local API caller authenticate with long-lived tokens against the same
-endpoints the frontend uses; there is no clean path that admits them while
-challenging a browser. Gating HA would break notifications, presence detection
-and automations that call in from elsewhere on the LAN — the parts you notice
-least until they stop.
-
-And the failure mode is the household's, not just yours: the break-glass is
-editing `infra/traefik/dynamic/ha.yaml` over `ssh` while the lights do not
-respond.
+The decision it *does* record is why nobody should reintroduce a proxy in order
+to gate it. Forward-auth gates *everything* behind a browser login flow, and most
+traffic to Home Assistant is not a browser. The **companion mobile app**,
+webhooks, and every local API caller authenticate with long-lived tokens against
+the same endpoints the frontend uses; there is no clean path that admits them
+while challenging a browser. Gating HA would break notifications, presence
+detection and automations that call in from elsewhere on the LAN — the parts you
+notice least until they stop. And the failure mode is the household's, not just
+yours: the break-glass would be editing proxy config over `ssh` while the lights
+do not respond.
 
 HA ships real local authentication (per-user accounts, optional MFA, trusted
 networks) and the lab is LAN-only, so the exposure is bounded. Same cost as
@@ -216,16 +226,17 @@ Kuma, named the same way: anyone on the LAN reaches HA's login page, where
 another infra UI would have shown them Authentik first.
 
 Nothing to click in Authentik, and nothing to undo:
-`infra/authentik/compose.yaml` carries **no** outpost router for this host, and
-`infra/traefik/dynamic/ha.yaml` carries **no** `middlewares` key. Both absences
-are deliberate and commented in place.
+`infra/authentik/compose.yaml` carries **no** outpost router for this host, with
+a comment saying why in place.
 
 ## The Proxmox web UI (deliberately not joined)
 
 The exception the convention points hardest at, and the only one on a machine
 this repo cannot write to. Proxmox has a native **OpenID Connect realm** — so
 unlike Kuma and Home Assistant, the answer here is not forward-auth-by-default,
-it is a real OIDC integration that would work. It is **not** configured.
+it is a real OIDC integration that would work. It is **not** configured. It is
+also the second UI whose other pattern is structurally foreclosed, alongside
+[Home Assistant](#home-assistant-deliberately-not-joined) above.
 
 This is the console you use to repair the machine Authentik runs on. Authentik
 is a container on the infra VM; the infra VM is a guest of this hypervisor. When
@@ -239,17 +250,18 @@ realm would add a moving part between you and a box you only visit when
 something is already wrong, without removing the local login you would fall back
 to anyway.
 
-**It is also the one lab UI Traefik does not front**, which forecloses the other
-pattern entirely. The hypervisor terminates its own TLS with its own certificate
+**Traefik does not front it either**, which forecloses the other pattern
+entirely. The hypervisor terminates its own TLS with its own certificate
 ([proxmox-setup.md, Part 3](../guides/proxmox-setup.md#serve-it-on-443)), for the same
-independence reason — so there is no Traefik router here to attach a
-`middlewares` label to, and forward-auth was never available even as a fallback.
+independence reason Home Assistant does — so there is no Traefik router here to
+attach a `middlewares` label to, and forward-auth was never available even as a
+fallback.
 
 Nothing to click in Authentik, and nothing to undo. Note that this absence is
-**not** the same shape as the three above: `infra/authentik/compose.yaml`
-correctly carries no outpost router for this host, but that file's comment names
-the hosts Traefik routes and deliberately gated — this host is not among them
-because Traefik does not route it at all.
+**not** the same shape as Vaultwarden's and Kuma's: `infra/authentik/compose.yaml`
+correctly carries no outpost router for this host, but the list in that file's
+comment names hosts Traefik routes and could have gated — this host, like the HA
+VM, is not among them because Traefik does not route it at all.
 
 ## The backup job (not an application at all)
 

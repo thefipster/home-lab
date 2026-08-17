@@ -1,7 +1,7 @@
 # Home Assistant OS (home-assistant VM)
 
 **Runs on:** the Proxmox host shell, then the HA VM's web UI — with side trips
-to the router (step 5) and an infra-VM shell (step 8)
+to the router (step 5) and an infra-VM shell (step 9)
 
 **Prerequisite:** [coolify-setup.md](coolify-setup.md) complete — the apps VM is
 finished, so this is the last machine in the lab.
@@ -160,37 +160,40 @@ VM's address on its **Summary** tab as soon as it boots. Use that to set things 
 on the **router** — a DHCP reservation for this VM's MAC, then the **one record the
 registry deferred until now** ([dns-records.md](../reference/dns-records.md)):
 
-- `homeassistant.thefipster.de` → **this VM** (the *machine* — what Traefik dials)
+- `ha.thefipster.de` → **this VM**
 
-Its sibling `ha.thefipster.de` → the **infra VM** (the *service* — Traefik
-answers there) went in with the rest back in
-[wildcard-dns-unifi.md](wildcard-dns-unifi.md); verify both now:
+Every other record in the registry went in back at
+[wildcard-dns-unifi.md](wildcard-dns-unifi.md). This one waited because it is the
+only name in the lab that points at a machine which did not exist until a minute
+ago. Verify it:
 
 ```bash
-getent hosts ha.thefipster.de homeassistant.thefipster.de
+getent hosts ha.thefipster.de
 ```
 
-The two answers must **differ**: the first is the infra VM, the second this one.
-If they match, one of the records is wrong. Two names for one service looks
-redundant until you try to collapse them — `ha.` has to point at the proxy for TLS,
-so it cannot also be the proxy's backend.
+It must answer with **this VM**. The failure to expect is not an error but a
+wrong machine: without the exact record the name falls through the
+`*.thefipster.de` wildcard to the apps VM, where Coolify's proxy answers on `:80`
+and a browser test of the name returns a real page. Trust the record, not the
+page.
 
 ### 6. Onboard
 
-With the records in place, open **`http://homeassistant.thefipster.de`** in a
-browser and create your account through the onboarding wizard.
+With the record in place, open **`http://ha.thefipster.de`** in a browser and
+create your account through the onboarding wizard.
 
-Plain HTTP and the machine name, deliberately: Traefik is not in the path yet, and
-`ha.thefipster.de` would reach the infra VM, which has nothing to serve you until
-the next step.
+**Plain HTTP, and only until the next step.** Nothing terminates TLS for this
+machine yet — this VM does it for itself, and
+[step 7](#7-give-it-its-own-certificate) is where it gets the certificate and
+moves to 443. Onboard first: the add-on you need is installed from the UI you
+are about to create an account for.
 
 > **No `:8123`, and that is new.** Home Assistant **2026.8** made port **80** the
 > default for fresh HAOS installations — the only kind this guide builds. Existing
 > instances keep 8123, so most writing you will find online still says otherwise.
 > The port is now a UI setting under *Settings → System → Network* rather than
-> `http.server_port` in YAML; if you change it there, the backend URL in
-> [`infra/traefik/dynamic/ha.yaml`](../../infra/traefik/dynamic/ha.yaml) has to
-> agree.
+> `http.server_port` in YAML — which is also where the next step puts the
+> certificate, beside it.
 
 > **No USB passthrough is configured, deliberately.** Every guide for
 > HA-on-Proxmox tells you to pass a Zigbee or Z-Wave stick through to the VM.
@@ -198,50 +201,97 @@ the next step.
 > LAN like any other network device and the hypervisor is not involved. Nothing
 > is missing here.
 
-### 7. Make it reachable through Traefik
+### 7. Give it its own certificate
 
-> **The Traefik half is already in the repo — there is nothing to add there, and
-> nothing you will find in a compose file.** HA has no container on the infra VM
-> to hang `traefik.*` labels on, so its router is declared as a **file** instead:
-> [`infra/traefik/dynamic/ha.yaml`](../../infra/traefik/dynamic/ha.yaml), picked up
-> by the file provider Traefik has been running since
-> [traefik-setup.md](traefik-setup.md#how-it-works). It has been live all along
-> and simply failing to reach a backend that did not exist yet. Only the HA side
-> below is left to do.
+**This machine terminates its own TLS.** Nothing on the infra VM proxies it —
+Traefik never sees a request for `ha.thefipster.de`, and there is no router, no
+backend URL and no proxy to trust. Why it is built that way is under
+[How it works](#how-it-works); the short version is that the house's front door
+should not go down with a reboot on another VM.
 
-HA is now on the LAN but only over plain HTTP, and it will **refuse** anything
-Traefik forwards until it is told to trust that hop — answering `400` with a log
-line about an untrusted proxy, which reads like a Traefik fault and is not one.
+The certificate is a genuine Let's Encrypt one, issued over the same **netcup
+DNS-01** challenge Traefik and Coolify use, by the official **Let's Encrypt**
+add-on. You need the same three values from netcup's customer control panel that
+[traefik-setup.md](traefik-setup.md#1-get-netcup-api-credentials) wanted —
+**customer number**, **API key**, **API password** — which by now live in
+[Vaultwarden](vaultwarden-setup.md).
 
-**This is UI configuration, not YAML.** Home Assistant **2026.8** moved the HTTP
-server settings out of `configuration.yaml` and into *Settings → System →
-Network*; an `http:` block left in that file now raises a **repair issue**
-telling you to remove it. Older guides — and older versions of this one — tell
-you to paste one in. Do not.
+> **This is their third copy in the lab**, after Traefik's `.env` and the compose
+> Coolify's proxy is configured from. That is accepted rather than overlooked:
+> each machine issues for itself and no certificate is ever copied between them,
+> which is the property being paid for. Note where this copy lands — the
+> Supervisor's add-on options, inside the VM, and therefore inside HA's own
+> backups.
 
-First get the value. It is the address `ha.thefipster.de` resolves to, which is
-by definition the proxy HA is being asked to trust. From any LAN host:
+**Install the add-on.** *Settings → Add-ons → Add-on Store → **Let's Encrypt***
+→ *Install*. Do not start it yet.
 
-```bash
-getent hosts ha.thefipster.de | awk '{print $1}'
+**Configure it.** On the add-on's *Configuration* tab, switch to *Edit in YAML*
+and paste:
+
+```yaml
+email: <your-acme-email>
+domains:
+  - ha.thefipster.de
+certfile: fullchain.pem
+keyfile: privkey.pem
+challenge: dns
+dns:
+  provider: dns-netcup
+  propagation_seconds: 900
+  netcup_customer_id: "<customer-number>"
+  netcup_api_key: "<api-key>"
+  netcup_api_password: "<api-password>"
 ```
 
-Derive it this way rather than reading it off the router: if the infra VM ever
-moves and DNS is updated, re-running the command gives the new answer with
-nothing to remember. It must be the infra VM's **LAN** address and not a Docker
-subnet — Traefik's container reaches this VM outbound through the bridge, SNAT'd
-to its host's LAN address, so that is the source HA actually observes.
+**Ask for the exact name, never a wildcard** — the same rule the hypervisor
+follows ([proxmox-setup.md, Part 3](proxmox-setup.md#give-the-host-a-real-certificate)).
+Traefik requests `*.thefipster.de` and Coolify's proxy requests a wildcard of its
+own, and both validate at `_acme-challenge.thefipster.de`; netcup's zone updates
+are not atomic, so two clients writing one FQDN is how a challenge times out with
+nothing to explain it. `ha.thefipster.de` validates at
+`_acme-challenge.ha.thefipster.de` — a different record — and races with nobody.
 
-Then in HA: *Settings → System → Network*, and in the reverse-proxy section add
-that address to **trusted proxies** (the field takes addresses or CIDR ranges —
-never a hostname, which is why this one value cannot follow DNS like everything
-else in the lab).
+`propagation_seconds: 900` is the same fifteen minutes Traefik allows through
+`NETCUP_PROPAGATION_TIMEOUT` and Proxmox through `--validation-delay`. netcup
+publishes TXT records slowly, often around ten minutes, whichever client is
+asking.
+
+**Start it and watch the log.** *Info* tab → *Start*, then the *Log* tab.
+
+> **First issuance takes 10–15 minutes, and the log is quiet for most of it.**
+> That is netcup propagation, not a hang — the same wait
+> [traefik-setup.md](traefik-setup.md#4-start-the-stack-and-watch-the-first-issuance)
+> describes. Do not restart the add-on mid-challenge. Expect it to finish with
+> `Successfully received certificate`, having written `/ssl/fullchain.pem` and
+> `/ssl/privkey.pem`.
+
+> **The add-on then stops, and that is the end state, not a failure.** It is
+> **one-shot**: it runs `certbot certonly --keep-until-expiring` and exits.
+> A stopped Let's Encrypt add-on with a certificate on disk is a healthy one —
+> [step 8](#8-keep-the-certificate-renewed) is the whole of its renewal story.
+
+**Point HA at the files.** *Settings → System → Network*, in the same block as
+the port:
+
+| Field | Value |
+|---|---|
+| Port | `443` |
+| SSL certificate | `/ssl/fullchain.pem` |
+| SSL key | `/ssl/privkey.pem` |
+
+> **This is UI configuration, not YAML — and the add-on's own documentation will
+> tell you otherwise.** It still describes referencing the two files from an
+> `http:` block, which Home Assistant **2026.8** retired: HTTP server settings
+> moved into *Settings → System → Network*, and a leftover `http:` block now
+> raises a **repair issue** telling you to delete it. Set the three fields above
+> and add nothing to `configuration.yaml`.
 
 > **Confirm the change when HA asks.** 2026.8 applies new network settings and
-> then waits for you to confirm the instance is still reachable. Miss the
-> five-minute window and it assumes it broke something, silently restores the
-> previous settings and restarts — so a change that appeared to save can undo
-> itself while you are looking elsewhere.
+> then waits for you to confirm the instance is still reachable — at its new
+> address, `https://ha.thefipster.de`. Miss the five-minute window and it assumes
+> it broke something, silently restores the previous settings and restarts, so a
+> change that appeared to save can undo itself while you are looking elsewhere.
 
 Verify from any LAN machine:
 
@@ -249,31 +299,113 @@ Verify from any LAN machine:
 curl -sI https://ha.thefipster.de | head -1
 ```
 
-Expect `HTTP/2 200`, with no certificate warning — Traefik is terminating TLS
-with the lab's wildcard and proxying to `homeassistant.thefipster.de` on port 80.
-Open it in a browser and confirm the frontend loads and stays live (the UI is
+Expect `HTTP/2 200` with no certificate warning. Then check *whose* certificate
+it is:
+
+```bash
+echo | openssl s_client -connect ha.thefipster.de:443 -servername ha.thefipster.de 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+```
+
+Subject must be **`CN = ha.thefipster.de`** and the issuer must name Let's
+Encrypt. Note what it is *not*: `*.thefipster.de`. That wildcard belongs to
+Traefik on the infra VM and to Coolify's proxy on the apps VM, and seeing it here
+means the name resolved to one of those machines rather than to this one.
+
+Open it in a browser and confirm the frontend loads and stays live — the UI is
 websocket-driven, so a blank page after login means the upgrade is not getting
-through).
-
-Then append the remaining block from
-[`home-assistant/configuration.yaml`](../../home-assistant/configuration.yaml) —
-`prometheus:`, which [step 8](#8-wire-up-metrics) needs and which the 2026.8 move
-did not touch. Install the **File Editor** or **Studio Code Server** add-on
-(*Settings → Add-ons*) to edit `/config/configuration.yaml`, then *Developer
-Tools → YAML → Restart*.
-
-**Append, do not replace.** A fresh HAOS install ships that file with
-`default_config:`; overwriting it strips the entire default integration set.
+through.
 
 > **There is no Authentik redirect, and that is deliberate.** HA joins neither
 > SSO pattern — see
 > [sso-applications.md](../reference/sso-applications.md).
 
-### 8. Wire up metrics
+### 8. Keep the certificate renewed
 
-The `prometheus:` key from step 7 exposes `/api/prometheus`, which needs a token.
-In HA: *your profile → Security → Long-lived access tokens → Create token*. Copy
-it — it is shown once.
+**The add-on renews nothing on its own.** `certbot certonly
+--keep-until-expiring` asks for a certificate and exits: inside the renewal
+window — the last 30 days of a 90-day certificate — it fetches a new one; outside
+it, it does nothing at all, makes no ACME request and calls netcup not once. So
+the entire renewal mechanism is *starting the add-on again*, on a schedule.
+
+That schedule is an automation of HA's own. *Settings → Automations & scenes →
+Create automation → ⋮ → Edit in YAML*:
+
+```yaml
+alias: TLS certificate renewal
+description: >-
+  Weekly: run the one-shot Let's Encrypt add-on, then restart so that a renewed
+  certificate is the one actually being served.
+triggers:
+  - trigger: time
+    at: "04:45:00"
+conditions:
+  - condition: time
+    weekday:
+      - sun
+actions:
+  - action: hassio.addon_start
+    data:
+      addon: core_letsencrypt
+  - delay: "00:20:00"
+  - action: homeassistant.restart
+mode: single
+```
+
+Four things in there are deliberate:
+
+**Weekly, not monthly.** The renewal window is 30 days wide, so a monthly run
+gets roughly one attempt inside it and a single bad night — netcup slow, the API
+down, this VM off — costs the whole window. Weekly gets four attempts and needs
+no alarm of its own to survive one failure.
+
+**The restart is unconditional.** HA reads the certificate when it starts its
+HTTP server, so a file replaced underneath it is not necessarily the file being
+served. A 90-day certificate renewed at 30 days left means roughly six of the
+year's fifty-two runs actually change a file, and restarting after all of them
+costs about thirty seconds a week. That is the cheapest way to make this correct
+rather than probably-correct — cheaper than detecting which runs mattered.
+
+**The delay covers propagation.** `propagation_seconds: 900` means a real
+renewal can take a quarter of an hour, and restarting HA in the middle of one
+would leave the old file in place until the following Sunday. Twenty minutes
+puts the restart after certbot has either written a new file or decided not to.
+
+**04:45 keeps it clear of the lab's night window**, which is spoken for from
+01:00 to 04:30 on the other machines
+([timetable.md](../reference/timetable.md#the-night-window)).
+
+Save it, then **run it once now** — *⋮ → Run actions* on the new automation.
+This is worth the twenty minutes: the failure it catches is a wrong add-on slug
+or a service call HA rejects, which is otherwise silent for two months and
+surfaces as an expired certificate. Watch the add-on's *Log* tab gain a second
+run — it will report the existing certificate as not due for renewal — and HA
+restart twenty minutes later.
+
+> **The alarm for silent expiry is Kuma's, not this machine's.** Every HTTPS
+> monitor tracks certificate expiry, so switching on *Certificate Expiry
+> Notification* for the `Home Automation` monitor gives this automation a
+> watcher that does not run on the machine it is watching
+> ([uptime-kuma-monitors.md](../reference/uptime-kuma-monitors.md#home-automation--home-assistant-vm)).
+> Alloy's scrape below is the second, slower read on the same thing: it dials
+> `:443` and would start failing outright once a certificate expired.
+
+The automation gets a row in [timetable.md](../reference/timetable.md) like
+everything else in the lab that runs on a clock.
+
+### 9. Wire up metrics
+
+First give HA the metrics endpoint. Append the block from
+[`home-assistant/configuration.yaml`](../../home-assistant/configuration.yaml) —
+`prometheus:`, the one HA setting in this lab that is still YAML — to
+`/config/configuration.yaml`. Install the **File Editor** or **Studio Code
+Server** add-on (*Settings → Add-ons*) to edit it, then *Developer Tools → YAML →
+Restart*.
+
+**Append, do not replace.** A fresh HAOS install ships that file with
+`default_config:`; overwriting it strips the entire default integration set.
+
+That key exposes `/api/prometheus`, which needs a token. In HA: *your profile →
+Security → Long-lived access tokens → Create token*. Copy it — it is shown once.
 
 On the **infra VM**, put it in the monitoring stack's `.env`:
 
@@ -296,9 +428,9 @@ Confirm the target is up and the `ServiceDown` alert for it clears —
 **entity** metrics (sensor states), so they appear under `job="homeassistant"`
 and **not** on the Node Exporter Full dashboard.
 
-### 9. Add the host's own metrics
+### 10. Add the host's own metrics
 
-Step 8 got Home Assistant's **entities** into Prometheus. This VM's CPU, RAM and
+Step 9 got Home Assistant's **entities** into Prometheus. This VM's CPU, RAM and
 disk are not among them — `/api/prometheus` exports entity states, and nothing
 on this appliance produces machine counters on its own. HAOS cannot run Debian's
 node exporter as a systemd unit the way the apps VM and the hypervisor do, so
@@ -336,7 +468,10 @@ That is every machine. The full sequence is the
 [README build order](../../README.md#build-order).
 
 Worth doing from here: add this machine's two Kuma monitors from the registry
-([uptime-kuma-monitors.md](../reference/uptime-kuma-monitors.md#home-automation--home-assistant-vm)).
+([uptime-kuma-monitors.md](../reference/uptime-kuma-monitors.md#home-automation--home-assistant-vm)),
+and switch on *Certificate Expiry Notification* on the HTTP one while you are
+there — that is the alarm for a renewal automation that quietly stopped running,
+and it is the only watcher of it that does not live on this machine.
 
 ## Troubleshooting
 
@@ -346,63 +481,57 @@ specifically: if you left *Pre-Enroll keys* ticked, delete the EFI disk and
 re-add it unticked. Also confirm *Options → Boot Order* actually has `scsi0`
 enabled and first — an imported disk is not bootable until you say so.
 
-**`https://ha.thefipster.de` returns 502.** Traefik matched the route but could
-not reach the backend. Three causes, in order of likelihood:
-
-1. The VM is down or still booting.
-2. The backend in `infra/traefik/dynamic/ha.yaml` names a port. Since **2026.8**
-   a fresh HAOS serves **:80**, so a leftover `:8123` dials a port nothing is
-   listening on. The URL should carry no port at all.
-3. `homeassistant.thefipster.de` has no exact record, so it falls through the
-   wildcard to the apps VM. Check it:
+**The add-on log ends in a propagation timeout, or says the expected TXT record
+was not returned.** netcup was slower than the fifteen minutes
+`propagation_seconds` allows, or the three credentials are wrong. Confirm the
+domain is still on netcup's nameservers, from any LAN host:
 
 ```bash
-getent hosts homeassistant.thefipster.de
+dig NS thefipster.de +short
 ```
 
-> **On port 80 this one no longer fails loudly, and that is a change for the
-> worse.** It used to give connection-refused, because nothing on the apps VM
-> listened on 8123. Now Coolify's proxy answers on :80 — so testing the bare name
-> in a browser returns a real page from the wrong machine and looks like success.
-> Trust the record, not the page.
+Then re-check `netcup_customer_id`, `netcup_api_key` and `netcup_api_password` on
+the *Configuration* tab. Regenerate the API password in netcup's CCP if unsure —
+it is shown only once. Do not hammer the production CA while debugging: it allows
+roughly five failed validations per hostname per hour.
 
-4. Someone changed the backend to `http://ha.thefipster.de`. That name resolves
-   to the **infra VM**, so Traefik dials its own web entrypoint, which redirects
-   to HTTPS, and the request loops rather than 502-ing cleanly — another failure
-   the move to :80 made worse. It must be `http://homeassistant.thefipster.de` —
-   the machine, not the service.
+**`https://ha.thefipster.de` does not answer at all.** HA is not listening on
+443. Either the Network settings did not stick — the five-minute confirmation
+window above — or HA could not read the certificate and fell back. Open the VM's
+**Console** in Proxmox and look at the startup log; a missing or unreadable
+`/ssl/fullchain.pem` is the likely cause, which means the add-on run in
+[step 7](#7-give-it-its-own-certificate) did not finish.
 
-**`https://ha.thefipster.de` returns 404.** The opposite problem: Traefik has no
-router for that name. Check `ha.thefipster.de` resolves to the **infra VM** and
-not to the apps VM via the wildcard:
+**`http://ha.thefipster.de` stopped working, and that is expected.** HA serves
+**one** port. Moving it to 443 in step 7 vacated 80, and nothing redirects
+between them — there is no reverse proxy here to do it. Use the `https://` URL.
+
+**The certificate is `*.thefipster.de` rather than `CN = ha.thefipster.de`.**
+Then you are not talking to this machine. The name has no exact record and fell
+through the `*.thefipster.de` wildcard to the apps VM, whose Coolify proxy
+answers with its own wildcard certificate — a valid one, which is what makes it
+convincing:
 
 ```bash
 getent hosts ha.thefipster.de
 ```
 
+**The certificate expired and nothing renewed it.** The add-on renews only when
+something starts it. Check the automation from
+[step 8](#8-keep-the-certificate-renewed) still exists and is enabled, and that
+its last triggered time is within a week — *Settings → Automations & scenes*. A
+disabled automation is silent for two months before it costs anything, which is
+why the Kuma expiry notification is part of that step rather than an optional
+extra.
+
 **HA raises a repair issue about the `http:` block in `configuration.yaml`.**
 Delete that block. 2026.8 imports it into *Settings → System → Network* on first
-start and then wants it gone; older guides still tell you to add one. This repo's
-fragment no longer contains it.
+start and then wants it gone; the Let's Encrypt add-on's own documentation still
+tells you to add one. This repo's fragment does not contain it.
 
-**HA returns `400 Bad Request` and its log mentions an untrusted proxy.** Trusted
-proxies is unset, or holds an address that is no longer the infra VM's — and
-since 2026.8 it is set in *Settings → System → Network*, not in YAML, so an
-`http:` block you added by hand will not fix it. Re-derive the value:
-
-```bash
-getent hosts ha.thefipster.de | awk '{print $1}'
-```
-
-A Docker subnet is the intuitive-but-wrong answer: Traefik's container egresses
-through the bridge, SNAT'd to its host's LAN address, so that is what HA sees. A
-*stale* address is the other cause — this is the one value in the lab that does
-not follow DNS automatically, and since it now lives in HA's UI rather than in a
-repo file, nothing here will remind you it went stale.
-
-**The frontend loads but stays blank after login.** A websocket problem. Traefik
-needs no configuration for this, so suspect a browser extension or a stale cache
-before the proxy.
+**The frontend loads but stays blank after login.** A websocket problem. Nothing
+sits between the browser and HA, so suspect a browser extension or a stale cache
+rather than the network.
 
 **`/api/prometheus` returns 401.** The token in `infra/monitoring/.env` is wrong,
 absent, or was not picked up — `docker compose up -d alloy` must run after
@@ -413,10 +542,12 @@ editing `.env`, since environment variables are read at container creation.
 | What | Where |
 |------|-------|
 | HA configuration | `/config/configuration.yaml` **inside the VM** — not in this repo |
-| HTTP server settings, incl. trusted proxies | HA's UI, *Settings → System → Network* — UI-managed since 2026.8, not YAML and not here |
+| HTTP server settings: port, SSL certificate, SSL key | HA's UI, *Settings → System → Network* — UI-managed since 2026.8, not YAML and not here |
+| The certificate and its key | `/ssl/fullchain.pem` and `/ssl/privkey.pem` **inside the VM**, written by the add-on |
+| The netcup API credentials | the Let's Encrypt add-on's options **inside the VM** — the lab's third copy, after Traefik's `.env` and Coolify's proxy config |
+| The renewal schedule | an automation in HA's own database **inside the VM** — [timetable.md](../reference/timetable.md) is the registry |
 | Add-ons, database, secrets | inside the VM, managed by the Supervisor |
 | The config fragment | `home-assistant/configuration.yaml` in this repo — `prometheus:` only, a template you paste |
-| The Traefik route | `infra/traefik/dynamic/ha.yaml` on the **infra VM** |
 | The scrape token | `infra/monitoring/.env` on the **infra VM** — gitignored |
 
 Note what is *not* here: no compose file, no init script, no `/opt/home-assistant`
@@ -432,40 +563,51 @@ same place — HA's own instructions say to pick an OVMF build without `secure` 
 `secboot` in the name, which in Proxmox terms is the EFI disk with *Pre-Enroll
 keys* off.
 
-**Why `ha.thefipster.de` points at the infra VM, and why there is a second name.**
-`ha.` points at the infra VM because that is where the lab's only certificate
-lives; pointing it at this VM would reach HA over plain HTTP with nothing to
-terminate TLS.
-But a proxy needs an address for its backend, and it cannot be the name that
-already means "the proxy" — that resolves to the infra VM and would have Traefik
-dialling its own web entrypoint, looping instead of answering. So the machine
-gets its own name,
-`homeassistant.thefipster.de` → this VM, and the split is deliberate: **`ha.` is
-the service, `homeassistant.` is the box.** The same distinction already exists
-for `pve.thefipster.de` and `apps.thefipster.de`, which name machines for
-internal access rather than services for browsers.
+**Why this machine holds its own certificate.** The obvious alternative is to
+route `ha.thefipster.de` through Traefik on the infra VM like every other UI in
+the lab, reusing the wildcard and adding no ACME client here. It is rejected for
+what it costs: the front door of the *house* would then die with a VM on another
+machine. A reboot, a bad Traefik change or a failed disk over there takes the HA
+UI and the companion app down while Home Assistant itself is running perfectly,
+and the repair happens over SSH. That is the same trade the
+hypervisor's web UI already refuses
+([proxmox-setup.md, Part 3](proxmox-setup.md#give-the-host-a-real-certificate)):
+the surface you repair things from should not sit behind something else that can
+break.
 
-Using a name rather than the raw IP means Traefik re-resolves per dial, so an HA
-VM address change corrects itself with no config edit — the same reason Alloy
-addresses every scrape target by name.
+The price is a second ACME client in the lab and a third copy of the netcup
+credentials. What it buys, beyond the independence, is that a whole class of
+coupling disappears — there is no backend URL to keep in step with HA's port, no
+`trusted_proxies` value that has to be a literal address rather than a name, and
+`ha.thefipster.de` means exactly one thing: **the machine**. The same shape as
+`pve.thefipster.de` and `apps.thefipster.de`, which also name boxes rather than
+services.
 
-**Why a file provider instead of labels.** Every other routed service is a
-container on the infra VM, so Traefik reads its `traefik.*` labels off the Docker
-API. HA is on another machine — there is no container to label. Traefik therefore
-also runs a watched **file provider** over `infra/traefik/dynamic/`, where a
-router can be declared by hand. It is the only file there, and the routing
-convention is otherwise unchanged: no per-router TLS, because the entrypoint
-wildcard covers file-provider routers identically. See
+**Why an exact certificate rather than the lab wildcard.** Two ACME clients
+already ask for `*.thefipster.de` — Traefik and Coolify's proxy — and both
+validate at `_acme-challenge.thefipster.de`. netcup's zone updates are not
+atomic, so a third writer at that same FQDN is a challenge that times out with
+nothing in any log to explain it. An exact name validates at its own record and
+cannot collide. It also means nothing has to hand a private key between
+machines, which is what "each machine issues for itself" is really worth.
+
+**Why Traefik has no file provider.** Every service Traefik serves is a container
+on the infra VM, so its routers arrive as `traefik.*` labels over the Docker API.
+Home Assistant is the only lab UI that could never work that way — no container
+there, nothing to label — and it is the one thing that would have needed a
+hand-written router in a file. It is not routed through Traefik at all, so labels
+are the only provider and `infra/traefik/compose.yaml` declares nothing else. See
 [traefik-setup.md](traefik-setup.md#how-it-works).
 
 **Why no SSO.** HA has no OIDC support, so the repo's convention would put it
-behind Authentik's forward-auth middleware. It is not, and this is a decision
-rather than a gap. Forward-auth would break the companion mobile app, webhooks,
-and every local API caller — all of which authenticate with long-lived tokens
-against the same endpoints a browser uses. And the break-glass path would be
-editing Traefik config over SSH, mid-incident, in a house whose lights are the
-thing that stopped working. HA keeps its own local login, for the same shape of
-reason that already exempts Uptime Kuma. Recorded in
+behind Authentik's forward-auth middleware. That is now doubly not the case:
+forward-auth is a Traefik middleware, and Traefik does not serve this machine, so
+there is no router to attach one to — the same structural absence the Proxmox web
+UI has. Even where it was possible it was refused, and that reasoning still says
+why nobody should reintroduce a proxy in order to gate it: forward-auth breaks
+the companion mobile app, webhooks, and every local API caller, all of which
+authenticate with long-lived tokens against the same endpoints a browser uses.
+HA keeps its own local login. Recorded in
 [sso-applications.md](../reference/sso-applications.md).
 
 **Why these metrics are not node metrics.** `/api/prometheus` exports Home

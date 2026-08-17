@@ -672,7 +672,7 @@ is missing. `HA_PROMETHEUS_TOKEN` in `infra/monitoring/.env` must hold a
 long-lived access token minted in HA's own UI — it is the one secret the init
 script cannot generate. Environment variables are read at container creation, so
 editing `.env` needs `docker compose up -d alloy`, not a restart. Full procedure:
-[home-assistant-setup.md, step 8](home-assistant-setup.md#8-wire-up-metrics).
+[home-assistant-setup.md, step 9](home-assistant-setup.md#9-wire-up-metrics).
 
 **`job="homeassistant"` has series but nothing appears on Node Exporter Full.**
 Correct, and not fixable. Those are Home Assistant *entity* metrics — sensor

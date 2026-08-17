@@ -12,8 +12,9 @@ its source is a bug in this file, not a second opinion.
 
 ## The night window
 
-The part that matters when adding a job: four operations, deliberately
-staggered, on two machines that share one set of disks.
+Five operations on three machines. The first four are the part that matters when
+adding a job: a backup chain, deliberately staggered, across two machines that
+share one set of disks.
 
 | Time | Machine | Operation | Declared in |
 |---|---|---|---|
@@ -21,6 +22,7 @@ staggered, on two machines that share one set of disks.
 | **02:00** | Proxmox host | `vzdump` whole-VM snapshot backup, selection **All**, retention from the storage (`keep-daily=7,keep-weekly=4,keep-monthly=3`) | [proxmox-setup.md Part 8](../guides/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | **Sun 03:00** (+0–10 min) | infra VM | `restic check --read-data-subset=10%` | [`restic-check.timer`](../../infra/backup/restic-check.timer) |
 | **04:30** | infra + apps VMs | reboot — **only if** an installed update requires one | [`init-unattended-upgrades.sh`](../../scripts/init-unattended-upgrades.sh) |
+| **Sun 04:45** | home-assistant VM | start the one-shot Let's Encrypt add-on, then restart HA 20 minutes later. A no-op on all but the few Sundays inside the 30-day renewal window | [home-assistant-setup.md step 8](../guides/home-assistant-setup.md#8-keep-the-certificate-renewed) |
 
 **The order is load-bearing, not tidy.** restic runs first so that when vzdump
 starts an hour later, layer 1's whole-VM archive already contains that night's
@@ -28,6 +30,12 @@ database dumps — the two layers stack rather than merely coexist. The weekly
 check runs after both, so the two jobs that touch `filebackup` never overlap on
 it and neither competes with vzdump for host I/O. The reboot window sits last,
 clear of all three.
+
+**The last row is in this table for its clock, not for its load.** It is an ACME
+renewal on a third machine and moves no meaningful I/O; 04:45 puts it after the
+reboot window rather than into it, which is the only scheduling constraint it
+has. It is a fixed time, so it belongs here rather than among the intervals
+below.
 
 **These are start times, and nothing here records duration.** `vzdump` over
 ~278 GB of VM roots is the one job that could plausibly still be running when the
@@ -49,7 +57,7 @@ one document.
 | **60 s** | infra VM | Uptime Kuma checks — Kuma's default, used by every monitor except the two push rows below | [uptime-kuma-monitors.md](uptime-kuma-monitors.md) |
 | **15 s** | infra VM | Prometheus scrape **and** rule evaluation | [`prometheus.yml`](../../infra/monitoring/prometheus/prometheus.yml) |
 | **15 s** | infra VM | Alloy scrapes (every target but one) and its Docker discovery refresh | [`config.alloy`](../../infra/monitoring/alloy/config.alloy) |
-| **60 s** | infra VM | Alloy's Home Assistant scrape — slower deliberately: it is the one target reached over HTTPS through Traefik rather than directly | [`config.alloy`](../../infra/monitoring/alloy/config.alloy) |
+| **60 s** | infra VM | Alloy's Home Assistant scrape — slower deliberately: entity states are not 15-second data and HA's API is heavier than a node exporter | [`config.alloy`](../../infra/monitoring/alloy/config.alloy) |
 | **1 min** | infra VM | Grafana alert rule group evaluation. A rule fires only after its `for:` holds — 5 m, 15 m or 1 h depending on the rule | [`rules.yaml`](../../infra/monitoring/grafana/provisioning/alerting/rules.yaml) |
 | **~10 min** | infra VM | Forgejo pull-mirror sync from GitHub — **per repository**, set in Forgejo's own UI, so this is a convention rather than a declaration | [forgejo-setup.md step 6](../guides/forgejo-setup.md#6-mirror-a-repo-from-github) |
 | **daily** | infra VM | Traefik's ACME renewal check; it renews the wildcard when under 30 days remain. Traefik's built-in behaviour — nothing in the compose overrides it | [`traefik/compose.yaml`](../../infra/traefik/compose.yaml) |
@@ -154,16 +162,20 @@ kinds are listed — the same rule the other registries follow.
 - **The apps VM has no backup job of either layer.** Its 300 GB data disk is
   excluded from `vzdump` (`backup=0`) and it has not joined the restic
   repository.
-- **Nothing here runs on the home-assistant VM.** It is an appliance; the repo
-  schedules nothing inside it.
+- **The home-assistant VM runs exactly one scheduled job, and this repo does not
+  declare it.** The certificate-renewal automation in the night window lives in
+  HA's own database, created by hand from the guide — clickwork on an appliance,
+  like the Kuma monitors and the SSO applications. Its **Declared in** link is a
+  guide step rather than a file for that reason, which is the same shape the
+  hypervisor's rows take.
 
 ## Adding a job
 
 1. Pick a slot **outside 01:00–04:30** unless it genuinely belongs in the
    backup chain.
 2. Declare it where its kind is declared: a `.timer` beside the stack for the
-   infra VM, a guide step for anything on the hypervisor (which has no checkout
-   of this repo).
+   infra VM, a guide step for anything on the hypervisor or the HA VM (neither
+   has a checkout of this repo, and the appliance has no shell of ours at all).
 3. Add its row here, with the link back to that source.
 4. If it can fail silently, give it a Kuma push monitor and size the heartbeat
    by the arithmetic above. A job whose only evidence is a journal line on a

@@ -631,11 +631,11 @@ Then add **every** DNS record from the registry
 infra host records; [wildcard-dns-unifi.md](wildcard-dns-unifi.md) is the how-to.
 Add the complete set now: later guides assume the records exist.
 
-**One row waits, and only one:** `homeassistant.thefipster.de` points at the
-third VM, which does not exist until
+**One row waits, and only one:** `ha.thefipster.de` points at the third VM,
+which does not exist until
 [home-assistant-setup.md](home-assistant-setup.md) — that guide creates the VM,
-its reservation and that record together. Note that `ha.thefipster.de` is *not*
-the exception: it points at the infra VM, so add it now like the rest.
+its reservation and that record together. Everything else here points at a
+machine that exists now, so add the rest of the set.
 
 ---
 

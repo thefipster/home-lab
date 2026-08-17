@@ -6,8 +6,8 @@
 #
 # No database, so this is the short form: stop, restore acme.json and the .env,
 # start. What it does NOT do is put Traefik's routing back, because the routing
-# was never in the backup — it is labels on other stacks' containers and files
-# under infra/traefik/dynamic/, all of which live in git.
+# was never in the backup — it is labels on other stacks' containers, all of
+# which live in git.
 #
 # THAT IS THE TRAP HERE, and it is the opposite of every other stack's. Traefik
 # comes back looking perfectly healthy whether or not this restore worked: the

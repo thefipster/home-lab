@@ -49,8 +49,7 @@ All entries are type **Host (A)**:
 | `loki.thefipster.de` | `infra ip` | Loki log ingest — the apps VM's collector pushes here (via Traefik, **push path only**) |
 | `otlp.thefipster.de` | `infra ip` | OpenTelemetry ingest (Alloy via Traefik) |
 | `uptime.thefipster.de` | `infra ip` | Uptime Kuma status monitoring (via Traefik) |
-| `ha.thefipster.de` | `infra ip` | Home Assistant UI — the **service** (via Traefik, which proxies to the row below) |
-| `homeassistant.thefipster.de` | `ha ip` | the HA VM itself — the **machine**; Traefik's backend on `:80`, and the only lab name served over plain HTTP |
+| `ha.thefipster.de` | `ha ip` | Home Assistant on **443** (its own certificate, not Traefik's), and the `/api/prometheus` endpoint Alloy scrapes |
 | `pve.thefipster.de` | `pve ip` | Proxmox web UI on **443** (its own certificate, not Traefik's), and the host node exporter Alloy scrapes (`:9100`) |
 
 An exact host record **beats the wildcard** — that is how the infra names
@@ -58,11 +57,11 @@ escape the apps-VM catch-all. The wildcard does **not** cover the bare apex
 `thefipster.de`; add an exact apex record only if you ever need one.
 
 **All of these go in at the DNS step except one.**
-`homeassistant.thefipster.de` is the only row whose target machine does not
-exist yet at that point — the HA VM is the last thing built — so it is added in
+`ha.thefipster.de` is the only row whose target machine does not exist yet at
+that point — the HA VM is the last thing built — so it is added in
 [home-assistant-setup.md, step 5](../guides/home-assistant-setup.md#5-start-it-then-name-it)
-alongside that VM's reservation. `ha.thefipster.de` is not deferred with it:
-that name points at the **infra** VM, which exists from the start.
+alongside that VM's reservation. Every other row points at a machine that exists
+before the first guide that needs it.
 
 ## Names the wildcard covers on purpose
 
@@ -106,14 +105,14 @@ scrape is the one that would fail loudly first.
 nothing here. The name already points at the hypervisor, and the hypervisor is
 the machine the UI is on.
 
-That is not the obvious outcome, and it is worth saying why. Every other UI in
-the lab reaches you through Traefik, which would have required the
-service/machine split `ha.` and `homeassistant.` have — `pve.` pointing at the
-**infra VM** and a new name for the box. The rename alone would have moved
-Alloy's scrape target, the restic repository and the FQDN typed into the Proxmox
-installer. The reason it was rejected outright is worse than the churn: the
-hypervisor's management UI would then depend on one of the hypervisor's own
-guests, and that UI is what you open when a guest will not start.
+That is not the obvious outcome, and it is worth saying why. A UI reached through
+Traefik needs its public name to point at the **infra VM**, which turns that name
+into a *service* and leaves the machine needing a second one for the proxy to
+dial. Here the rename alone would have moved Alloy's scrape target, the restic
+repository and the FQDN typed into the Proxmox installer. The reason it was
+rejected outright is worse than the churn: the hypervisor's management UI would
+then depend on one of the hypervisor's own guests, and that UI is what you open
+when a guest will not start.
 
 So this name keeps **one** meaning — the machine — while serving the web UI, the
 node exporter and the restic repository at once. It is now also an **ACME
@@ -154,31 +153,31 @@ router can enforce it, which is why it is written down here instead. Giving the 
 real IPv6 would mean local AAAA records on the router, which is a different piece
 of work; until that exists, this absence is what keeps the split horizon honest.
 
-## Home Assistant has two names, on purpose
+## Home Assistant is one name, for the same reason
 
-They are not interchangeable, and swapping them breaks the route:
+`ha.thefipster.de` is the other row here that answers on **443 with a
+certificate of its own**, and it works like `pve.`: the HA VM runs
+the Let's Encrypt add-on, holds an exact certificate for its own name, and is not
+proxied by anything
+([home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-give-it-its-own-certificate)).
 
-| Name | Points at | Means |
-|---|---|---|
-| `ha.thefipster.de` | `infra ip` | the **service**. What you and every browser use. Traefik terminates TLS here with the lab's wildcard certificate. |
-| `homeassistant.thefipster.de` | `ha ip` | the **machine**. Traefik's backend, over plain HTTP on `:80` — HA's default since 2026.8, not `:8123`. Nothing else uses it. |
+The alternative — `ha.` pointing at the **infra VM** so Traefik could terminate
+TLS with the lab wildcard — is what forces a machine to carry a *second* name for
+the proxy to dial, since the public name would already mean the proxy and a
+backend pointing at it would loop. That split is not needed here, and neither is
+the address-shaped `trusted_proxies` value it drags along
+([Why this registry holds no addresses](#why-this-registry-holds-no-addresses)).
+**One name, one meaning: the machine** — serving the UI, the companion app and
+the `/api/prometheus` scrape at once.
 
-`ha.` points at the infra VM because that is where the only certificate lives —
-pointing it at the HA VM would reach Home Assistant over plain HTTP with none at
-all. Which is exactly why it **cannot** double as the backend address: a backend
-of `http://ha.thefipster.de` resolves to the infra VM, so Traefik dials its own
-web entrypoint and the request loops. The public name belongs to the front door.
-
-`homeassistant.` needs an **exact** record for the `pve` reason — the wildcard
-answers with the apps VM, the wrong box. This case **used to be the loud one**:
-nothing on the apps VM listened on `:8123`, so a missing record gave
-connection-refused. Home Assistant 2026.8 moved to **port 80**, where Coolify's
-proxy *does* answer — so it is now as quiet as the `pve` case and misleading in
-the same way, returning a real page from the wrong machine to anyone who tests
-the bare name in a browser. Verify the record rather than the page:
+It needs an **exact** record for the `pve` reason: the wildcard answers with the
+apps VM, the wrong box. That failure is quiet rather than loud — Coolify's proxy
+answers on both 80 and 443 with a valid wildcard certificate of its own, so a
+browser test of the bare name returns a real page. Verify the record, and the
+subject of the certificate, rather than the page:
 
 ```bash
-getent hosts homeassistant.thefipster.de
+getent hosts ha.thefipster.de
 ```
 
 **When a new infra service arrives, add its row here first.** A missing exact
@@ -208,11 +207,12 @@ A quick way to see the whole shape at once, infra names together and the wildcar
 falling elsewhere:
 
 ```bash
-for n in git dockge home auth vault traefik grafana loki otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
+for n in git dockge home auth vault traefik grafana loki otlp uptime ha pve nonsense; do printf '%-16s %s\n' "$n" "$(getent hosts $n.thefipster.de | awk '{print $1}')"; done
 ```
 
-Everything through `ha` should share one address, `homeassistant` and `pve`
-should each differ from it, and `nonsense` should match the apps VM.
+Everything through `uptime` should share one address — the infra VM. `ha` and
+`pve` should each differ from that and from each other, because each is a machine
+serving its own TLS. `nonsense` should match the apps VM.
 
 **Then run the same sweep for IPv6, because the one above cannot see the failure
 that matters most.** `getent hosts` returns whichever family the resolver
@@ -220,7 +220,7 @@ prefers, so a wrong AAAA hides behind a correct A record and shows up only as
 traffic taking a route you did not intend:
 
 ```bash
-for n in git dockge home auth vault traefik grafana loki otlp uptime ha homeassistant pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
+for n in git dockge home auth vault traefik grafana loki otlp uptime ha pve nonsense; do printf '%-16s %s\n' "$n" "$(getent ahostsv6 $n.thefipster.de | awk 'NR==1{print $1}')"; done
 ```
 
 Every row must come back as `::ffff:` followed by the same address the sweep
@@ -261,27 +261,21 @@ The useful consequence is that a literal address anywhere in this repo becomes a
 **flag**: it means something could not be expressed as a name, which is worth
 knowing about and usually worth fixing.
 
-**The repo now records no literal address at all**, and the one thing that still
-genuinely needs one has moved out of it. Home Assistant's **trusted proxies**
-validates as an address or CIDR range and will not accept a hostname — but since
-2026.8 it is set in HA's own UI (*Settings → System → Network*) rather than in an
-`http:` block, so `home-assistant/configuration.yaml` no longer carries the
-`<infra-vm-ip>` placeholder it used to. That value is now clickwork on the
-appliance, like the SSO applications and the Kuma monitors.
+**The repo records no literal address at all, and nothing in the lab's running
+configuration needs one.** Every consumer of a name — Traefik's backends, Alloy's
+scrape targets, Kuma's monitors, restic's repository, every `curl` in every
+guide — takes a hostname and re-resolves it, so a renumbered machine corrects
+itself everywhere at once.
 
-Derive it from DNS rather than reading it off the router
-([home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-make-it-reachable-through-traefik)):
+The one value that ever had to be an address was Home Assistant's
+**trusted proxies**, which HA validates as an address or CIDR and refuses as a
+hostname. It is gone, because the proxy it named is gone: HA terminates its own
+TLS ([home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-give-it-its-own-certificate)),
+so there is no hop to trust and no field to fill. That was also the lab's only
+value with **no safety net** — a stale one made HA answer `400` to everything the
+proxy forwarded, quietly, with nothing in this repo to remind you — which is
+worth knowing as a reason not to reintroduce a proxy casually.
 
-```bash
-getent hosts ha.thefipster.de | awk '{print $1}'
-```
-
-That is the proxy's own name resolving to the proxy's own address — the thing HA
-is being asked to trust — so the lookup stays correct through any renumbering.
-
-**It is also the one value in the lab that does not follow DNS automatically, and
-it lost its safety net in the move.** A stale placeholder in YAML used to fail
-loudly, with HA rejecting the config at startup. A stale address in the UI fails
-*quietly*: HA starts fine and answers `400` to everything Traefik forwards. Re-run
-the command above after any renumbering of the infra VM — nothing in this repo
-will remind you.
+Install-time addresses are the irreducible remainder and live only where the
+software insists on them: the static IP typed into the Proxmox installer, and the
+fixed-IP reservations on the router itself. Neither is a value this repo carries.

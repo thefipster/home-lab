@@ -104,5 +104,5 @@
 - Home:
     - Home Assistant:
         href: https://ha.thefipster.de
-        description: Home automation — the service name, via Traefik
+        description: Home automation — its own VM, its own certificate
         icon: home-assistant.png

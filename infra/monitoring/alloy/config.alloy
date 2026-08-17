@@ -169,12 +169,19 @@ prometheus.scrape "apps_host" {
 }
 
 // HOME ASSISTANT — the only target that needs a credential, and the only one
-// scraped over HTTPS through Traefik rather than reached directly.
+// scraped over HTTPS.
 //
-// Going through ha.thefipster.de, rather than dialling the HA VM directly on
-// :8123, is deliberate: it is the same path a browser takes, so a broken route
-// shows up here too instead of being silently bypassed. The wildcard certificate
-// covers the name and the image trusts public CAs, so no tls_config is needed.
+// :443 and no tls_config, because this VM terminates its OWN TLS: the HA VM
+// holds an exact Let's Encrypt certificate for ha.thefipster.de, issued by the
+// Let's Encrypt add-on over the same netcup DNS-01 challenge Traefik uses
+// (docs/guides/home-assistant-setup.md). It is a publicly trusted certificate
+// and this image trusts public CAs, so the handshake needs nothing declared.
+//
+// That makes this scrape a second, independent read on HA's certificate: the
+// add-on renews on a weekly automation of HA's own, and a renewal that silently
+// stopped happening shows up here as a failing target once the certificate
+// expires. Kuma's per-monitor expiry notification is the alarm that fires
+// first (docs/reference/uptime-kuma-monitors.md).
 //
 // /api/prometheus requires a long-lived access token, minted in HA's own UI —
 // which is why init-monitoring.sh does not generate this one. It arrives from

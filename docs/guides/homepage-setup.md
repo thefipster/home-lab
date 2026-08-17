@@ -193,8 +193,8 @@ Traefik. The full comparison is in
 [the design spec](../../dev/specs/2026-08-08-homepage-design.md).
 
 **Why the config mount is read-only, and what it costs.** `:ro` is what keeps
-the checkout the source of truth — the same arrangement as Traefik's `dynamic/`
-directory and Forgejo's `config.yml`. It costs two things. Homepage's default
+the checkout the source of truth — the same arrangement as Forgejo's
+`config.yml`. It costs two things. Homepage's default
 logfile lives inside the config directory, so `LOG_TARGETS: stdout` is required
 rather than tidy — and that is what puts the logs in Loki, since Alloy tails
 this VM's socket. And every file Homepage looks for must already exist, because

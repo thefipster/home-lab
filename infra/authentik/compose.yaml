@@ -98,8 +98,8 @@ services:
       traefik.http.routers.ak-outpost-homepage.rule: Host(`home.thefipster.de`) && PathPrefix(`/outpost.goauthentik.io/`)
       traefik.http.routers.ak-outpost-homepage.entrypoints: websecure
       traefik.http.routers.ak-outpost-homepage.service: authentik
-      # THREE HOSTS ARE DELIBERATELY ABSENT FROM THE LIST ABOVE, and none is an
-      # oversight to fix:
+      # TWO ROUTED HOSTS ARE DELIBERATELY ABSENT FROM THE LIST ABOVE, and
+      # neither is an oversight to fix:
       #   vault.thefipster.de  — Vaultwarden holds the credentials for
       #     repairing THIS stack, so it must stay reachable when this stack is
       #     not. It is also the only service in the lab with real OIDC support
@@ -109,13 +109,17 @@ services:
       #   uptime.thefipster.de — Kuma's whole job is telling you what is down,
       #     so gating it here would make an Authentik outage the one failure you
       #     cannot see.
-      #   ha.thefipster.de     — forward auth would break Home Assistant's
-      #     companion app, webhooks and every local API caller, which
-      #     authenticate with tokens against the same endpoints a browser uses.
-      # All three keep their own local login. The matching absences are missing
+      # Both keep their own local login, and the matching absences are missing
       # `middlewares` labels in infra/vaultwarden/compose.yaml and
-      # infra/uptime-kuma/compose.yaml, and a missing `middlewares` key in
-      # infra/traefik/dynamic/ha.yaml. Reasoning: docs/reference/sso-applications.md.
+      # infra/uptime-kuma/compose.yaml.
+      #
+      # TWO MORE UIs JOIN NEITHER PATTERN and cannot appear here at all, because
+      # Traefik does not serve them: ha.thefipster.de and pve.thefipster.de each
+      # terminate their OWN TLS on their own machine, so there is no router to
+      # gate and no outpost path to publish. Forward auth would in any case have
+      # broken Home Assistant's companion app, webhooks and every local API
+      # caller, which authenticate with tokens against the same endpoints a
+      # browser uses. Reasoning: docs/reference/sso-applications.md.
     networks:
       authentik-net:
       proxy:

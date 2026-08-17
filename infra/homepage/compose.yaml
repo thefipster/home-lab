@@ -48,8 +48,8 @@ services:
       LOG_TARGETS: stdout
     volumes:
       # The repo IS the source of truth for this stack — same arrangement as
-      # infra/traefik/dynamic/ and infra/forgejo/config.yml. Read-only so the
-      # container can never write into the checkout.
+      # infra/forgejo/config.yml. Read-only so the container can never write
+      # into the checkout.
       #
       # CAUTION: :ro means every file Homepage expects must already exist.
       # Upstream copies a skeleton file in when one is missing and calls
