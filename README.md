@@ -192,7 +192,9 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
    after Authentik (it has no ports published and its route is gated), and
    before the remaining stacks so they can be driven from a browser.
 8. **[Forgejo](docs/guides/forgejo-setup.md)** — CI and the container registry, joined
-   to Authentik by OIDC.
+   to Authentik by OIDC. It ends by bounding the registry: nothing published
+   there expires without a cleanup rule, and the rules are a registry of their
+   own, **[docs/reference/package-cleanup-rules.md](docs/reference/package-cleanup-rules.md)**.
 9. **[Monitoring](docs/guides/grafana-setup.md)** — Grafana + Prometheus + Loki +
    Tempo + Alloy: the stack, SSO by OIDC, and verifying what it observes
    (container logs, service + host metrics, OTLP with traces, dashboards and
@@ -259,6 +261,7 @@ is written down twice.
 | **[docs/reference/sso-applications.md](docs/reference/sso-applications.md)** | every Authentik application, which pattern it joins (OIDC or forward-auth), and its exact config values — including which side of the pair each value lives on |
 | **[docs/reference/uptime-kuma-monitors.md](docs/reference/uptime-kuma-monitors.md)** | every Kuma monitor, grouped by stack, with its type and target |
 | **[docs/reference/timetable.md](docs/reference/timetable.md)** | everything that runs on a clock: the staggered night window, the short-interval jobs, and the arithmetic for sizing a heartbeat. Read it before adding a timer |
+| **[docs/reference/package-cleanup-rules.md](docs/reference/package-cleanup-rules.md)** | what expires in the Forgejo package registry and what is protected from expiring — the rules are count-based, and a package type with no rule is never touched |
 | **[apps/services.md](apps/services.md)** | the third-party software on the apps VM — what runs and why, never how, since those compose files live in a Forgejo repo |
 
 **The registries list their deliberate absences beside their entries**, and
