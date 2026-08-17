@@ -9,8 +9,10 @@ finished, so this is the last machine in the lab.
 [Home Assistant](https://www.home-assistant.io) runs here as **Home Assistant
 OS** — the full appliance, Supervisor included — at
 **`https://ha.thefipster.de`**. The Supervisor is the point: ESPHome, Mosquitto
-and the rest install from the add-on store instead of being hand-assembled, which
-is exactly what a bare Docker container install gives up.
+and the rest install from HA's own **Apps** store instead of being
+hand-assembled, which is exactly what a bare Docker container install gives up.
+That store is also where this machine gets its TLS certificate
+([step 7](#7-give-it-its-own-certificate)).
 
 > **This is not the ISO path from [proxmox-setup.md](proxmox-setup.md).** HAOS
 > ships a **qcow2 disk image**, not an installer ISO, and **requires UEFI to
@@ -185,7 +187,7 @@ create your account through the onboarding wizard.
 **Plain HTTP, and only until the next step.** Nothing terminates TLS for this
 machine yet — this VM does it for itself, and
 [step 7](#7-give-it-its-own-certificate) is where it gets the certificate and
-moves to 443. Onboard first: the add-on you need is installed from the UI you
+moves to 443. Onboard first: the app you need is installed from the UI you
 are about to create an account for.
 
 > **No `:8123`, and that is new.** Home Assistant **2026.8** made port **80** the
@@ -211,7 +213,7 @@ should not go down with a reboot on another VM.
 
 The certificate is a genuine Let's Encrypt one, issued over the same **netcup
 DNS-01** challenge Traefik and Coolify use, by the official **Let's Encrypt**
-add-on. You need the same three values from netcup's customer control panel that
+app. You need the same three values from netcup's customer control panel that
 [traefik-setup.md](traefik-setup.md#1-get-netcup-api-credentials) wanted —
 **customer number**, **API key**, **API password** — which by now live in
 [Vaultwarden](vaultwarden-setup.md).
@@ -220,13 +222,21 @@ add-on. You need the same three values from netcup's customer control panel that
 > Coolify's proxy is configured from. That is accepted rather than overlooked:
 > each machine issues for itself and no certificate is ever copied between them,
 > which is the property being paid for. Note where this copy lands — the
-> Supervisor's add-on options, inside the VM, and therefore inside HA's own
+> Supervisor's app options, inside the VM, and therefore inside HA's own
 > backups.
 
-**Install the add-on.** *Settings → Add-ons → Add-on Store → **Let's Encrypt***
-→ *Install*. Do not start it yet.
+**Install the app.** *Settings → **Apps*** → find **Let's Encrypt** → *Install*.
+Do not start it yet.
 
-**Configure it.** On the add-on's *Configuration* tab, switch to *Edit in YAML*
+> **These are what everything else still calls add-ons.** Home Assistant renamed
+> them **Apps** in the UI, and the store with them; the API did not follow. Every
+> slug, service and log line still says `addon` — which is why the automation in
+> [step 8](#8-keep-the-certificate-renewed) calls `hassio.addon_start` on
+> `core_letsencrypt`, and why HA's own error messages mix the two words in one
+> sentence. Upstream documentation you find for this app will say *add-on*
+> throughout.
+
+**Configure it.** On the app's *Configuration* tab, switch to *Edit in YAML*
 and paste:
 
 ```yaml
@@ -257,18 +267,36 @@ nothing to explain it. `ha.thefipster.de` validates at
 publishes TXT records slowly, often around ten minutes, whichever client is
 asking.
 
+**Then free port 80.** Still on the *Configuration* tab, in the **Network**
+card, clear the host port beside `80/tcp` so the field is empty, and save.
+
+> **Skip this and the app refuses to start**, with `Cannot start app
+> core_letsencrypt because port 80 is already in use`. The thing using port 80
+> is **Home Assistant itself** — that has been HA's default since 2026.8, and it
+> is what [step 6](#6-onboard) just had you onboard through. The app publishes 80
+> because that is where an **HTTP-01** challenge is answered, and it declares the
+> port whether or not you use that challenge.
+>
+> Clearing it costs nothing and is the correct end state, not a workaround. This
+> lab validates over **DNS-01**, which needs no inbound port at all; HTTP-01
+> could not work here in any case, because it requires Let's Encrypt to *reach*
+> the host, and these names resolve only on the LAN
+> ([dns-records.md](../reference/dns-records.md)). Leave the field blank
+> permanently — after HA moves to 443 below, port 80 is free again, and the
+> mapping is still of no use.
+
 **Start it and watch the log.** *Info* tab → *Start*, then the *Log* tab.
 
 > **First issuance takes 10–15 minutes, and the log is quiet for most of it.**
 > That is netcup propagation, not a hang — the same wait
 > [traefik-setup.md](traefik-setup.md#4-start-the-stack-and-watch-the-first-issuance)
-> describes. Do not restart the add-on mid-challenge. Expect it to finish with
+> describes. Do not restart the app mid-challenge. Expect it to finish with
 > `Successfully received certificate`, having written `/ssl/fullchain.pem` and
 > `/ssl/privkey.pem`.
 
-> **The add-on then stops, and that is the end state, not a failure.** It is
+> **The app then stops, and that is the end state, not a failure.** It is
 > **one-shot**: it runs `certbot certonly --keep-until-expiring` and exits.
-> A stopped Let's Encrypt add-on with a certificate on disk is a healthy one —
+> A stopped Let's Encrypt app with a certificate on disk is a healthy one —
 > [step 8](#8-keep-the-certificate-renewed) is the whole of its renewal story.
 
 **Point HA at the files.** *Settings → System → Network*, in the same block as
@@ -280,7 +308,7 @@ the port:
 | SSL certificate | `/ssl/fullchain.pem` |
 | SSL key | `/ssl/privkey.pem` |
 
-> **This is UI configuration, not YAML — and the add-on's own documentation will
+> **This is UI configuration, not YAML — and the app's own documentation will
 > tell you otherwise.** It still describes referencing the two files from an
 > `http:` block, which Home Assistant **2026.8** retired: HTTP server settings
 > moved into *Settings → System → Network*, and a leftover `http:` block now
@@ -321,11 +349,11 @@ through.
 
 ### 8. Keep the certificate renewed
 
-**The add-on renews nothing on its own.** `certbot certonly
+**The app renews nothing on its own.** `certbot certonly
 --keep-until-expiring` asks for a certificate and exits: inside the renewal
 window — the last 30 days of a 90-day certificate — it fetches a new one; outside
 it, it does nothing at all, makes no ACME request and calls netcup not once. So
-the entire renewal mechanism is *starting the add-on again*, on a schedule.
+the entire renewal mechanism is *starting the app again*, on a schedule.
 
 That schedule is an automation of HA's own. *Settings → Automations & scenes →
 Create automation → ⋮ → Edit in YAML*:
@@ -333,7 +361,7 @@ Create automation → ⋮ → Edit in YAML*:
 ```yaml
 alias: TLS certificate renewal
 description: >-
-  Weekly: run the one-shot Let's Encrypt add-on, then restart so that a renewed
+  Weekly: run the one-shot Let's Encrypt app, then restart so that a renewed
   certificate is the one actually being served.
 triggers:
   - trigger: time
@@ -375,9 +403,9 @@ puts the restart after certbot has either written a new file or decided not to.
 ([timetable.md](../reference/timetable.md#the-night-window)).
 
 Save it, then **run it once now** — *⋮ → Run actions* on the new automation.
-This is worth the twenty minutes: the failure it catches is a wrong add-on slug
+This is worth the twenty minutes: the failure it catches is a wrong app slug
 or a service call HA rejects, which is otherwise silent for two months and
-surfaces as an expired certificate. Watch the add-on's *Log* tab gain a second
+surfaces as an expired certificate. Watch the app's *Log* tab gain a second
 run — it will report the existing certificate as not due for renewal — and HA
 restart twenty minutes later.
 
@@ -398,7 +426,7 @@ First give HA the metrics endpoint. Append the block from
 [`home-assistant/configuration.yaml`](../../home-assistant/configuration.yaml) —
 `prometheus:`, the one HA setting in this lab that is still YAML — to
 `/config/configuration.yaml`. Install the **File Editor** or **Studio Code
-Server** add-on (*Settings → Add-ons*) to edit it, then *Developer Tools → YAML →
+Server** app (*Settings → Apps*) to edit it, then *Developer Tools → YAML →
 Restart*.
 
 **Append, do not replace.** A fresh HAOS install ships that file with
@@ -481,7 +509,21 @@ specifically: if you left *Pre-Enroll keys* ticked, delete the EFI disk and
 re-add it unticked. Also confirm *Options → Boot Order* actually has `scsi0`
 enabled and first — an imported disk is not bootable until you say so.
 
-**The add-on log ends in a propagation timeout, or says the expected TXT record
+**`Cannot start app core_letsencrypt because port 80 is already in use`.** Home
+Assistant is what is using it: port 80 is HA's own default since 2026.8, and the
+Let's Encrypt app declares 80 for the **HTTP-01** challenge whether or not you
+use it. Clear the host port beside `80/tcp` in the app's *Configuration →
+Network* card and start it again. Nothing is given up — this lab validates over
+DNS-01, which needs no inbound port, and HTTP-01 could never have worked against
+a name that resolves only on the LAN.
+
+> **Do not free the port by moving Home Assistant instead.** Sending HA to some
+> other port to get the app started leaves you onboarding through one address and
+> verifying through another, and 2026.8's reachability confirmation makes each of
+> those moves its own five-minute trap. The port mapping is the thing that is
+> unnecessary here, so remove that.
+
+**The app log ends in a propagation timeout, or says the expected TXT record
 was not returned.** netcup was slower than the fifteen minutes
 `propagation_seconds` allows, or the three credentials are wrong. Confirm the
 domain is still on netcup's nameservers, from any LAN host:
@@ -499,7 +541,7 @@ roughly five failed validations per hostname per hour.
 443. Either the Network settings did not stick — the five-minute confirmation
 window above — or HA could not read the certificate and fell back. Open the VM's
 **Console** in Proxmox and look at the startup log; a missing or unreadable
-`/ssl/fullchain.pem` is the likely cause, which means the add-on run in
+`/ssl/fullchain.pem` is the likely cause, which means the app run in
 [step 7](#7-give-it-its-own-certificate) did not finish.
 
 **`http://ha.thefipster.de` stopped working, and that is expected.** HA serves
@@ -516,7 +558,7 @@ convincing:
 getent hosts ha.thefipster.de
 ```
 
-**The certificate expired and nothing renewed it.** The add-on renews only when
+**The certificate expired and nothing renewed it.** The app renews only when
 something starts it. Check the automation from
 [step 8](#8-keep-the-certificate-renewed) still exists and is enabled, and that
 its last triggered time is within a week — *Settings → Automations & scenes*. A
@@ -526,7 +568,7 @@ extra.
 
 **HA raises a repair issue about the `http:` block in `configuration.yaml`.**
 Delete that block. 2026.8 imports it into *Settings → System → Network* on first
-start and then wants it gone; the Let's Encrypt add-on's own documentation still
+start and then wants it gone; the Let's Encrypt app's own documentation still
 tells you to add one. This repo's fragment does not contain it.
 
 **The frontend loads but stays blank after login.** A websocket problem. Nothing
@@ -543,10 +585,10 @@ editing `.env`, since environment variables are read at container creation.
 |------|-------|
 | HA configuration | `/config/configuration.yaml` **inside the VM** — not in this repo |
 | HTTP server settings: port, SSL certificate, SSL key | HA's UI, *Settings → System → Network* — UI-managed since 2026.8, not YAML and not here |
-| The certificate and its key | `/ssl/fullchain.pem` and `/ssl/privkey.pem` **inside the VM**, written by the add-on |
-| The netcup API credentials | the Let's Encrypt add-on's options **inside the VM** — the lab's third copy, after Traefik's `.env` and Coolify's proxy config |
+| The certificate and its key | `/ssl/fullchain.pem` and `/ssl/privkey.pem` **inside the VM**, written by the app |
+| The netcup API credentials | the Let's Encrypt app's options **inside the VM** — the lab's third copy, after Traefik's `.env` and Coolify's proxy config |
 | The renewal schedule | an automation in HA's own database **inside the VM** — [timetable.md](../reference/timetable.md) is the registry |
-| Add-ons, database, secrets | inside the VM, managed by the Supervisor |
+| Apps, database, secrets | inside the VM, managed by the Supervisor |
 | The config fragment | `home-assistant/configuration.yaml` in this repo — `prometheus:` only, a template you paste |
 | The scrape token | `infra/monitoring/.env` on the **infra VM** — gitignored |
 

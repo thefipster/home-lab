@@ -8,7 +8,7 @@ Turns the bare server into a hypervisor running three VMs:
 Proxmox VE  ·  pve.thefipster.de          ← this guide
  ├─ VM: infra            → Traefik + Vaultwarden + Authentik + Forgejo + Dockge + monitoring
  ├─ VM: apps             → Coolify + your apps
- └─ VM: home-assistant   → Home Assistant OS (Supervisor + add-ons)
+ └─ VM: home-assistant   → Home Assistant OS (Supervisor + apps)
 ```
 
 Proxmox VE is a Debian-based type-1 hypervisor. Its native workloads are **KVM
@@ -1938,7 +1938,7 @@ Per-VM, the numbers and why:
   apt cache and an OS that grows, on a pool that is 40% empty.
 - **home-assistant 8 GB / 64 GB.** The smallest allocation on the box, and
   deliberately so even with a reserve sitting free. HAOS idles near 2 GB; its
-  spike is ESPHome firmware builds and add-ons, which are CPU- and disk-bound —
+  spike is ESPHome firmware builds and apps, which are CPU- and disk-bound —
   and with ballooning off, memory handed to this VM is pinned out of the host
   whether it is used or not. Its own default disk is 32 GB, and the recorder
   database plus build caches make 64 GB comfortable.

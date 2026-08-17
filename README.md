@@ -52,7 +52,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
     └─ home-assistant VM · ha.thefipster.de · 12 vCPU · 8 GB · 64 GB · Home Assistant OS (UEFI)
          its own Let's Encrypt cert on :443 — the other lab UI Traefik does not front
          Prometheus     /api/prometheus scraped by Alloy · local login, no SSO
-         Supervisor     full HAOS — the add-on store the five below come from
+         Supervisor     full HAOS — the Apps store the five below come from
            Let's Encrypt  the exact ha. certificate · one-shot, run weekly by an HA automation
            ESPHome      firmware for the lab's own ESP devices, built on this VM
            Mosquitto    the MQTT broker both Zigbee2MQTT and HA talk to
@@ -65,7 +65,7 @@ Proxmox VE · pve.thefipster.de · i5-10600K · 12 threads · 96 GB · hyperviso
 | **proxmox-host**      | Type-1 hypervisor only — no Docker on the host, so a bad container day can't take the box down. |
 | **infra-vm**          | TLS termination and routing for real domain names, the password manager that holds every credential below, CI/CD (GitHub → mirror → build → push to the built-in registry), a web UI for managing compose stacks, and monitoring (metrics, logs, traces, dashboards, alerts) plus an independent status watcher that sends the notifications, and a start page that puts all of it one click away. SSO (Authentik) fronts the infra UIs — except Vaultwarden and Kuma, deliberately, so an Authentik outage takes neither the credentials to fix it nor the view of what broke. |
 | **apps-vm**           | A self-hosted PaaS that deploys and runs *your* applications with domains + HTTPS. Owns its own Docker, and issues its own wildcard certificate. Also runs the third-party software you use, deployed the same way — the catalog is [apps/services.md](apps/services.md). |
-| **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so add-ons (ESPHome, Mosquitto) install from HA's own store. Reached at `ha.thefipster.de`, on a certificate it issues and renews itself, so the house's front door does not depend on another VM. Keeps its own local login, deliberately. |
+| **home-assistant-vm** | Home automation as a full appliance — Supervisor included, so apps (ESPHome, Mosquitto) install from HA's own Apps store. Reached at `ha.thefipster.de`, on a certificate it issues and renews itself, so the house's front door does not depend on another VM. Keeps its own local login, deliberately. |
 
 Why three VMs instead of Docker-on-the-host: isolation and per-VM snapshots. Each
 of the three also refuses to share for its own reason — Coolify expects to own a
@@ -139,7 +139,7 @@ Proxmox's built-in ACME client and serves the UI on 443 itself, outside Traefik
 ([docs/guides/proxmox-setup.md, Part 3](docs/guides/proxmox-setup.md#serve-it-on-443)) — so the
 console you repair the lab from never depends on one of the lab's own guests. The
 home-assistant VM does the same for `ha.thefipster.de` through HA's Let's Encrypt
-add-on ([docs/guides/home-assistant-setup.md](docs/guides/home-assistant-setup.md#7-give-it-its-own-certificate)),
+app ([docs/guides/home-assistant-setup.md](docs/guides/home-assistant-setup.md#7-give-it-its-own-certificate)),
 so the lights keep answering through an infra-VM reboot. Being exact names rather
 than wildcards is also what keeps their challenge records from racing Traefik's,
 which netcup's non-atomic zone updates would otherwise make a coin toss.
@@ -241,7 +241,7 @@ they both lean on its TLS, and the HA VM is reachable only through its Traefik.
 16. **[Home Assistant OS](docs/guides/home-assistant-setup.md)** — the only VM not built
     from an ISO: HAOS ships a qcow2 disk image and needs non-secureboot UEFI, so
     it is created empty and its disk imported. It terminates its own TLS with an
-    exact certificate from HA's Let's Encrypt add-on, so nothing on the infra VM
+    exact certificate from HA's Let's Encrypt app, so nothing on the infra VM
     is in its path; it is last because the parts of it that reach the rest of
     the lab — the Prometheus scrape and its two Kuma monitors — want that VM
     finished. It joins neither SSO pattern, deliberately.

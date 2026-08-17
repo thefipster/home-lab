@@ -22,7 +22,7 @@ share one set of disks.
 | **02:00** | Proxmox host | `vzdump` whole-VM snapshot backup, selection **All**, retention from the storage (`keep-daily=7,keep-weekly=4,keep-monthly=3`) | [proxmox-setup.md Part 8](../guides/proxmox-setup.md#part-8--schedule-whole-vm-backups) |
 | **Sun 03:00** (+0–10 min) | infra VM | `restic check --read-data-subset=10%` | [`restic-check.timer`](../../infra/backup/restic-check.timer) |
 | **04:30** | infra + apps VMs | reboot — **only if** an installed update requires one | [`init-unattended-upgrades.sh`](../../scripts/init-unattended-upgrades.sh) |
-| **Sun 04:45** | home-assistant VM | start the one-shot Let's Encrypt add-on, then restart HA 20 minutes later. A no-op on all but the few Sundays inside the 30-day renewal window | [home-assistant-setup.md step 8](../guides/home-assistant-setup.md#8-keep-the-certificate-renewed) |
+| **Sun 04:45** | home-assistant VM | start the one-shot Let's Encrypt app, then restart HA 20 minutes later. A no-op on all but the few Sundays inside the 30-day renewal window | [home-assistant-setup.md step 8](../guides/home-assistant-setup.md#8-keep-the-certificate-renewed) |
 
 **The order is load-bearing, not tidy.** restic runs first so that when vzdump
 starts an hour later, layer 1's whole-VM archive already contains that night's

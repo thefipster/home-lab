@@ -1,15 +1,15 @@
 # home-assistant VM — Home Assistant OS
 
 The home-assistant VM runs **Home Assistant OS** — the full
-appliance including the Supervisor, so add-ons like ESPHome and Mosquitto install
-from HA's own store.
+appliance including the Supervisor, so apps like ESPHome and Mosquitto install
+from HA's own **Apps** store.
 
 **Guide: [docs/guides/home-assistant-setup.md](../docs/guides/home-assistant-setup.md).**
 
 ## Why there is no compose file and no init script
 
 HAOS is an **appliance**. It manages its own OS, its own container runtime and
-its own add-ons through the Supervisor, and there is no shell of ours inside it —
+its own apps through the Supervisor, and there is no shell of ours inside it —
 so unlike every `infra/` stack, this repo is **not** this machine's source of
 truth. There is nothing here to `docker compose up`, nothing to symlink into
 `/opt/stacks`, and no `.env` to seed.
@@ -24,7 +24,7 @@ have one each, the apps VM has four, this has none.
 **It carries no `http:` block, and adding one is an error.** HA **2026.8** moved
 the HTTP server settings — port, SSL certificate and SSL key included — out of
 YAML and into *Settings → System → Network*, and raises a repair issue if an
-`http:` block remains in `configuration.yaml`. The Let's Encrypt add-on's own
+`http:` block remains in `configuration.yaml`. The Let's Encrypt app's own
 documentation still tells you to add one; do not. There is no `trusted_proxies`
 value anywhere either, in YAML or in the UI: nothing proxies this machine, which
 is why this repo records no literal IP address anywhere.
@@ -38,11 +38,13 @@ itself, so appending cannot collide.
 
 - **One name, and its own TLS.** `ha.thefipster.de` → **this VM**, which answers
   on `:443` with an exact Let's Encrypt certificate of its own, issued by the
-  **Let's Encrypt add-on** over the same netcup DNS-01 challenge Traefik uses.
+  **Let's Encrypt app** over the same netcup DNS-01 challenge Traefik uses.
   Nothing on the infra VM proxies it, so the house's front door does not go down
   with a reboot over there — the same independence the Proxmox web UI keeps. The
-  add-on is one-shot, so a weekly HA automation is what renews the certificate
-  ([timetable.md](../docs/reference/timetable.md)).
+  app is one-shot, so a weekly HA automation is what renews the certificate
+  ([timetable.md](../docs/reference/timetable.md)). It also publishes port 80 for
+  an HTTP-01 challenge this lab never uses; that mapping is cleared, because HA
+  itself serves there until it moves to 443.
 - **No SSO, deliberately — and not available either.** HA has no OIDC, and
   forward-auth is a Traefik middleware, so with no Traefik router there is
   nothing to attach one to. Even where it was possible it was refused: it breaks

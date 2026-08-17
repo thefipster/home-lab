@@ -69,16 +69,19 @@ read to build the lab, and `dev/` holds why it looks the way it does:
   clickwork with no other home. The **collector** is the one thing on this
   machine that does: an exact `loki.` DNS row, plus a stated non-row in each of
   the other two.
-- **home-assistant VM** — Home Assistant OS, Supervisor included, so
-  add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
+- **home-assistant VM** — Home Assistant OS, Supervisor included, so apps
+  (ESPHome, Mosquitto) come from HA's **Apps** store. HA renamed **add-ons** to
+  apps in the UI and the API did not follow, so slugs, services and log lines
+  still say `addon` — write *app* in guide prose, keep `addon` wherever it is an
+  identifier. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
   repo cannot be its source of truth, so `home-assistant/` holds a README and a
   `configuration.yaml` **fragment you append by hand** — the only file left here
   that belongs on a machine this repo cannot write to, and it stays only because
   there is no other repo it could live in. It is also the **other** UI outside
-  Traefik, beside the Proxmox host's: the **Let's Encrypt add-on** holds an exact
+  Traefik, beside the Proxmox host's: the **Let's Encrypt app** holds an exact
   certificate for `ha.thefipster.de` and HA serves 443 itself, so the house's
-  front door does not die with the infra VM. That add-on is one-shot, so renewal
+  front door does not die with the infra VM. That app is one-shot, so renewal
   is a **weekly HA automation** that starts it and restarts HA — clickwork on the
   appliance, like the SSO applications and the Kuma monitors, so its
   `timetable.md` row points at a guide step rather than at a file, the same shape
@@ -98,7 +101,7 @@ issued via DNS-01 against the netcup API — nothing is exposed to the internet.
 **Four ACME clients, four certificates, and only two of them are wildcards**:
 Traefik's `*.thefipster.de` on the infra VM and Coolify's own on the apps VM,
 plus two **exact** certificates — `pve.` from Proxmox's ACME client and `ha.`
-from HA's Let's Encrypt add-on. Exactness is what keeps the two machine
+from HA's Let's Encrypt app. Exactness is what keeps the two machine
 certificates from racing the wildcards at `_acme-challenge.thefipster.de`, whose
 zone updates netcup does not perform atomically.
 
@@ -144,7 +147,7 @@ A stack becomes reachable by **two things**, not by any central config:
 > terminate their own TLS instead, each with its own ACME client and its own
 > **exact** certificate: the Proxmox host for `pve.thefipster.de`
 > (`docs/guides/proxmox-setup.md` Part 3) and the HA VM for `ha.thefipster.de`,
-> via the Let's Encrypt add-on (`docs/guides/home-assistant-setup.md` step 7).
+> via the Let's Encrypt app (`docs/guides/home-assistant-setup.md` step 7).
 > Both are deliberate and for the same reason — routing either name through
 > Traefik makes it a *service* name pointing at the infra VM, which forces a
 > second name for the machine and puts a surface you need during an outage

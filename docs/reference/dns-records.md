@@ -157,7 +157,7 @@ of work; until that exists, this absence is what keeps the split horizon honest.
 
 `ha.thefipster.de` is the other row here that answers on **443 with a
 certificate of its own**, and it works like `pve.`: the HA VM runs
-the Let's Encrypt add-on, holds an exact certificate for its own name, and is not
+the Let's Encrypt app, holds an exact certificate for its own name, and is not
 proxied by anything
 ([home-assistant-setup.md, step 7](../guides/home-assistant-setup.md#7-give-it-its-own-certificate)).
 

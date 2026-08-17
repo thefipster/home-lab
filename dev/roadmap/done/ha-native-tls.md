@@ -4,8 +4,9 @@ Goal: the house's front door stops depending on the infra VM. As built,
 `ha.thefipster.de` was a Traefik route declared in a file provider, so an
 infra-VM outage — a reboot, a bad Traefik change, a dead disk — took the HA UI
 and the companion app down while Home Assistant itself was fine. The capability
-question that forced that arrangement is closed: the official **Let's Encrypt
-add-on** bundles `certbot-dns-netcup` (since add-on 4.4.0, February 2020;
+question that forced that arrangement is closed: the official **Let's Encrypt**
+app — what HA called an add-on until it renamed them — bundles
+`certbot-dns-netcup` (since 4.4.0, February 2020;
 rechecked 2026-08-17 against 6.4.0), so the appliance can hold its own
 certificate, issued the same way Traefik's is. Decided 2026-08-17: independence
 outweighs reusing the shared wildcard — the trade the original design priced in
@@ -16,15 +17,15 @@ companion apps reconnect without re-pairing.
 ## ✅ Landed
 
 See [home-assistant-setup.md](../../../docs/guides/home-assistant-setup.md),
-steps 7 and 8. The HA VM runs the **Let's Encrypt** add-on with a `dns-netcup`
+steps 7 and 8. The HA VM runs the **Let's Encrypt** app with a `dns-netcup`
 challenge and an exact certificate for `ha.thefipster.de`, serves 443 itself,
-and re-runs the one-shot add-on from a weekly automation of its own. Traefik's
+and re-runs the one-shot app from a weekly automation of its own. Traefik's
 file provider is gone with its only user, `ha.` now names the machine, and
 `homeassistant.` is retired.
 
 ## The work
 
-- **The add-on, on the appliance.** Let's Encrypt add-on, DNS challenge,
+- **The app, on the appliance.** Let's Encrypt app, DNS challenge,
   provider `dns-netcup`, an **exact** certificate for `ha.thefipster.de` —
   exact for the `pve` reason: it validates at
   `_acme-challenge.ha.thefipster.de`, a different FQDN from the wildcard's, so
@@ -33,20 +34,23 @@ file provider is gone with its only user, `ha.` now names the machine, and
   Options `netcup_customer_id` / `netcup_api_key` / `netcup_api_password` —
   another copy of those credentials, beside Traefik's `.env` and Coolify's
   proxy config; accepted. `propagation_seconds: 900`, the value Traefik
-  already proved against netcup.
-- **Cert paths and port into HA's Network settings.** The add-on writes
+  already proved against netcup. Its **port 80 mapping is cleared** — the app
+  will not start otherwise, and the port belongs to a challenge this lab does
+  not use ([below](#three-things-the-plan-did-not-have)).
+- **Cert paths and port into HA's Network settings.** The app writes
   `/ssl/fullchain.pem` + `/ssl/privkey.pem`; its DOCS still say to reference
   them from an `http:` block, which 2026.8 retired — the fields live in
   *Settings → System → Network* beside the port, and the guide says so with the
-  add-on's own documentation flagged as wrong. Port becomes **443**, so the
+  app's own documentation flagged as wrong. Port becomes **443**, so the
   bare name keeps working.
-- **The renewal automation.** The add-on is one-shot — it runs
+- **The renewal automation.** The app is one-shot — it runs
   `certbot certonly --keep-until-expiring` and stops, renewing nothing on its
   own — so an HA automation starts it. Outside certbot's renewal window
   (30 days before expiry) that is a no-op: no ACME traffic, no netcup calls.
   It ended up **weekly rather than nightly**, and with an unconditional
   `homeassistant.restart` twenty minutes after each run — see
-  [Two things the plan did not have](#two-things-the-plan-did-not-have) below.
+  [Three things the plan did not have](#three-things-the-plan-did-not-have)
+  below.
   A [timetable.md](../../../docs/reference/timetable.md) row for the automation;
   the alarm for silent expiry is the certificate-expiry notification Kuma
   already offers on HTTPS monitors, switched on for `Home Automation` and
@@ -69,7 +73,7 @@ file provider is gone with its only user, `ha.` now names the machine, and
 - **Trusted proxies comes out** of HA's Network settings. With it goes the one
   value in the lab that did not follow DNS — and its silent-400 staleness trap
   ([dns-records.md](../../../docs/reference/dns-records.md#why-this-registry-holds-no-addresses)).
-- **The docs sweep.** `home-assistant-setup.md` steps 5–8 became the add-on
+- **The docs sweep.** `home-assistant-setup.md` steps 5–8 became the app
   procedure and the troubleshooting matrix lost the 502/loop/untrusted-proxy
   entries that describe a route which no longer exists; `traefik-setup.md` lost
   its file-provider half; both READMEs, CLAUDE.md's topology, routing, SSO and
@@ -78,11 +82,23 @@ file provider is gone with its only user, `ha.` now names the machine, and
   reaches HA directly — but its rationale was rewritten: what the scrape now
   proves is HA's own TLS.
 
-## Two things the plan did not have
+## Three things the plan did not have
 
-Both surfaced while writing the procedure rather than while designing it, and
-both are recorded here because the reasoning is not obvious from the automation
-YAML that resulted.
+All three surfaced while carrying the procedure out rather than while designing
+it, and each is recorded here because the reasoning is not obvious from the
+result.
+
+**The app will not start until its port 80 mapping is cleared**, with
+`Cannot start app core_letsencrypt because port 80 is already in use`. The two
+halves of that collision are both consequences of decisions made elsewhere: the
+app publishes 80 because that is where an **HTTP-01** challenge is answered, and
+it declares the port whether or not that challenge is selected; and **Home
+Assistant itself holds 80**, which has been HAOS's default since 2026.8 and is
+what onboarding runs through. Nothing about DNS-01 needs the port — and HTTP-01
+could never have worked here anyway, since it needs Let's Encrypt to reach a
+host whose name resolves only on the LAN — so the mapping is cleared and stays
+cleared. Worth knowing that it did **not** exist before 2026.8 moved HA off
+8123: this is a collision the port change created.
 
 **The renewal automation restarts Home Assistant, unconditionally.** HA reads
 its certificate when it starts its HTTP server, so a file replaced underneath a

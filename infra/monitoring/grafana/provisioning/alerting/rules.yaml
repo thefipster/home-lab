@@ -168,7 +168,7 @@ groups:
       # SCOPE: this reads traefik_tls_certs_not_after, so it sees ONLY the certs
       # Traefik holds. The lab's other two — pve.thefipster.de from Proxmox's
       # ACME client and ha.thefipster.de from Home Assistant's Let's Encrypt
-      # add-on — are invisible here and are covered by Uptime Kuma's per-monitor
+      # app — are invisible here and are covered by Uptime Kuma's per-monitor
       # certificate-expiry notification instead
       # (docs/reference/uptime-kuma-monitors.md).
       - uid: cert-expiring
