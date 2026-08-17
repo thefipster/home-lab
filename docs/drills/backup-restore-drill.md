@@ -180,10 +180,9 @@ empty, the restore was too aggressive.
 
 **The only stack with no useful marker, and the reason is worth understanding.**
 Almost everything about Traefik comes back whether the restore worked or not:
-its routing is labels on other stacks' containers plus files under
-`infra/traefik/dynamic/`, all of which are in git. The dashboard will load,
-every router will be listed, every backend will resolve. None of that came from
-the snapshot.
+its routing is labels on other stacks' containers, all of which are in git. The
+dashboard will load, every router will be listed, every backend will resolve.
+None of that came from the snapshot.
 
 The backup holds exactly two things — `acme.json` and the netcup credentials —
 so there is exactly one check:

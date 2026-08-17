@@ -66,6 +66,9 @@ Named so they are not re-derived from scratch, and deliberately not ranked:
   scan; its two open phases live on as rank 3 and a parked task above.
 - [ci-code-analysis](dev/roadmap/done/ci-code-analysis.md) — analyzers, format
   gate, tests and coverage; its open decision is parked above.
+- [ha-native-tls](dev/roadmap/done/ha-native-tls.md) — Home Assistant holds its
+  own certificate and serves 443 itself; Traefik's file provider retired with
+  its only user.
 
 Two former roadmap items are **dropped, not deferred** — a nightly rebuild and
 a tag reconciler, both rejected because the lab runs no CI schedule at all

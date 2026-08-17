@@ -4,7 +4,7 @@
 
 **Prerequisite:** [wildcard-dns-unifi.md](wildcard-dns-unifi.md) complete — every
 record from [dns-records.md](../reference/dns-records.md) resolves (bar the one deferred
-`homeassistant.` row the registry marks), so this machine can be reached and
+`ha.` row the registry marks), so this machine can be reached and
 can reach the internet by name.
 
 The infra VM is the only machine whose services this repo declares, so

@@ -18,10 +18,14 @@ Services join SSO by **one of two patterns, never both**:
 - **Forward-auth** — at the proxy, for plain web UIs with no SSO support at
   all. The Traefik dashboard, Dockge and Homepage.
 
-Three services join **neither**, deliberately — Vaultwarden, Uptime Kuma and
-Home Assistant. The first of those is already running by the time you get here,
-and its absence is the reason it was built first
+Four UIs join **neither**, deliberately. Vaultwarden and Uptime Kuma are on this
+VM and simply carry no `middlewares` label — the first of those is already
+running by the time you get here, and its absence is the reason it was built
+first
 ([sso-applications.md](../reference/sso-applications.md#vaultwarden-deliberately-not-joined)).
+The Proxmox web UI and Home Assistant are not label decisions at all: each
+terminates its own TLS on its own machine, so Traefik serves neither and there is
+no router for a forward-auth middleware to attach to.
 
 The full list of applications and the exact values each is created with is the
 registry: **[sso-applications.md](../reference/sso-applications.md)**. This guide sets up

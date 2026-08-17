@@ -37,11 +37,12 @@ read to build the lab, and `dev/` holds why it looks the way it does:
   take the box down. Two things run on it that are **not** Docker and not
   declared by any compose file here: it terminates its **own** TLS for
   `pve.thefipster.de` on 443 — its own ACME client, its own exact certificate,
-  the lab's one UI outside Traefik, so the repair surface does not depend on a
-  guest — and it runs **NUT** for the UPS, shutting all three guests down
-  through Proxmox's own guest shutdown rather than through NUT clients. Neither
-  has an init script: this machine has no checkout of the repo, so both live as
-  guide text in `docs/guides/proxmox-setup.md`.
+  one of the lab's **two** UIs outside Traefik (Home Assistant is the other), so
+  the repair surface does not depend on a guest — and it runs **NUT** for the
+  UPS, shutting all three guests down through Proxmox's own guest shutdown
+  rather than through NUT clients.
+  Neither has an init script: this machine has no checkout of the repo, so both
+  live as guide text in `docs/guides/proxmox-setup.md`.
 - **infra VM** — Traefik + Vaultwarden + Authentik + Forgejo + Dockge +
   monitoring (the stacks in `infra/`). The only machine whose services this repo
   declares.
@@ -68,13 +69,23 @@ read to build the lab, and `dev/` holds why it looks the way it does:
   clickwork with no other home. The **collector** is the one thing on this
   machine that does: an exact `loki.` DNS row, plus a stated non-row in each of
   the other two.
-- **home-assistant VM** — Home Assistant OS, Supervisor included, so
-  add-ons (ESPHome, Mosquitto) come from HA's store. An **appliance**: no compose,
+- **home-assistant VM** — Home Assistant OS, Supervisor included, so apps
+  (ESPHome, Mosquitto) come from HA's **Apps** store. HA renamed **add-ons** to
+  apps in the UI and the API did not follow, so slugs, services and log lines
+  still say `addon` — write *app* in guide prose, keep `addon` wherever it is an
+  identifier. An **appliance**: no compose,
   no init script, no `/opt/<stack>` data dir, and no shell of ours inside it. The
   repo cannot be its source of truth, so `home-assistant/` holds a README and a
   `configuration.yaml` **fragment you append by hand** — the only file left here
   that belongs on a machine this repo cannot write to, and it stays only because
-  there is no other repo it could live in.
+  there is no other repo it could live in. It is also the **other** UI outside
+  Traefik, beside the Proxmox host's: the **Let's Encrypt app** holds an exact
+  certificate for `ha.thefipster.de` and HA serves 443 itself, so the house's
+  front door does not die with the infra VM. That app is one-shot, so renewal
+  is a **weekly HA automation** that starts it and restarts HA — clickwork on the
+  appliance, like the SSO applications and the Kuma monitors, so its
+  `timetable.md` row points at a guide step rather than at a file, the same shape
+  the hypervisor's rows take.
 
 Only the infra VM is driven from this repo. For the other two the repo holds
 guides and one config fragment each; treat their machine state as authoritative
@@ -85,8 +96,14 @@ router; the public zone holds no address records of **either** family — the
 router answers A only and forwards AAAA upstream, so one public AAAA would win
 on every dual-stack client and route the whole lab out through it
 (`dns-records.md`). `git.` / `dockge.` → infra VM,
-`*.thefipster.de` → apps VM. TLS everywhere is a genuine Let's Encrypt **wildcard**
+`*.thefipster.de` → apps VM. Every certificate is a genuine Let's Encrypt one
 issued via DNS-01 against the netcup API — nothing is exposed to the internet.
+**Four ACME clients, four certificates, and only two of them are wildcards**:
+Traefik's `*.thefipster.de` on the infra VM and Coolify's own on the apps VM,
+plus two **exact** certificates — `pve.` from Proxmox's ACME client and `ha.`
+from HA's Let's Encrypt app. Exactness is what keeps the two machine
+certificates from racing the wildcards at `_acme-challenge.thefipster.de`, whose
+zone updates netcup does not perform atomically.
 
 **Never write a host IP address in this repo.** Addresses drift — they already
 have; the running lab does not match the addresses the build plan assumed — and a
@@ -97,30 +114,27 @@ them as `infra ip` / `apps ip` / `ha ip` / `pve ip`; the router is the source of
 truth for addresses, that registry for names.
 
 A literal address is therefore a **flag** — something that could not be expressed
-as a name. **The repo currently records none.** The one value that genuinely
-needs an address is Home Assistant's **trusted proxies**, which HA validates as
-an address or CIDR and will not accept as a hostname — and since HA 2026.8 that
-lives in HA's own UI (*Settings → System → Network*), not in an `http:` block, so
-`home-assistant/configuration.yaml` no longer carries the `<infra-vm-ip>`
-placeholder it used to. It is derived on the machine from
-`getent hosts ha.thefipster.de` rather than read off the router, and its staleness
-is now silent (a `400` from HA) where the placeholder used to fail loudly at
-startup. Install-time addresses in `proxmox-setup.md` (the Proxmox installer wants
-a static IP typed in) are the remaining irreducible ones — HA's onboarding happens
-*after* its DNS records exist, by name. Anything else should be a name.
+as a name. **The repo records none, and nothing in the lab's running
+configuration needs one any more.** The last value that did was Home Assistant's
+**trusted proxies**, which HA validates as an address or CIDR and will not accept
+as a hostname; it went away with the proxy it named, when HA started terminating
+its own TLS. It is worth remembering as a *cost* rather than as a live concern —
+it was also the lab's only value with no safety net, failing silently with a
+`400` from HA once stale — because that cost comes back the moment anything is
+put behind a proxy again. Install-time addresses in `proxmox-setup.md` (the
+Proxmox installer wants a static IP typed in) are the remaining irreducible ones.
+Anything else should be a name.
 
-Three DNS facts are counter-intuitive and all are deliberate:
+Two DNS facts are counter-intuitive and both are deliberate:
 
-- **`ha.` points at the infra VM**, not the HA VM, because Traefik
-  terminates TLS there.
-- **Home Assistant therefore has a second name**,
-  `homeassistant.thefipster.de` → the HA VM, which is what Traefik dials on
-  **port 80** (HA's default since 2026.8, when the port also became a UI setting
-  rather than YAML). `ha.` is the
-  **service**, `homeassistant.` is the **machine**; they are not interchangeable,
-  and a backend of `http://ha.thefipster.de` would have Traefik dialling its own
-  web entrypoint and looping. Same service/machine split as
-  `pve.` and `apps.`, which name boxes for internal access.
+- **`ha.` points at the HA VM and is the lab's one deferred record.** Every
+  other row goes in at the DNS step; this one waits for
+  `home-assistant-setup.md`, because it is the only name whose target machine is
+  built last. It is a `pve.`-shaped name — one meaning, the **machine**, serving
+  the UI, the companion app and the Prometheus scrape at once — and it needs an
+  **exact** record for the `pve` reason: the wildcard would answer with the apps
+  VM, whose Coolify proxy replies on 443 with a valid certificate of its own, so
+  the failure is a convincing page from the wrong box rather than an error.
 - **`coolify.` and `apps.` have no exact record at all**, because the wildcard
   already reaches the apps VM — the machine both names want.
 
@@ -129,18 +143,20 @@ Three DNS facts are counter-intuitive and all are deliberate:
 Traefik is the only thing that terminates TLS and does routing on the infra VM.
 A stack becomes reachable by **two things**, not by any central config:
 
-> **Read that first line literally — it says *on the infra VM*.** The Proxmox
-> host terminates its own TLS on its own machine, with its own ACME client and
-> its own **exact** certificate for `pve.thefipster.de` served on 443
-> (`docs/guides/proxmox-setup.md` Part 3). That is the one place a second certificate
-> in the lab is correct rather than a mistake, and it is deliberate on both
-> counts: routing `pve.` through Traefik would make it a *service* name pointing
-> at the infra VM — renaming the machine out from under Alloy's scrape target,
-> the restic repository and the installer's FQDN — and would put the
-> hypervisor's repair surface behind one of its own guests. An **exact** name
-> rather than a wildcard is what keeps its `_acme-challenge` record from racing
-> Traefik's on netcup's non-atomic zone updates. Full reasoning:
-> `dev/specs/2026-08-15-pve-https-and-ups-design.md`.
+> **Read that first line literally — it says *on the infra VM*.** Two machines
+> terminate their own TLS instead, each with its own ACME client and its own
+> **exact** certificate: the Proxmox host for `pve.thefipster.de`
+> (`docs/guides/proxmox-setup.md` Part 3) and the HA VM for `ha.thefipster.de`,
+> via the Let's Encrypt app (`docs/guides/home-assistant-setup.md` step 7).
+> Both are deliberate and for the same reason — routing either name through
+> Traefik makes it a *service* name pointing at the infra VM, which forces a
+> second name for the machine and puts a surface you need during an outage
+> behind one of the lab's own guests. For `pve.` that surface is the hypervisor
+> console; for `ha.` it is the house. **Exact** names rather than wildcards are
+> what keep their `_acme-challenge` records from racing Traefik's on netcup's
+> non-atomic zone updates. Full reasoning:
+> `dev/specs/2026-08-15-pve-https-and-ups-design.md` and
+> `dev/roadmap/done/ha-native-tls.md`.
 
 1. Joining the external `proxy` Docker network (declared `external: true`; created
    once by the init scripts).
@@ -159,18 +175,15 @@ the single wildcard cert configured in `infra/traefik/compose.yaml`. When adding
 new proxied service, copy the label block from `infra/forgejo` or `infra/dockge`
 and change the host + port. Do not add a TLS resolver or domain per router.
 
-**Traefik runs a second provider, and it has exactly one user.** Labels only
-exist where there is a container to put them on, and Home Assistant runs on
-another VM — so Traefik also watches a **file provider** over
-`infra/traefik/dynamic/` (`--providers.file.directory` +
-`--providers.file.watch`, bind-mounted read-only; the repo stays the source of
-truth, same arrangement as Forgejo's `config.yml`). `dynamic/ha.yaml` is its only
-file. Routers declared there are ordinary `websecure` routers, so the
-no-per-router-TLS rule applies to them identically — the entrypoint wildcard
-covers them too. **The label path remains the default:** reach for a file only
-when the backend is not a container on the infra VM. Nothing in
-`scripts/init-traefik.sh` changes for this — the directory lives inside the
-checkout and is mounted, not copied.
+**Labels are Traefik's only provider, and that is a property worth preserving.**
+Traefik also supports a **file provider**, for declaring a router by hand where
+there is no container to hang labels on — and the compose configures none,
+because every service this proxy serves is a container on the infra VM. The two
+lab UIs that are not, `pve.` and `ha.`, terminate their own TLS on their own
+machines and are not proxied at all. **Do not re-add `--providers.file.*` or an
+`infra/traefik/dynamic/` mount** to route something off-box that could instead
+hold its own certificate; a file provider is the mechanism only for a backend
+that genuinely cannot.
 
 ## The SSO convention (Authentik)
 
@@ -192,11 +205,12 @@ Services join it by **one of two patterns**, never both:
 **Four services join neither, deliberately.** Treat every one as a stated
 exception, not a gap to close. The reasoning lives in `sso-applications.md`, and
 each absence is commented in place so someone about to "fix" it reads why first.
-Kuma and Home Assistant have no OIDC, so the convention would point them at
-forward-auth; **Vaultwarden and the Proxmox web UI both have OIDC and decline
-it**, which makes them the exceptions to "anything with native OIDC uses it" —
-one holds the credentials for repairing Authentik, the other is the console for
-repairing the machine Authentik runs on.
+They divide by whether joining was even possible. Kuma has no OIDC, so the
+convention would point it at forward-auth and the answer is about a label it
+does not carry. **Vaultwarden has OIDC and declines it**, the one exception to
+"anything with native OIDC uses it". **Home Assistant and the Proxmox web UI
+are not label decisions at all** — forward-auth is a Traefik middleware and
+Traefik serves neither machine, so there is no router to attach one to.
 
 - **Vaultwarden.** It holds the credentials for repairing Authentik, so a vault
   that dies with the identity provider is the one outage with no way out —
@@ -210,25 +224,29 @@ repairing the machine Authentik runs on.
   an Authentik outage the one failure you cannot see, and break-glass would need
   SSH mid-incident. `infra/uptime-kuma/compose.yaml` carries no `middlewares`
   label.
-- **Home Assistant.** Forward-auth gates a browser login flow, but most traffic
-  to HA is not a browser: the companion mobile app, webhooks and every local API
-  caller authenticate with long-lived tokens against the same endpoints the
-  frontend uses, and there is no clean split that admits them. Gating it breaks
-  notifications, presence and inbound automations. Break-glass would mean editing
-  Traefik config over SSH while the lights do not respond.
-  `infra/traefik/dynamic/ha.yaml` carries no `middlewares` key.
-- **The Proxmox web UI.** The one exception on a machine this repo cannot write
-  to, and the one where **both** patterns are foreclosed. It has a native OIDC
-  realm and declines it: this is the console for repairing the machine Authentik
-  runs on, and an additive realm would leave `root@pam` as the real break-glass
-  anyway, so it buys a moving part and removes nothing. Forward-auth is not
-  available either — the hypervisor terminates its **own** TLS on 443 with its
-  own exact certificate, so there is no Traefik router to label. Its absence is
-  therefore not the same shape as the three above, and it is **not** among the
-  hosts named in the `infra/authentik/compose.yaml` comment below.
+- **Home Assistant.** Structurally out of reach, like the Proxmox UI below: HA
+  terminates its own TLS on its own VM, so there is no Traefik router to gate.
+  The decision the entry still records is why nobody should reintroduce a proxy
+  in order to gate it — forward-auth gates a browser login flow, but most
+  traffic to HA is not a browser. The companion mobile app, webhooks and every
+  local API caller authenticate with long-lived tokens against the same
+  endpoints the frontend uses, and there is no clean split that admits them.
+  Gating it breaks notifications, presence and inbound automations, and
+  break-glass would mean editing proxy config over SSH while the lights do not
+  respond.
+- **The Proxmox web UI.** On a machine this repo cannot write to, and the one
+  where **both** patterns are foreclosed. It has a native OIDC realm and
+  declines it: this is the console for repairing the machine Authentik runs on,
+  and an additive realm would leave `root@pam` as the real break-glass anyway,
+  so it buys a moving part and removes nothing. Forward-auth is not available
+  either — the hypervisor terminates its **own** TLS on 443 with its own exact
+  certificate, so there is no Traefik router to label.
 
 `infra/authentik/compose.yaml` carries **no** `/outpost.goauthentik.io/` router
-for any of the three hosts, with a comment naming all three and why.
+for `vault.` or `uptime.`, with a comment naming both and why — plus a second
+paragraph naming `ha.` and `pve.`, which cannot appear in that list at all
+because Traefik does not serve them. Keep those two groups distinct: the first
+is a choice, the second is a consequence.
 
 Not every SSO knob is clickwork: Forgejo's auto-registration and account
 linking are **instance settings** in the compose
@@ -660,15 +678,16 @@ the single source of truth; Dockge only drives start/stop/logs.
   as a deliberate non-row. Same for `coolify.thefipster.de`. Don't "fix" either by
   adding an exact record: letting them follow the wildcard is what makes an
   apps-VM IP change correct itself everywhere at once.
-- **Home Assistant is scraped differently from everything else** — over HTTPS
-  through Traefik (`ha.thefipster.de:443`, `metrics_path = /api/prometheus`)
-  rather than reached directly, so a broken route surfaces in monitoring instead
-  of being bypassed; and with a credential, via an `authorization` block reading
-  `sys.env("HA_PROMETHEUS_TOKEN")`. Its `job="homeassistant"` carries **entity**
-  metrics (sensor states), *not* machine counters, so it does not and cannot
-  appear on Node Exporter Full. HAOS can't run a node exporter as a systemd unit;
-  HA's **System Monitor** integration is the closest equivalent and feeds the same
-  endpoint.
+- **Home Assistant is scraped differently from everything else** — the only
+  target reached over **HTTPS** (`ha.thefipster.de:443`, `metrics_path =
+  /api/prometheus`) and the only one needing a credential, via an `authorization`
+  block reading `sys.env("HA_PROMETHEUS_TOKEN")`. No `tls_config`: that machine
+  serves a publicly trusted certificate of its own, so the scrape doubles as a
+  slow, independent check on its renewal automation. Its `job="homeassistant"`
+  carries **entity** metrics (sensor states), *not* machine counters, so it does
+  not and cannot appear on Node Exporter Full. HAOS can't run a node exporter as
+  a systemd unit; HA's **System Monitor** integration is the closest equivalent
+  and feeds the same endpoint.
 - **`ServiceDown` is expected red for `apps` and `homeassistant`** on a fresh
   build: monitoring comes up on the infra VM before either machine exists. Left
   live rather than commented out, because `rules.yaml` provisions no contact point

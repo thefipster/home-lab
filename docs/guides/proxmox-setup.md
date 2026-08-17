@@ -8,7 +8,7 @@ Turns the bare server into a hypervisor running three VMs:
 Proxmox VE  ·  pve.thefipster.de          ← this guide
  ├─ VM: infra            → Traefik + Vaultwarden + Authentik + Forgejo + Dockge + monitoring
  ├─ VM: apps             → Coolify + your apps
- └─ VM: home-assistant   → Home Assistant OS (Supervisor + add-ons)
+ └─ VM: home-assistant   → Home Assistant OS (Supervisor + apps)
 ```
 
 Proxmox VE is a Debian-based type-1 hypervisor. Its native workloads are **KVM
@@ -631,11 +631,11 @@ Then add **every** DNS record from the registry
 infra host records; [wildcard-dns-unifi.md](wildcard-dns-unifi.md) is the how-to.
 Add the complete set now: later guides assume the records exist.
 
-**One row waits, and only one:** `homeassistant.thefipster.de` points at the
-third VM, which does not exist until
+**One row waits, and only one:** `ha.thefipster.de` points at the third VM,
+which does not exist until
 [home-assistant-setup.md](home-assistant-setup.md) — that guide creates the VM,
-its reservation and that record together. Note that `ha.thefipster.de` is *not*
-the exception: it points at the infra VM, so add it now like the rest.
+its reservation and that record together. Everything else here points at a
+machine that exists now, so add the rest of the set.
 
 ---
 
@@ -1938,7 +1938,7 @@ Per-VM, the numbers and why:
   apt cache and an OS that grows, on a pool that is 40% empty.
 - **home-assistant 8 GB / 64 GB.** The smallest allocation on the box, and
   deliberately so even with a reserve sitting free. HAOS idles near 2 GB; its
-  spike is ESPHome firmware builds and add-ons, which are CPU- and disk-bound —
+  spike is ESPHome firmware builds and apps, which are CPU- and disk-bound —
   and with ballooning off, memory handed to this VM is pinned out of the host
   whether it is used or not. Its own default disk is 32 GB, and the recorder
   database plus build caches make 64 GB comfortable.

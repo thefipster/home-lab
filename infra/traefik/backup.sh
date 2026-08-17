@@ -8,10 +8,10 @@
 #
 # The smallest backup in the lab, and the one where almost nothing needs
 # backing up — which is the point worth understanding rather than a sign
-# something was missed. Traefik's routing is LABELS on other stacks' containers
-# and files under infra/traefik/dynamic/, all of which are in git. Its
-# entrypoints and the wildcard request are in the compose. None of that can be
-# lost. What cannot be regenerated from this repo is exactly two things.
+# something was missed. Traefik's routing is LABELS on other stacks'
+# containers, which are in git. Its entrypoints and the wildcard request are in
+# the compose. None of that can be lost. What cannot be regenerated from this
+# repo is exactly two things.
 
 set -euo pipefail
 

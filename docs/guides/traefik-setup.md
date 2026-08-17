@@ -5,7 +5,7 @@
 **Prerequisite:** [infra-vm-setup.md](infra-vm-setup.md) complete — the repo
 checked out and Docker running on this VM, with every record from
 [dns-records.md](../reference/dns-records.md) resolving (bar the one deferred
-`homeassistant.` row the registry marks).
+`ha.` row the registry marks).
 
 Traefik is the only thing on the infra VM that terminates TLS and routes
 traffic. It serves every service on a real hostname under **one wildcard
@@ -219,7 +219,6 @@ Traefik and the service should both be listed.
 |------|-------|
 | Compose project (this repo) | `infra/traefik/` |
 | Credentials | `infra/traefik/.env` — gitignored, VM-only |
-| Dynamic routers (this repo) | `infra/traefik/dynamic/` — mounted read-only; watched, so edits apply without a restart |
 | ACME account + certificates | `/opt/traefik/letsencrypt/acme.json` |
 | Shared network | the external Docker network `proxy` |
 
@@ -250,16 +249,17 @@ automatically. When adding a service, copy the label block from
 `infra/forgejo` or `infra/dockge` and change the host and port — **never** add
 a TLS resolver or domain per router.
 
-**Two providers, and the second one is the exception.** Almost everything is
-routed by **labels**: a stack joins the `proxy` network and Traefik reads its
-`traefik.*` labels off the Docker API. That stays the default for anything
-running on this VM. But labels only exist where there is a container to put them
-on, and Home Assistant runs on its **own VM** — so Traefik also runs a **file
-provider** over `infra/traefik/dynamic/`, mounted read-only and watched, where a
-router can be declared by hand. `ha.yaml` is currently its only file. Routers
-declared there are ordinary `websecure` routers: the entrypoint wildcard covers
-them, so the no-per-router-TLS rule applies to them identically. Reach for a
-file only when the backend is not a container on this machine.
+**One provider, and no file anywhere.** Everything is routed by **labels**: a
+stack joins the `proxy` network and Traefik reads its `traefik.*` labels off the
+Docker API. Traefik also supports a **file provider**, for declaring a router by
+hand when there is no container to hang labels on — and this lab configures none,
+because it has nothing to put in one. Every service this proxy serves runs as a
+container on this VM. The two lab UIs that do not, the **Proxmox web UI** and
+**Home Assistant**, each terminate their own TLS on their own machine
+([proxmox-setup.md](proxmox-setup.md#give-the-host-a-real-certificate),
+[home-assistant-setup.md](home-assistant-setup.md#7-give-it-its-own-certificate)),
+so neither is proxied from here at all. If a future backend is off-box and cannot
+do that, a file is the mechanism to reach for — not before.
 
 **No apex SAN, deliberately.** Apex + wildcard would need two TXT records at
 the same `_acme-challenge` FQDN, and netcup's non-atomic zone updates race on
