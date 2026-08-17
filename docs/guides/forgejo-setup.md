@@ -245,11 +245,12 @@ docker pull git.thefipster.de/<owner>/<repo>/web:1.2
 **Nothing in the registry expires on its own.** Every version stays until a rule
 removes it, and the blobs sit in the same bind mount the nightly backup
 snapshots — so an unbounded registry is an unbounded restic repository, not just
-a full disk. Two rules keep it bounded, one per registry in use. They are
-**owner-scoped**: set once on the account, covering every repository under it.
+a full disk. Two rules keep it bounded — one for the container registry, one
+for the generic one. Both are **owner-scoped**: set once on the account, and
+they cover every repository under it.
 
 Go to **Settings → Packages → Cleanup Rules → Add cleanup rule** and add both.
-The exact field values, and why each one is what it is, are in the registry:
+The exact field values, and why each one is what it is, live in
 [package-cleanup-rules.md](../reference/package-cleanup-rules.md).
 
 Before saving either rule, use its **preview**. It lists exactly the versions

@@ -146,6 +146,7 @@ kinds are listed — the same rule the other registries follow.
   [timetable.md](timetable.md#the-night-window). There is no timer
   in this repo to add and none to break.
 - **No Uptime Kuma monitor.** A cleanup that silently stops running shows up as
-  a registry that grows, and the disk it grows on is already watched by the
-  hypervisor's pool-capacity metric. A push monitor would need something to
-  push it, and Forgejo's cron cannot.
+  a registry that grows, and that growth is already visible twice — in the infra
+  VM's own filesystem metrics from Alloy's node exporter, and in the
+  hypervisor's pool capacity. A push monitor would need something to push it,
+  and a cron inside Forgejo cannot be made to.
