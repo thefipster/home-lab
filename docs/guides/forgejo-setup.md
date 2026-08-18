@@ -138,12 +138,16 @@ new one). Local username/password login still works.
 1. **+ (top right) → New Migration → GitHub**.
 2. Enter the repo URL. For a private repo, supply a GitHub personal access
    token (read-only on the repo is enough).
-3. **Check "This repository will be a mirror"** and set an interval (e.g.
-   10m).
+3. **Check "This repository will be a mirror"** and set an interval — `8h` is
+   what the lab uses.
 4. Create. Forgejo clones it and re-pulls on that interval.
 
-> A pull mirror updates Git data but does **not** fire `push` events. Builds
-> are therefore manual — see [step 8](#8-run-a-dev-build-and-verify-the-image).
+> **A long interval costs nothing here, and that is a consequence of the build
+> being manual.** A release run POSTs the mirror sync itself and waits for the
+> tags it was given ([step 8](#8-cut-a-release-and-verify-the-image)), so it
+> never depends on the schedule having caught up. A short interval would only
+> pay off if something built each tag as it arrived, and nothing does — a pull
+> mirror updates Git data without firing `push` events.
 
 ### 7. Add the pipeline to your repo
 
@@ -153,17 +157,15 @@ one actually running, and there is nothing here that could keep the two honest.
 What this guide owns is the runner, the registry and the tokens the workflows
 authenticate with.
 
-The Forgejo copy of your app repo is a read-only mirror, so the workflow files
-are committed to **GitHub** and mirror in, at `.forgejo/workflows/`. Two of
-them, doing different jobs:
+The Forgejo copy of your app repo is a read-only mirror, so the workflow file is
+committed to **GitHub** and mirrors in, at `.forgejo/workflows/`:
 
-| Workflow | Builds | Tags images |
+| Workflow | Builds | Publishes |
 |---|---|---|
-| the **dev** builder | whatever the mirror last synced | by commit SHA |
-| the **release** builder | a `<component>-v<semver>` git tag you name | `latest`, `1.2.3`, `1.2`, `1` |
+| the **release** builder | the `<component>-v<semver>` git tags you name | images tagged `1.2.3`, `1.2`, `1` and `latest`; firmware and archives to the generic registry |
 
-Both are `workflow_dispatch`-only — see [CI is manual-only](#how-it-works) — and
-both carry one job per toolchain, because `container:` is a per-job setting and
+It is `workflow_dispatch`-only — see [CI is manual-only](#how-it-works) — and it
+carries one job per toolchain, because `container:` is a per-job setting and
 .NET, PlatformIO and Node cannot share one.
 
 Then create **two access tokens** under the Forgejo account at **Settings →
@@ -172,8 +174,8 @@ repo's **Settings → Actions → Secrets**:
 
 | Secret | Scope | Used by |
 |---|---|---|
-| `REGISTRY_TOKEN` | `write:package` | both workflows, for the container **and** generic registries |
-| `REPOSITORY_TOKEN` | `write:repository` | the release builder only, to trigger the mirror sync |
+| `REGISTRY_TOKEN` | `write:package` | every build job, for the container **and** generic registries |
+| `REPOSITORY_TOKEN` | `write:repository` | the first job only, to trigger the mirror sync |
 
 One scope covers both registries, so the non-Docker jobs need no token of their
 own. Keep the two separate: `REGISTRY_TOKEN` is handed to third-party actions
@@ -188,27 +190,7 @@ own. Keep the two separate: `REGISTRY_TOKEN` is handed to third-party actions
 Push, then wait for the mirror interval (or **Settings → Mirror Settings →
 Synchronize Now** in Forgejo).
 
-### 8. Run a dev build and verify the image
-
-In the repo's **Actions** tab → **Build and Push (manual)** → **Run workflow**.
-Each job has a tick-box, all on by default; every run checks out the mirrored
-HEAD, logs into the registry, builds and pushes. The runner is `capacity: 1`, so
-the jobs you leave ticked run one after another.
-
-Then check the image landed: the owner's **Packages** tab should list a
-container package — named `<repo>/blazor` by the workflow's tag list — with
-`latest` and a SHA tag. Or pull it from any LAN machine with no daemon
-configuration at all:
-
-```bash
-docker login git.thefipster.de
-```
-
-```bash
-docker pull git.thefipster.de/<owner>/<repo>/blazor:latest
-```
-
-### 9. Cut a release
+### 8. Cut a release and verify the image
 
 A release is a git **tag**, and the tag prefix picks the build recipe. Tag on
 **GitHub** — the Forgejo copy is a read-only mirror — using
@@ -230,12 +212,22 @@ minutes rather than silently building something older.
 
 **Verify** in the owner's **Packages** tab:
 
-- `<repo>/blazor` carries four tags — `latest`, `1.2.3`, `1.2` and `1`
+- `<repo>/web` carries four tags — `latest`, `1.2.3`, `1.2` and `1`. The
+  `blazor-` prefix builds an image named `web`; that is the name the deployment
+  pulls, and the prefix is not the image name.
 - `verdure-atmos` has two versions — `0.4.1` and `latest`, each holding the
   `.bin` files
 
+Then pull it from any LAN machine, with **zero** Docker daemon configuration —
+no `insecure-registries`, no CA to distribute, because Traefik serves the
+registry under the real wildcard certificate:
+
 ```bash
-docker pull git.thefipster.de/<owner>/<repo>/blazor:1.2
+docker login git.thefipster.de
+```
+
+```bash
+docker pull git.thefipster.de/<owner>/<repo>/web:1.2
 ```
 
 > The rolling tags assume you are releasing the newest version. Re-dispatching
@@ -243,18 +235,47 @@ docker pull git.thefipster.de/<owner>/<repo>/blazor:1.2
 > there is no guard against it, because a hand-cut release is always the newest
 > one.
 
+> **A prerelease moves nothing.** `blazor-v1.2.3-rc1` publishes `1.2.3-rc1` and
+> leaves `latest`, `1.2` and `1` where they were — handing a release candidate
+> to everything tracking a rolling tag is exactly what the `-rc` suffix exists
+> to prevent.
+
+### 9. Set the registry cleanup rules
+
+**Nothing in the registry expires on its own.** Every version stays until a rule
+removes it, and the blobs sit in the same bind mount the nightly backup
+snapshots — so an unbounded registry is an unbounded restic repository, not just
+a full disk. Two rules keep it bounded — one for the container registry, one
+for the generic one. Both are **owner-scoped**: set once on the account, and
+they cover every repository under it.
+
+Go to **Settings → Packages → Cleanup Rules → Add cleanup rule** and add both.
+The exact field values, and why each one is what it is, live in
+[package-cleanup-rules.md](../reference/package-cleanup-rules.md).
+
+Before saving either rule, use its **preview**. It lists exactly the versions
+that rule would delete right now — the one way to find out whether a pattern
+reaches something still being pulled *before* the next midnight rather than
+after it.
+
+**Verify:** both rules appear in the list marked enabled, and each preview shows
+nothing you did not intend to lose. On a lab whose registry holds less than ten
+versions per package, both previews are empty, and that is the expected result:
+these are a policy set ahead of the growth, not a cleanup of it.
+
 ### Checklist
 
 - [ ] `https://git.thefipster.de` serves the UI on the wildcard certificate
 - [ ] The runner shows **Idle / online** with the `docker` label
 - [ ] **Sign in with authentik** lands in the existing admin account
 - [ ] Local password login still works (break-glass)
-- [ ] A manual workflow run completes and pushes an image
 - [ ] A release dispatch publishes an image tagged `latest`, `X.Y.Z`, `X.Y` and `X`
 - [ ] The release run's mirror sync succeeds (a `write:repository` token, not
       the registry one)
 - [ ] `docker login git.thefipster.de` succeeds from a machine with **zero**
       Docker daemon configuration
+- [ ] Both cleanup rules exist and are enabled, and neither preview lists a
+      version you meant to keep
 
 ## Next
 
@@ -326,8 +347,14 @@ Mirror Settings** in Forgejo. A 403 from the sync step itself means
 `REPOSITORY_TOKEN` lacks `write:repository`.
 
 **A generic package upload returns 409.** A PUT over an existing filename
-conflicts. Both workflows delete before uploading, so a 409 means the *delete*
-failed — almost always a `REGISTRY_TOKEN` without `write:package`.
+conflicts. The publish steps delete before uploading, so a 409 means the
+*delete* failed — almost always a `REGISTRY_TOKEN` without `write:package`.
+
+**A version you expected is missing from the Packages tab.** Check the cleanup
+rules before the workflow: they run at midnight and delete without asking, and
+a pattern reaches every package of its type. Each rule's **preview** shows what
+it would remove right now — [package-cleanup-rules.md](../reference/package-cleanup-rules.md)
+records what the two rules are meant to protect.
 
 **SSO signs you into a *new* account instead of the admin.** The emails don't
 match. Account linking matches by email only — fix the address on either side
@@ -401,16 +428,19 @@ in the compose file, and it does.
 **CI is manual-only, on purpose.** GitHub is primary and Forgejo pull-mirrors
 it. Mirrors update Git data without firing `push` events, and the lab is
 LAN-only so GitHub cannot call in either — no event-driven design is possible.
-Both workflows are therefore `workflow_dispatch`-only, and they split the work:
+The release builder is therefore `workflow_dispatch`-only. It takes the release
+tags as its input, POSTs `mirror-sync` itself, and waits for exactly those refs
+before building. A dispatched run can therefore check out a tag that did not
+exist when it started: the dispatch pins only *which workflow file* runs, not
+what it fetches — which is also why the mirror's own interval can be long
+without slowing a release down.
 
-- The **dev builder** rebuilds the mirrored HEAD and tags by commit SHA. There
-  is no change detection — a run with no new commits simply rebuilds the same
-  code, so trigger it when something changed.
-- The **release builder** takes the release tags as its input, POSTs
-  `mirror-sync` itself, and waits for exactly those refs before building. A
-  dispatched run can therefore check out a tag that did not exist when it
-  started: the dispatch pins only *which workflow file* runs, not what it
-  fetches.
+**A second workflow used to build the mirrored HEAD on demand and tag by commit
+SHA; it is gone.** Every image in the registry now comes from a named release
+tag, which is what lets the cleanup rules in
+[package-cleanup-rules.md](../reference/package-cleanup-rules.md) be written
+against `X.Y.Z` and the rolling tags alone. Nothing here produces a
+SHA-tagged image, so nothing accumulates one per commit.
 
 Two scheduled jobs were designed for this and both were **rejected**. A
 *reconciler* — cron, list the tags, ask the registry what is already built,
@@ -434,17 +464,22 @@ current. What stays on this side is the runner (`infra/forgejo/config.yml`), the
 registry, and the tokens above.
 
 **What that build does leave on this side.** Supply-chain work landed in those
-workflows ([roadmap/ci-supply-chain.md](../../dev/roadmap/done/ci-supply-chain.md)), and two of
-its effects are visible from this machine rather than from the YAML. Every image
-is now pushed with
-an **SBOM attestation stored beside it** in the registry, so a tag now costs
-more disk than the image alone — which is what makes the registry cleanup rules
-([roadmap/registry-hygiene.md](../../dev/roadmap/registry-hygiene.md)) worth
-doing before the 40 GB fills. And a **Trivy scan runs
-after the build and before the push**, failing the run on a `CRITICAL` finding:
-a run that goes red having built nothing new is the expected shape of that, not
-a broken runner. Neither needs a token, a runner label or a change to this
-stack.
+workflows ([roadmap/ci-supply-chain.md](../../dev/roadmap/done/ci-supply-chain.md)),
+and its effects are visible from this machine rather than from the YAML. A
+**Trivy scan runs after the build and before the push**, failing the run on a
+`CRITICAL` or `HIGH` finding **that has a fix available** — unfixable ones are
+reported, not blocking, because a release that cannot be unblocked only teaches
+people to bypass the gate. A run that goes red having built nothing new is the
+expected shape of that, not a broken runner.
+
+The scan also writes an **SBOM**, and where it lands matters for the disk on
+this machine: it is a **run artifact** with a 30-day retention, not an
+attestation in the registry. The build loads the image into the local daemon so
+it can be scanned before anything is pushed, and that path cannot carry
+attestations — so a pushed tag costs exactly its own layers, and the SBOM
+expires on its own without a cleanup rule ever seeing it. What does need
+bounding is the tags themselves: [step 9](#9-set-the-registry-cleanup-rules).
+None of this needs a token, a runner label or a change to this stack.
 
 **`/metrics` is open on the LAN.** `FORGEJO__metrics__ENABLED` serves metrics
 on port 3000 — the same port Traefik publishes — so

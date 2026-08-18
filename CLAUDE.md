@@ -64,9 +64,9 @@ read to build the lab, and `dev/` holds why it looks the way it does:
   merely a record of what is required. App definitions live in Coolify's
   database, not this repo; the
   third-party compose files live in a Forgejo repo, so the catalog records what
-  runs and why, never how. The **catalog** deliberately adds no rows to the three
-  `docs/` registries — those cover infra VM services, whose implementation is
-  clickwork with no other home. The **collector** is the one thing on this
+  runs and why, never how. The **catalog** deliberately adds no rows to the
+  per-service `docs/` registries (DNS, SSO, Kuma) — those cover infra VM
+  services, whose implementation is clickwork with no other home. The **collector** is the one thing on this
   machine that does: an exact `loki.` DNS row, plus a stated non-row in each of
   the other two.
 - **home-assistant VM** — Home Assistant OS, Supervisor included, so apps
@@ -705,7 +705,9 @@ the single source of truth; Dockge only drives start/stop/logs.
 - **CI is manual-only, and the lab runs no CI schedule at all.** GitHub is
   primary and Forgejo pull-mirrors it, so `on: push` does not fire; the lab is
   LAN-only, so GitHub cannot call in either. Nothing event-driven is possible in
-  either direction, and both workflows are `workflow_dispatch`-only. Two
+  either direction, and the release workflow — the only one left, since the
+  on-demand dev builder was deleted from the app repo — is
+  `workflow_dispatch`-only. Two
   scheduled jobs were designed and **both rejected**: a *reconciler* (cron +
   registry-as-ledger + a rolling-tag guard), because all of it reconciles drift
   and dispatching by hand right after tagging means drift never accumulates
@@ -716,8 +718,17 @@ the single source of truth; Dockge only drives start/stop/logs.
   either; `docs/reference/timetable.md` records the absence as a decision.
 - **The runner is `capacity: 1`.** Jobs run one after another, so anything that
   makes a run wider makes it longer. That is a real constraint on what to
-  suggest — it is why the dev builder gates each job behind a tick-box, and why
-  a build that could compile the same thing twice is worth restructuring.
+  suggest — it is why the release workflow plans its matrix from the tags it was
+  given rather than building every component every time, and why a build that
+  could compile the same thing twice is worth restructuring.
+- **Nothing in the package registry expires by itself.** Two owner-scoped
+  cleanup rules bound it, and they are **count-based with no age term**:
+  `docs/reference/package-cleanup-rules.md` holds the exact values. Forgejo
+  evaluates *keep the most recent* before the age check and ignores dates while
+  doing it, so an idle registry cannot expire itself empty — and blanking the
+  age field makes a rule stricter, not looser, because that field only ever
+  protects. Read that registry before changing a pattern; a rule reaches every
+  package of its type, and it deletes at midnight without asking.
 - **Build output lands in two registries, and neither needs anything on the infra
   VM.** Images go to the container registry; binaries and archives go to the
   **generic package registry** (`/api/packages/{owner}/generic/…` — permanent,
@@ -789,10 +800,17 @@ The **registries** in `docs/reference/` centralize the manual operations that
 live outside the repo: `dns-records.md` (every DNS record on the router),
 `sso-applications.md` (every Authentik
 application and its exact config values), `uptime-kuma-monitors.md` (every
-Kuma monitor, grouped by stack) and `timetable.md` (everything that runs on a
-clock). Guides link the registries instead of duplicating
+Kuma monitor, grouped by stack), `timetable.md` (everything that runs on a
+clock) and `package-cleanup-rules.md` (what expires in the Forgejo package
+registry, and what is protected from expiring). Guides link the registries
+instead of duplicating
 the lists — a new hostname, SSO app or monitor gets its registry row first, and
 per-service values should never be repeated inline in a guide.
+
+**Not every registry is per-service, and only the per-service ones ask a
+question of every new stack.** DNS, SSO and Kuma do: a stack gets a row or a
+stated non-row in each. `timetable.md` and `package-cleanup-rules.md` describe
+one clock and one server's housekeeping, so most stacks touch neither.
 
 Every one carries `**Runs on:** … — registry, not a build step`, and every one lists
 their **deliberate absences** alongside their entries, because a registry that
@@ -803,7 +821,7 @@ hypervisor. When adding a service, decide about all three and say so in each.
 
 **Every guide follows the same structure**, in this order: headline; a
 `**Runs on:** <machine>` line naming the machine whose shell you are in (the
-three registries say `— registry, not a build step` instead, because they
+registries say `— registry, not a build step` instead, because they
 describe manual operations that span machines);
 one-line prerequisite linking the previous guide (never a restatement of it);
 short explanation of the stack; numbered steps with verification, **each
